@@ -1,0 +1,15 @@
+// Add this to frontend/package.json dependencies:
+"@stripe/stripe-js": "^2.0.0"
+
+// Then run:
+// npm install @stripe/stripe-js
+
+
+
+
+
+
+
+
+
+
