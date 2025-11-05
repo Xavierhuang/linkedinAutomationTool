@@ -62,10 +62,10 @@ class Campaign(BaseModel):
     text_model: Optional[str] = "openai/gpt-4o-mini"  # Model to use for text generation
     
     # Image Generation Settings
-    include_images: bool = False  # Whether to generate images with posts
-    use_ai_images: bool = False  # Whether to use AI generation (default: stock photos)
+    include_images: bool = True  # Whether to generate images with posts
+    use_ai_images: bool = True  # Prefer AI-generated images by default; stock is optional
     image_style: Optional[str] = "professional"  # Style for image generation
-    image_model: Optional[str] = "openai/dall-e-3"  # AI model to use for image generation (only if use_ai_images=True)
+    image_model: Optional[str] = "google/gemini-2.5-flash-image"  # Default AI image model
     
     # LinkedIn Publishing Settings
     profile_type: Optional[str] = "personal"  # personal or company

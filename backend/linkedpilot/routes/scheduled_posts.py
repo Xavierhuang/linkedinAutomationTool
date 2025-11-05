@@ -42,8 +42,10 @@ async def list_scheduled_posts(
     
     # Exclude cancelled posts by default (for calendar view)
     # Include them when explicitly requested (for posts view)
+    # But always include posted posts so they remain visible in calendar
     if not include_cancelled:
-        query["status"] = {"$ne": PostStatus.CANCELLED.value}
+        query["status"] = {"$nin": [PostStatus.CANCELLED.value, "deleted"]}
+    # Note: We don't exclude "posted" status - posted posts should remain visible
     
     # Add date range filter
     if range_start and range_end:

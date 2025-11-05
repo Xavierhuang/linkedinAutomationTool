@@ -223,179 +223,207 @@ async def generate_content_for_active_campaigns():
                         try:
                             print(f"   [IMAGE] Generating image...")
                             
-                            # Check if campaign wants AI images or stock photos (default: stock)
                             post_content = result.get('content', '')
-                            use_ai_images = campaign.get('use_ai_images', False)  # Default to stock photos
-                            use_stock = not use_ai_images  # Use stock unless AI is explicitly enabled
                             
-                            # Get campaign's preferred AI image model (only used if use_ai_images=True)
-                            image_model_raw = campaign.get('image_model', 'openai/dall-e-3')
-                            print(f"   [IMAGE] Mode: {'AI Generation' if use_ai_images else 'Stock Photos (default)'}")
-                            if use_ai_images:
-                                print(f"   [IMAGE MODEL] AI model: {image_model_raw}")
+                            # Check campaign's image mode setting
+                            use_ai_images = campaign.get('use_ai_images', True)  # Default to AI images
+                            image_model_raw = campaign.get('image_model', 'google/gemini-2.5-flash-image')
                             
-                            if use_stock:
-                                # Try to fetch stock image
-                                try:
-                                    print(f"   [STOCK IMAGE] Trying stock photos first...")
-                                    from linkedpilot.utils.stock_image_fetcher import StockImageFetcher, extract_image_keywords_ai
-                                    
-                                    # Get stock image API keys from SYSTEM settings (admin-managed)
-                                    system_settings = await db.system_settings.find_one({"_id": "api_keys"})
-                                    
-                                    # Decrypt using ENCRYPTION_KEY from .env (same as admin.py)
-                                    def decrypt_system_key(encrypted_value):
-                                        try:
-                                            ENCRYPTION_KEY = os.environ.get('ENCRYPTION_KEY', '')
-                                            if not ENCRYPTION_KEY:
-                                                return None
-                                            cipher_suite = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
-                                            return cipher_suite.decrypt(encrypted_value.encode()).decode()
-                                        except:
-                                            return None
-                                    
-                                    unsplash_key = None
-                                    pexels_key = None
-                                    if system_settings and system_settings.get('unsplash_access_key'):
-                                        unsplash_key = decrypt_system_key(system_settings['unsplash_access_key'])
-                                    if system_settings and system_settings.get('pexels_api_key'):
-                                        pexels_key = decrypt_system_key(system_settings['pexels_api_key'])
-                                    
-                                    # Get OpenAI key for AI-powered keyword extraction from SYSTEM settings
-                                    openai_key = None
-                                    if system_settings and system_settings.get('openai_api_key'):
-                                        openai_key = decrypt_system_key(system_settings['openai_api_key'])
-                                    
-                                    # Use campaign name as the topic for better image search
-                                    campaign_topic = campaign.get('name', '')
-                                    keywords = await extract_image_keywords_ai(post_content, campaign_topic, openai_key)
-                                    print(f"   [STOCK IMAGE] Campaign topic: {campaign_topic}")
-                                    print(f"   [STOCK IMAGE] Search keywords: {keywords}")
-                                    
-                                    fetcher = StockImageFetcher(unsplash_key=unsplash_key, pexels_key=pexels_key)
-                                    stock_result = await fetcher.fetch_image(keywords, orientation="landscape")
-                                    
-                                    if stock_result and stock_result.get('url'):
-                                        image_url = stock_result['url']
-                                        print(f"   [STOCK IMAGE] ✓ Found from {stock_result['source']}")
-                                        print(f"   [STOCK IMAGE] Photographer: {stock_result['photographer']}")
-                                    else:
-                                        print(f"   [STOCK IMAGE] No results, falling back to AI generation...")
-                                        use_stock = False
-                                except Exception as stock_error:
-                                    print(f"   [STOCK IMAGE] Failed: {stock_error}, falling back to AI...")
-                                    use_stock = False
+                            print(f"   [IMAGE] Campaign image mode: {'AI Generation' if use_ai_images else 'Stock Photos'}")
+                            print(f"   [IMAGE] Campaign image_model setting: {image_model_raw}")
                             
-                            # If stock images didn't work or user chose AI, use AI generation
-                            if not use_stock or not image_url:
-                                print(f"   [IMAGE] Using AI image generation...")
-                                
-                                # Extract just model name if in "provider/model" format
-                                image_model = image_model_raw.split('/')[-1] if '/' in image_model_raw else image_model_raw
-                                
-                                # Use AI to analyze post and create unique visual metaphor
-                                
-                                print(f"   [IMAGE] Step 1/3: Analyzing post content...")
-                                print(f"   [IMAGE] Post preview: {post_content[:100]}...")
-                                
-                                # Get OpenAI API key for prompt optimization
-                                openai_key = None
-                                if settings.get('openai_api_key'):
-                                    openai_key = decrypt_api_key(settings['openai_api_key'])
+                            # Get default image model from admin settings (for fallback)
+                            from linkedpilot.routes.drafts import get_default_model_setting, parse_model_setting
+                            default_image_setting = await get_default_model_setting('image_draft_image')
+                            default_img_provider, default_img_model = parse_model_setting(default_image_setting)
                             
-                            if openai_key:
+                            print(f"   [IMAGE] Default fallback model: {default_img_provider}:{default_img_model}")
+                            
+                            from linkedpilot.routes.drafts import get_system_api_key
+                            
+                            # Prepare enhanced prompt for AI image generation
+                            print(f"   [IMAGE] Step 1/3: Analyzing post content...")
+                            print(f"   [IMAGE] Post preview: {post_content[:100]}...")
+                            
+                            # Get OpenAI API key for prompt optimization
+                            system_openai_key, _ = await get_system_api_key("openai")
+                            image_prompt = post_content  # Default fallback
+                            
+                            if system_openai_key:
                                 try:
                                     print(f"   [IMAGE] Step 2/3: AI creating custom visual metaphor...")
                                     from linkedpilot.utils.ai_image_prompt_optimizer import generate_optimized_image_prompt
                                     
                                     ai_analysis = await generate_optimized_image_prompt(
                                         post_content=post_content,
-                                        ai_api_key=openai_key,
+                                        ai_api_key=system_openai_key,
                                         ai_model="gpt-4o"
                                     )
                                     
                                     image_prompt = ai_analysis['optimized_prompt']
                                     print(f"   [IMAGE] Visual concept: {ai_analysis.get('visual_concept', 'N/A')}")
                                     print(f"   [IMAGE] Metaphor: {ai_analysis.get('metaphor_description', 'N/A')[:80]}...")
-                                    print(f"   [IMAGE] Step 3/3: Generating image with optimized prompt...")
                                 except Exception as ai_error:
-                                    print(f"   [WARNING] AI prompt optimization failed, using fallback: {ai_error}")
-                                    # Fallback to simple prompt
+                                    print(f"   [WARNING] AI optimization failed: {ai_error}, using simple prompt")
                                     image_prompt = f"""PROFESSIONAL PHOTOGRAPH - PHOTOREALISTIC. Shot on DSLR, 35mm, f/1.8. 
 Cinematic photo representing: {post_content[:150]}. Natural setting, dramatic lighting, shallow depth of field. 
 National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".replace('\n', ' ')
                             else:
-                                print(f"   [IMAGE] No OpenAI key, using simple prompt")
+                                print(f"   [IMAGE] No OpenAI key available, using simple prompt")
                                 image_prompt = f"""PROFESSIONAL PHOTOGRAPH - PHOTOREALISTIC. Shot on DSLR, 35mm, f/1.8. 
 Cinematic photo representing: {post_content[:150]}. Natural setting, dramatic lighting, shallow depth of field. 
 National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".replace('\n', ' ')
                             
-                            # Determine provider from model name (use raw model name with provider prefix)
-                            image_provider = 'openai'  # Default
-                            image_api_key = None
+                            print(f"   [IMAGE] Step 3/3: Generating image with optimized prompt...")
                             
-                            if 'dall-e' in image_model_raw or 'openai' in image_model_raw:
-                                # OpenAI DALL-E
-                                if settings.get('openai_api_key'):
-                                    image_api_key = decrypt_api_key(settings['openai_api_key'])
-                                    image_provider = 'openai'
-                            elif 'stable-diffusion' in image_model_raw or 'stability' in image_model_raw:
-                                # Stability AI
-                                if settings.get('stability_api_key'):
-                                    image_api_key = decrypt_api_key(settings['stability_api_key'])
-                                    image_provider = 'stability'
-                                elif settings.get('openai_api_key'):  # Fallback to OpenAI
-                                    image_api_key = decrypt_api_key(settings['openai_api_key'])
-                                    image_provider = 'openai'
-                                    image_model = 'dall-e-2'  # Use OpenAI model
-                            elif 'gemini' in image_model_raw or 'imagen' in image_model_raw or 'google' in image_model_raw:
-                                # Google Gemini/Imagen
-                                if settings.get('google_ai_api_key'):
-                                    image_api_key = decrypt_api_key(settings['google_ai_api_key'])
-                                    image_provider = 'gemini'
-                                elif settings.get('openai_api_key'):  # Fallback to OpenAI
-                                    image_api_key = decrypt_api_key(settings['openai_api_key'])
-                                    image_provider = 'openai'
-                                    image_model = 'dall-e-2'  # Use OpenAI model
-                            elif 'flux' in image_model_raw or 'black-forest' in image_model_raw:
-                                # Flux models (typically via OpenRouter)
-                                if settings.get('openrouter_api_key'):
-                                    image_api_key = decrypt_api_key(settings['openrouter_api_key'])
-                                    image_provider = 'openrouter'
-                                elif settings.get('openai_api_key'):  # Fallback to OpenAI
-                                    image_api_key = decrypt_api_key(settings['openai_api_key'])
-                                    image_provider = 'openai'
-                                    image_model = 'dall-e-2'  # Use OpenAI model
+                            # Respect campaign's use_ai_images setting
+                            if use_ai_images:
+                                # AI Image Generation Mode - use same logic as create page
+                                print(f"   [IMAGE] Mode: AI Generation (using same logic as create page)")
+                                
+                                # Use same logic as create page: get default from admin settings
+                                from linkedpilot.routes.drafts import get_default_model_setting, parse_model_setting
+                                default_image_setting = await get_default_model_setting('image_draft_image')
+                                default_img_provider, default_img_model = parse_model_setting(default_image_setting)
+                                
+                                # Use campaign's image_model if set, otherwise use admin default
+                                image_model_to_use = image_model_raw if image_model_raw else default_img_model
+                                
+                                print(f"   [IMAGE] Admin default: {default_img_provider}/{default_img_model}")
+                                print(f"   [IMAGE] Campaign setting: {image_model_raw}")
+                                print(f"   [IMAGE] Using: {image_model_to_use}")
+                                
+                                # Try admin default first (same as create page)
+                                try:
+                                    system_api_key, provider = await get_system_api_key(default_img_provider)
+                                    
+                                    if not system_api_key:
+                                        system_api_key, provider = await get_system_api_key("google_ai_studio")
+                                        if system_api_key:
+                                            default_img_provider = "google_ai_studio"
+                                            default_img_model = "gemini-2.5-flash-image"
+                                    
+                                    if system_api_key:
+                                        print(f"   [IMAGE] Creating ImageAdapter with:")
+                                        print(f"      Provider: {default_img_provider}")
+                                        print(f"      Model: {default_img_model}")
+                                        print(f"      API Key: {system_api_key[:8]}...{system_api_key[-4:]}")
+                                        
+                                        image_adapter = ImageAdapter(
+                                            api_key=system_api_key,
+                                            provider=default_img_provider,
+                                            model=default_img_model
+                                        )
+                                        
+                                        # Verify adapter was initialized correctly
+                                        print(f"   [IMAGE] ImageAdapter initialized:")
+                                        print(f"      Provider: {image_adapter.provider}")
+                                        print(f"      Model: {image_adapter.model}")
+                                        print(f"      Base URL: {image_adapter.base_url}")
+                                        
+                                        if image_adapter.provider == "openai":
+                                            raise Exception("ImageAdapter provider is 'openai' - DALL-E is deprecated!")
+                                        
+                                        image_result = await image_adapter.generate_image(
+                                            prompt=image_prompt,
+                                            style=campaign.get('image_style', 'professional')
+                                        )
+                                        
+                                        # Check for URL first (ImageAdapter usually provides this as data URL)
+                                        if image_result and 'url' in image_result and image_result['url']:
+                                            image_url = image_result['url']
+                                            print(f"   [IMAGE] ✓ Generated successfully with {default_img_model}!")
+                                            print(f"   [IMAGE] Image URL length: {len(image_url)}")
+                                        # Fallback to base64 if URL is missing or empty
+                                        elif image_result and 'image_base64' in image_result and image_result['image_base64']:
+                                            # Handle base64 images by creating a data URL
+                                            image_url = f"data:image/png;base64,{image_result['image_base64']}"
+                                            print(f"   [IMAGE] ✓ Generated successfully with {default_img_model} (base64 fallback)!")
+                                            print(f"   [IMAGE] Base64 image length: {len(image_result['image_base64'])}")
+                                        else:
+                                            print(f"   [IMAGE] {default_img_model} failed, trying Google AI Studio fallback...")
+                                            # Fallback to Google AI Studio (same as create page)
+                                            system_api_key, _ = await get_system_api_key("google_ai_studio")
+                                            if system_api_key:
+                                                image_adapter = ImageAdapter(
+                                                    api_key=system_api_key,
+                                                    provider="google_ai_studio",
+                                                    model="gemini-2.5-flash-image"
+                                                )
+                                                image_result = await image_adapter.generate_image(
+                                                    prompt=image_prompt,
+                                                    style=campaign.get('image_style', 'professional')
+                                                )
+                                                if image_result and 'url' in image_result and image_result['url']:
+                                                    image_url = image_result['url']
+                                                elif image_result and 'image_base64' in image_result and image_result['image_base64']:
+                                                    image_url = f"data:image/png;base64,{image_result['image_base64']}"
+                                    else:
+                                        print(f"   [IMAGE] No API key available, skipping AI image generation")
+                                except Exception as ai_error:
+                                    print(f"   [IMAGE] AI generation failed: {ai_error}, no image generated")
+                                    import traceback
+                                    print(f"   [IMAGE] Error traceback:")
+                                    traceback.print_exc()
+                                    # Explicitly do NOT fall back to DALL-E or stock photos
+                                    print(f"   [IMAGE] No fallback - campaign requires AI images")
                             else:
-                                # Default to OpenAI if no match
-                                if settings.get('openai_api_key'):
-                                    image_api_key = decrypt_api_key(settings['openai_api_key'])
-                                    image_provider = 'openai'
+                                # Stock Photos Mode (only use stock when use_ai_images=False)
+                                print(f"   [IMAGE] Mode: Stock Photos (campaign setting: use_ai_images=False)")
                             
-                            # Fall back to AI Horde if no API key
-                            if not image_api_key:
-                                print(f"   [IMAGE] No API key found for {image_provider}, using AI Horde (free, slow)")
-                                image_provider = 'ai_horde'
-                                image_model = 'stable_diffusion_xl'
+                            # Stock Photos (ONLY if use_ai_images=False - NO fallback if AI is enabled)
+                            if not image_url:
+                                if use_ai_images:
+                                    # If use_ai_images=True, do NOT fall back to stock photos
+                                    # Only use the campaign's specified AI model (Gemini)
+                                    print(f"   [IMAGE] AI generation failed - no fallback to stock photos (campaign requires AI images)")
+                                else:
+                                    # Only use stock photos if explicitly set to use_ai_images=False
+                                    print(f"   [IMAGE] Using stock photos (campaign setting: use_ai_images=False)...")
+                                    try:
+                                        from linkedpilot.utils.stock_image_fetcher import StockImageFetcher, extract_image_keywords_ai
+                                        
+                                        # Get stock image API keys from SYSTEM settings
+                                        system_settings = await db.system_settings.find_one({"_id": "api_keys"})
+                                        
+                                        def decrypt_system_key(encrypted_value):
+                                            try:
+                                                ENCRYPTION_KEY = os.environ.get('ENCRYPTION_KEY', '')
+                                                if not ENCRYPTION_KEY:
+                                                    return None
+                                                cipher_suite = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+                                                return cipher_suite.decrypt(encrypted_value.encode()).decode()
+                                            except:
+                                                return None
+                                        
+                                        unsplash_key = None
+                                        pexels_key = None
+                                        openai_key = None
+                                        if system_settings:
+                                            if system_settings.get('unsplash_access_key'):
+                                                unsplash_key = decrypt_system_key(system_settings['unsplash_access_key'])
+                                            if system_settings.get('pexels_api_key'):
+                                                pexels_key = decrypt_system_key(system_settings['pexels_api_key'])
+                                            if system_settings.get('openai_api_key'):
+                                                openai_key = decrypt_system_key(system_settings['openai_api_key'])
+                                        
+                                        campaign_topic = campaign.get('name', '')
+                                        keywords = await extract_image_keywords_ai(post_content, campaign_topic, openai_key)
+                                        
+                                        fetcher = StockImageFetcher(unsplash_key=unsplash_key, pexels_key=pexels_key)
+                                        stock_result = await fetcher.fetch_image(keywords, orientation="landscape")
+                                        
+                                        if stock_result and stock_result.get('url'):
+                                            image_url = stock_result['url']
+                                            print(f"   [IMAGE] ✓ Found stock photo from {stock_result['source']}")
+                                        else:
+                                            print(f"   [IMAGE] Stock photos failed, no image generated")
+                                    except Exception as stock_error:
+                                        print(f"   [IMAGE] Stock photos failed: {stock_error}, no image generated")
                             
-                            print(f"   [IMAGE] Provider: {image_provider}, Model: {image_model}")
-                            
-                            image_generator = ImageAdapter(
-                                api_key=image_api_key,
-                                provider=image_provider,
-                                model=image_model
-                            )
-                            
-                            image_result = await image_generator.generate_image(
-                                prompt=image_prompt,
-                                style=campaign.get('image_style', 'professional')
-                            )
-                            
-                            if image_result and 'url' in image_result:
-                                image_url = image_result['url']
-                                print(f"   [IMAGE] Generated successfully!")
-                            else:
-                                print(f"   [IMAGE] Failed to generate")
+                            # No additional fallbacks - respect campaign's use_ai_images setting
+                            if not image_url:
+                                print(f"   [IMAGE] No image generated - respecting campaign's image mode setting")
                         except Exception as img_error:
                             print(f"   [WARNING] Image generation failed: {img_error}")
                     
@@ -538,24 +566,80 @@ async def auto_schedule_approved_posts():
                     print(f"   Current time (user): {current_time_user.strftime('%Y-%m-%d %H:%M %Z')}")
                     print(f"   Current time (UTC): {current_time_utc.strftime('%Y-%m-%d %H:%M UTC')}")
                     
-                    # Get all already scheduled posts for this campaign
+                    # Get all already scheduled posts for this campaign from BOTH collections
                     org_id = post.get('org_id')
-                    scheduled_posts = await db.ai_generated_posts.find({
+                    
+                    # Check ai_generated_posts collection
+                    # Only get APPROVED posts that are actually scheduled (not deleted/rejected)
+                    ai_scheduled_posts = await db.ai_generated_posts.find({
                         "org_id": org_id,
                         "status": AIGeneratedPostStatus.APPROVED.value,
-                        "scheduled_for": {"$ne": None}
-                    }, {"scheduled_for": 1}).to_list(length=1000)
+                        "scheduled_for": {"$ne": None, "$exists": True}
+                    }, {"scheduled_for": 1, "status": 1}).to_list(length=1000)
                     
-                    occupied_times = {p['scheduled_for'] for p in scheduled_posts if 'scheduled_for' in p}
-                    print(f"   Found {len(occupied_times)} occupied time slots")
+                    # Filter out any posts that might have been soft-deleted (status changed)
+                    ai_scheduled_posts = [p for p in ai_scheduled_posts if p.get('status') == AIGeneratedPostStatus.APPROVED.value]
+                    
+                    # Check scheduled_posts collection (for manually scheduled posts)
+                    # Exclude cancelled/deleted posts - only get active scheduled posts
+                    manual_scheduled_posts = await db.scheduled_posts.find({
+                        "org_id": org_id,
+                        "status": {"$in": ["scheduled", "queued"]},
+                        "publish_time": {"$ne": None, "$exists": True}
+                    }, {"publish_time": 1, "status": 1}).to_list(length=1000)
+                    
+                    # Filter out cancelled posts (extra safety check)
+                    manual_scheduled_posts = [p for p in manual_scheduled_posts if p.get('status') not in ["cancelled", "deleted"]]
+                    
+                    # Combine occupied times from both collections
+                    occupied_times = set()
+                    
+                    # Add times from ai_generated_posts
+                    for p in ai_scheduled_posts:
+                        if 'scheduled_for' in p and p['scheduled_for']:
+                            # Handle both datetime objects and ISO strings
+                            if isinstance(p['scheduled_for'], str):
+                                try:
+                                    from dateutil import parser
+                                    occupied_times.add(parser.parse(p['scheduled_for']).replace(tzinfo=None))
+                                except:
+                                    pass
+                            else:
+                                occupied_times.add(p['scheduled_for'] if not hasattr(p['scheduled_for'], 'replace') else p['scheduled_for'].replace(tzinfo=None))
+                    
+                    # Add times from scheduled_posts
+                    for p in manual_scheduled_posts:
+                        if 'publish_time' in p and p['publish_time']:
+                            # Handle both datetime objects and ISO strings
+                            if isinstance(p['publish_time'], str):
+                                try:
+                                    from dateutil import parser
+                                    occupied_times.add(parser.parse(p['publish_time']).replace(tzinfo=None))
+                                except:
+                                    pass
+                            else:
+                                occupied_times.add(p['publish_time'] if not hasattr(p['publish_time'], 'replace') else p['publish_time'].replace(tzinfo=None))
+                    
+                    print(f"   Found {len(occupied_times)} occupied time slots (from {len(ai_scheduled_posts)} AI posts + {len(manual_scheduled_posts)} scheduled posts)")
                     
                     # Helper function to check if a slot is available
                     def is_slot_available(slot_time_utc):
                         # Check if this exact time is already taken
                         for occupied in occupied_times:
-                            # Compare with 1-minute tolerance (in case of slight time differences)
-                            if abs((occupied - slot_time_utc).total_seconds()) < 60:
-                                return False
+                            try:
+                                # Ensure both are datetime objects
+                                if isinstance(occupied, str):
+                                    # Skip strings that weren't parsed (shouldn't happen, but safety check)
+                                    continue
+                                if not isinstance(occupied, datetime):
+                                    continue
+                                # Compare with 1-minute tolerance (in case of slight time differences)
+                                if abs((occupied - slot_time_utc).total_seconds()) < 60:
+                                    return False
+                            except (TypeError, AttributeError) as e:
+                                # Skip invalid datetime comparisons
+                                print(f"   [WARNING] Invalid datetime comparison: {e}")
+                                continue
                         return True
                     
                     # Try to find next available slot
@@ -592,20 +676,69 @@ async def auto_schedule_approved_posts():
                     # Fallback to UTC if timezone conversion fails
                     current_time_utc = datetime.utcnow()
                     
-                    # Get occupied slots
+                    # Get occupied slots from BOTH collections
                     org_id = post.get('org_id')
-                    scheduled_posts = await db.ai_generated_posts.find({
+                    
+                    # Check ai_generated_posts collection
+                    # Only get APPROVED posts that are actually scheduled (not deleted/rejected)
+                    ai_scheduled_posts = await db.ai_generated_posts.find({
                         "org_id": org_id,
                         "status": AIGeneratedPostStatus.APPROVED.value,
-                        "scheduled_for": {"$ne": None}
-                    }, {"scheduled_for": 1}).to_list(length=1000)
+                        "scheduled_for": {"$ne": None, "$exists": True}
+                    }, {"scheduled_for": 1, "status": 1}).to_list(length=1000)
                     
-                    occupied_times = {p['scheduled_for'] for p in scheduled_posts if 'scheduled_for' in p}
+                    # Filter out any posts that might have been soft-deleted (status changed)
+                    ai_scheduled_posts = [p for p in ai_scheduled_posts if p.get('status') == AIGeneratedPostStatus.APPROVED.value]
+                    
+                    # Check scheduled_posts collection (exclude cancelled/deleted)
+                    # Only get active scheduled posts
+                    manual_scheduled_posts = await db.scheduled_posts.find({
+                        "org_id": org_id,
+                        "status": {"$in": ["scheduled", "queued"]},
+                        "publish_time": {"$ne": None, "$exists": True}
+                    }, {"publish_time": 1, "status": 1}).to_list(length=1000)
+                    
+                    # Filter out cancelled posts (extra safety check)
+                    manual_scheduled_posts = [p for p in manual_scheduled_posts if p.get('status') not in ["cancelled", "deleted"]]
+                    
+                    # Combine occupied times from both collections
+                    occupied_times = set()
+                    for p in ai_scheduled_posts:
+                        if 'scheduled_for' in p and p['scheduled_for']:
+                            if isinstance(p['scheduled_for'], str):
+                                try:
+                                    from dateutil import parser
+                                    occupied_times.add(parser.parse(p['scheduled_for']).replace(tzinfo=None))
+                                except:
+                                    pass
+                            else:
+                                occupied_times.add(p['scheduled_for'] if not hasattr(p['scheduled_for'], 'replace') else p['scheduled_for'].replace(tzinfo=None))
+                    
+                    for p in manual_scheduled_posts:
+                        if 'publish_time' in p and p['publish_time']:
+                            if isinstance(p['publish_time'], str):
+                                try:
+                                    from dateutil import parser
+                                    occupied_times.add(parser.parse(p['publish_time']).replace(tzinfo=None))
+                                except:
+                                    pass
+                            else:
+                                occupied_times.add(p['publish_time'] if not hasattr(p['publish_time'], 'replace') else p['publish_time'].replace(tzinfo=None))
                     
                     def is_slot_available_utc(slot_time_utc):
                         for occupied in occupied_times:
-                            if abs((occupied - slot_time_utc).total_seconds()) < 60:
-                                return False
+                            try:
+                                # Ensure both are datetime objects
+                                if isinstance(occupied, str):
+                                    continue
+                                if not isinstance(occupied, datetime):
+                                    continue
+                                # Compare with 1-minute tolerance
+                                if abs((occupied - slot_time_utc).total_seconds()) < 60:
+                                    return False
+                            except (TypeError, AttributeError) as e:
+                                print(f"   [WARNING] Invalid datetime comparison: {e}")
+                                continue
                         return True
                     
                     scheduled_time = None

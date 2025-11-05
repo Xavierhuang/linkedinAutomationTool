@@ -27,11 +27,11 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
         },
         tone_voice: 'professional',
         content_types: ['text'],
-        include_images: false,
-        use_ai_images: false,
+        include_images: true,
+        use_ai_images: true,
         image_style: 'professional',
         text_model: 'openai/gpt-4o-mini',
-        image_model: 'openai/dall-e-3',
+        image_model: 'google/gemini-2.5-flash-image',
         auto_post: false,
         status: 'draft'
     });
@@ -82,11 +82,11 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                 },
                 tone_voice: initialData.tone_voice || 'professional',
                 content_types: initialData.content_types?.length > 0 ? initialData.content_types : ['text'],
-                include_images: initialData.include_images || false,
-                use_ai_images: initialData.use_ai_images || false,
+                include_images: (initialData.include_images !== undefined) ? initialData.include_images : true,
+                use_ai_images: (initialData.use_ai_images !== undefined) ? initialData.use_ai_images : true,
                 image_style: initialData.image_style || 'professional',
                 text_model: initialData.text_model || 'openai/gpt-4o-mini',
-                image_model: initialData.image_model || 'openai/dall-e-3',
+                image_model: initialData.image_model || 'google/gemini-2.5-flash-image',
                 auto_post: initialData.auto_post || false,
                 status: initialData.status || 'draft'
             });
@@ -129,11 +129,11 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                 },
                 tone_voice: 'professional',
                 content_types: ['text'],
-                include_images: false,
-                use_ai_images: false,
+                include_images: true,
+                use_ai_images: true,
                 image_style: 'professional',
                 text_model: 'openai/gpt-4o-mini',
-                image_model: 'openai/dall-e-3',
+                image_model: 'google/gemini-2.5-flash-image',
                 auto_post: false,
                 status: 'draft'
             });
@@ -650,8 +650,8 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                     </div>
                                     <p className="text-xs text-gray-500 ml-6">
                                         {formData.use_ai_images 
-                                            ? '🎨 AI will generate custom images (requires API credits)' 
-                                            : '📷 Using free stock photos from Unsplash/Pexels (default)'}
+                                            ? 'AI will generate custom images (requires API credits)'
+                                            : 'Using free stock photos from Unsplash/Pexels'}
                                     </p>
 
                                     <div>
@@ -675,22 +675,19 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                                 AI Image Generation Model
                                             </label>
                                             <select
-                                                value={formData.image_model || 'openai/dall-e-3'}
+                                                value={formData.image_model || 'google/gemini-2.5-flash-image'}
                                                 onChange={(e) => setFormData({ ...formData, image_model: e.target.value })}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                             >
-                                                <optgroup label="OpenAI">
-                                                    <option value="openai/dall-e-3">DALL-E 3 - HD Quality ($0.040/image)</option>
-                                                </optgroup>
                                                 <optgroup label="Google">
-                                                    <option value="google/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Fast & Affordable)</option>
+                                                    <option value="google/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Fast & Affordable - Recommended)</option>
                                                 </optgroup>
                                                 <optgroup label="OpenRouter">
                                                     <option value="openrouter/seedream">SeeDream via OpenRouter (High Quality)</option>
                                                 </optgroup>
                                             </select>
                                             <p className="text-xs text-gray-500 mt-1">
-                                                💳 Premium models - requires API credits
+                                                Premium models - requires API credits
                                             </p>
                                         </div>
                                     )}

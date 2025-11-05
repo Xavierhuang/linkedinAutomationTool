@@ -2,8 +2,10 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 from datetime import datetime
 import os
+import random
 
 from ..adapters.ai_content_generator import AIContentGenerator
+from ..adapters.llm_adapter import LLMAdapter
 from ..models.campaign import AIGeneratedPost, AIGeneratedPostStatus
 from pydantic import BaseModel
 
@@ -27,7 +29,7 @@ class ContentValidationRequest(BaseModel):
 
 @router.post("/generate")
 async def generate_content(request: ContentGenerationRequest):
-    """Generate AI content for a campaign"""
+    """Generate AI content for a campaign - uses LLMAdapter like drafts/generate"""
     db = get_db()
     
     # Get campaign
@@ -35,84 +37,188 @@ async def generate_content(request: ContentGenerationRequest):
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
     
-    # Determine provider and model from campaign's text_model
-    text_model = campaign.get('text_model', 'openai/gpt-4o-mini')
-    if not request.provider or not request.model:
-        if '/' in text_model:
-            provider_str, model_str = text_model.split('/', 1)
-            request.provider = provider_str if not request.provider else request.provider
-            request.model = model_str if not request.model else request.model
-        else:
-            request.provider = 'openai' if not request.provider else request.provider
-            request.model = text_model if not request.model else request.model
+    # Extract topic from campaign (select a random content pillar)
+    content_pillars = campaign.get('content_pillars', [])
+    if content_pillars:
+        topic = random.choice(content_pillars)
+    else:
+        topic = campaign.get('name', 'LinkedIn Content')
     
-    # Get user's API key from settings if not provided
-    if not request.user_api_key:
-        from cryptography.fernet import Fernet
-        import base64
-        import hashlib
-        
-        # Lookup by user_id
-        settings = await db.user_settings.find_one({"user_id": request.user_id}, {"_id": 0})
-        if settings:
-            # Decrypt API key
-            JWT_SECRET = os.environ.get('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
-            ENCRYPTION_KEY = base64.urlsafe_b64encode(hashlib.sha256(JWT_SECRET.encode()).digest())
-            cipher_suite = Fernet(ENCRYPTION_KEY)
-            
-            # Get the appropriate API key based on provider
-            key_field = None
-            if request.provider == "openrouter":
-                key_field = 'openrouter_api_key'
-            elif request.provider == "openai":
-                key_field = 'openai_api_key'
-            elif request.provider == "claude" or request.provider == "anthropic":
-                key_field = 'anthropic_api_key'
-            elif request.provider == "gemini" or request.provider == "google":
-                key_field = 'google_ai_api_key'
-            
-            if key_field and settings.get(key_field):
-                try:
-                    request.user_api_key = cipher_suite.decrypt(settings[key_field].encode()).decode()
-                except:
-                    pass
+    # Get tone from campaign
+    tone = campaign.get('tone_voice', 'professional')
     
     print(f"\n{'='*60}")
-    print(f"🤖 AI Content Generation Request")
+    print(f"🤖 AI Content Generation Request (Campaign-based)")
     print(f"   Campaign: {campaign.get('name')}")
-    print(f"   Text Model: {text_model}")
-    print(f"   Provider: {request.provider}")
-    print(f"   Model: {request.model or 'default'}")
-    print(f"   API Key: {'Found' if request.user_api_key else 'NOT FOUND'}")
+    print(f"   Topic (from campaign): {topic}")
+    print(f"   Tone: {tone}")
     print(f"{'='*60}\n")
     
-    try:
-        # Initialize AI generator
-        generator = AIContentGenerator(
-            api_key=request.user_api_key,
-            provider=request.provider,
-            model=request.model
+    # Import helper functions from drafts
+    from ..routes.drafts import get_default_model_setting, parse_model_setting, get_system_api_key, get_user_api_key
+    
+    # Get default model setting from admin configuration
+    default_model_setting = await get_default_model_setting('text_draft_content')
+    default_provider, default_model = parse_model_setting(default_model_setting)
+    
+    print(f"[AI-CONTENT] Using default model: {default_provider}:{default_model}")
+    
+    # Multi-provider fallback: Use configured default first, then fallback providers
+    providers_to_try = []
+    
+    # Priority 1: Use configured default model
+    default_key, _ = await get_system_api_key(default_provider)
+    if not default_key:
+        default_key, _ = await get_user_api_key(request.user_id, default_provider)
+    if default_key:
+        providers_to_try.append((default_provider, default_model))
+        print(f"   [SUCCESS] Added default model: {default_provider}:{default_model}")
+    
+    # Priority 2-4: Add other providers if keys are present (for fallback)
+    # Google AI Studio
+    if default_provider != "google_ai_studio":
+        google_key, _ = await get_system_api_key("google_ai_studio")
+        if not google_key:
+            google_key, _ = await get_user_api_key(request.user_id, "google_ai_studio")
+        if google_key:
+            providers_to_try.append(("google_ai_studio", "gemini-2.5-flash"))
+    
+    # OpenAI
+    if default_provider != "openai":
+        openai_key, _ = await get_system_api_key("openai")
+        if not openai_key:
+            openai_key, _ = await get_user_api_key(request.user_id, "openai")
+        if openai_key:
+            providers_to_try.append(("openai", "gpt-4o"))
+    
+    # Anthropic
+    if default_provider != "anthropic":
+        anthropic_key, _ = await get_system_api_key("anthropic")
+        if not anthropic_key:
+            anthropic_key, _ = await get_user_api_key(request.user_id, "anthropic")
+        if anthropic_key:
+            providers_to_try.append(("anthropic", "claude-3-5-sonnet"))
+    
+    # OpenRouter
+    if default_provider != "openrouter":
+        openrouter_key, _ = await get_system_api_key("openrouter")
+        if not openrouter_key:
+            openrouter_key, _ = await get_user_api_key(request.user_id, "openrouter")
+        if openrouter_key:
+            providers_to_try.append(("openrouter", "anthropic/claude-3.5-sonnet"))
+    
+    content_data = None
+    last_error = None
+    provider_used = None
+    model_used = None
+    
+    for provider_name, model_name in providers_to_try:
+        try:
+            print(f"[LLM] Trying provider: {provider_name} with model: {model_name}")
+            
+            # Get system-wide API key for this provider (admin-managed)
+            system_api_key, provider = await get_system_api_key(provider_name)
+            
+            if not system_api_key:
+                print(f"   [SKIP] No system API key configured for {provider_name}")
+                continue
+            
+            print(f"   [SUCCESS] System API key found for {provider_name}")
+            
+            # Initialize LLM adapter with the system's API key
+            llm = LLMAdapter(
+                api_key=system_api_key,
+                provider=provider,
+                model=model_name
+            )
+            
+            # Build context (same as drafts/generate)
+            context = {
+                'topic': topic,
+                'tone': tone,
+                'goal': 'engagement'
+            }
+            
+            # Generate content (same as drafts/generate)
+            content_data = await llm.generate_post_content(context, 'text')
+            
+            provider_used = provider_name
+            model_used = model_name
+            
+            print(f"   [SUCCESS] Content generated with {provider_name}!")
+            break  # Success! Exit the loop
+            
+        except Exception as e:
+            print(f"   [ERROR] {provider_name} failed: {str(e)}")
+            last_error = e
+            continue  # Try next provider
+    
+    # If all providers failed, raise an error
+    if content_data is None:
+        if last_error is None:
+            last_error = "No usable provider API keys found (system/user)"
+        print(f"[ERROR] All providers failed. Last error: {last_error}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Content generation failed: {str(last_error)}"
         )
-        
-        # Generate content
-        result = await generator.generate_post_for_campaign(campaign)
+    
+    # Extract content from the response
+    post_content = content_data.get('body', '') if isinstance(content_data, dict) else str(content_data)
+    hashtags = content_data.get('hashtags', []) if isinstance(content_data, dict) else []
+    
+    # Ensure post_content is a string
+    if not isinstance(post_content, str):
+        post_content = str(post_content) if post_content else ""
+    
+    # Ensure hashtags is a list
+    if not isinstance(hashtags, list):
+        hashtags = []
+    
+    # Combine content and hashtags if needed
+    if hashtags and len(hashtags) > 0:
+        try:
+            # Check if first item is a string
+            if isinstance(hashtags[0], str):
+                hashtag_str = ' '.join(str(h) for h in hashtags if h)
+            elif isinstance(hashtags[0], dict):
+                hashtag_str = ' '.join([str(h.get('#', '')) for h in hashtags if isinstance(h, dict) and h.get('#')])
+            else:
+                hashtag_str = ' '.join(str(h) for h in hashtags if h)
+            
+            if hashtag_str and hashtag_str not in post_content:
+                post_content = f"{post_content}\n\n{hashtag_str}"
+        except (IndexError, TypeError, AttributeError) as hashtag_error:
+            print(f"   [WARNING] Error processing hashtags: {hashtag_error}, skipping hashtag merge")
         
         # Validate quality
-        validation = await generator.validate_post_quality(result['content'])
-        
+    from ..adapters.ai_content_generator import AIContentGenerator
+    generator = AIContentGenerator()  # Just for validation
+    validation = await generator.validate_post_quality(post_content)
+    
+    result = {
+        "content": post_content,
+        "generation_prompt": content_data.get('generation_prompt', topic),
+        "content_pillar": topic,
+        "content_type": "text",
+        "generated_at": datetime.utcnow().isoformat(),
+        "provider": provider_used,
+        "model": model_used
+    }
+    
+    try:
         # Generate image if campaign requires it
         image_url = None
         if campaign.get('include_images', False):
             try:
                 print(f"   [IMAGE] Generating image...")
                 
-                # Check if campaign wants AI images or stock photos (default: stock)
-                post_content = result.get('content', '')
-                use_ai_images = campaign.get('use_ai_images', False)  # Default to stock photos
-                use_stock = not use_ai_images  # Use stock unless AI is explicitly enabled
+                # Check if campaign wants AI images or stock photos (default: AI images to match scheduler)
+                use_ai_images = campaign.get('use_ai_images', True)  # Default to AI images (matches scheduler)
+                use_stock = not use_ai_images  # Use stock only if AI is explicitly disabled
                 
                 # Get campaign's preferred AI image model (only used if use_ai_images=True)
-                image_model_raw = campaign.get('image_model', 'openai/dall-e-3')
+                image_model_raw = campaign.get('image_model', 'google/gemini-2.5-flash-image')
                 print(f"   [IMAGE] Mode: {'AI Generation' if use_ai_images else 'Stock Photos (default)'}")
                 if use_ai_images:
                     print(f"   [IMAGE MODEL] AI model: {image_model_raw}")
@@ -164,9 +270,8 @@ async def generate_content(request: ContentGenerationRequest):
                                 if settings.get('openai_api_key') and not openai_key:
                                     openai_key = decrypt_api_key(settings['openai_api_key'])
                         
-                        # Use the actual post topic/angle (from content pillars) for better image search
-                        # The AI generator picks a specific topic from the campaign's content pillars
-                        post_topic = result.get('topic', '') or result.get('angle', '') or campaign.get('name', '')
+                        # Use the actual post topic (from content pillars) for better image search
+                        post_topic = topic
                         keywords = await extract_image_keywords_ai(post_content, post_topic, openai_key)
                         print(f"   [STOCK IMAGE] Post topic: {post_topic}")
                         print(f"   [STOCK IMAGE] Search keywords: {keywords}")
@@ -183,10 +288,130 @@ async def generate_content(request: ContentGenerationRequest):
                     except Exception as stock_error:
                         print(f"   [STOCK IMAGE] Failed: {stock_error}, skipping image")
                 
-                # If user explicitly chose AI generation, fall back to AI (future enhancement)
+                # If user explicitly chose AI generation, use same logic as create page
                 elif use_ai_images:
-                    print(f"   [IMAGE] AI image generation not yet implemented for manual generation")
-                    print(f"   [IMAGE] Use automated campaigns for AI image generation")
+                    print(f"   [IMAGE] Mode: AI Generation (using same logic as create page)")
+                    
+                    # Use same logic as create page: get default from admin settings
+                    from ..routes.drafts import get_default_model_setting, parse_model_setting
+                    default_image_setting = await get_default_model_setting('image_draft_image')
+                    default_img_provider, default_img_model = parse_model_setting(default_image_setting)
+                    
+                    # Use campaign's image_model if set, otherwise use admin default
+                    image_model_to_use = image_model_raw if image_model_raw else default_img_model
+                    
+                    print(f"   [IMAGE] Admin default: {default_img_provider}/{default_img_model}")
+                    print(f"   [IMAGE] Campaign setting: {image_model_raw}")
+                    print(f"   [IMAGE] Using: {image_model_to_use}")
+                    
+                    # Prepare enhanced prompt for AI image generation (same as create page)
+                    from ..utils.ai_image_prompt_optimizer import generate_optimized_image_prompt
+                    from ..routes.drafts import get_system_api_key
+                    
+                    print(f"   [IMAGE] Step 1/3: Analyzing post content...")
+                    print(f"   [IMAGE] Post preview: {post_content[:100]}...")
+                    
+                    # Get OpenAI API key for prompt optimization
+                    system_openai_key, _ = await get_system_api_key("openai")
+                    image_prompt = post_content  # Default fallback
+                    
+                    if system_openai_key:
+                        try:
+                            print(f"   [IMAGE] Step 2/3: AI creating custom visual metaphor...")
+                            
+                            ai_analysis = await generate_optimized_image_prompt(
+                                post_content=post_content,
+                                ai_api_key=system_openai_key,
+                                ai_model="gpt-4o"
+                            )
+                            
+                            image_prompt = ai_analysis['optimized_prompt']
+                            print(f"   [IMAGE] Visual concept: {ai_analysis.get('visual_concept', 'N/A')}")
+                            print(f"   [IMAGE] Metaphor: {ai_analysis.get('metaphor_description', 'N/A')[:80]}...")
+                        except Exception as ai_error:
+                            print(f"   [WARNING] AI optimization failed: {ai_error}, using simple prompt")
+                            image_prompt = f"""PROFESSIONAL PHOTOGRAPH - PHOTOREALISTIC. Shot on DSLR, 35mm, f/1.8. 
+Cinematic photo representing: {post_content[:150]}. Natural setting, dramatic lighting, shallow depth of field. 
+National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".replace('\n', ' ')
+                    else:
+                        print(f"   [IMAGE] No OpenAI key available, using simple prompt")
+                        image_prompt = f"""PROFESSIONAL PHOTOGRAPH - PHOTOREALISTIC. Shot on DSLR, 35mm, f/1.8. 
+Cinematic photo representing: {post_content[:150]}. Natural setting, dramatic lighting, shallow depth of field. 
+National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".replace('\n', ' ')
+                    
+                    print(f"   [IMAGE] Step 3/3: Generating image with optimized prompt...")
+                    
+                    # Try admin default first (same as create page)
+                    try:
+                        system_api_key, provider = await get_system_api_key(default_img_provider)
+                        
+                        if not system_api_key:
+                            system_api_key, provider = await get_system_api_key("google_ai_studio")
+                            if system_api_key:
+                                default_img_provider = "google_ai_studio"
+                                default_img_model = "gemini-2.5-flash-image"
+                        
+                        if system_api_key:
+                            print(f"   [IMAGE] Creating ImageAdapter with:")
+                            print(f"      Provider: {default_img_provider}")
+                            print(f"      Model: {default_img_model}")
+                            
+                            from ..adapters.image_adapter import ImageAdapter
+                            image_adapter = ImageAdapter(
+                                api_key=system_api_key,
+                                provider=default_img_provider,
+                                model=default_img_model
+                            )
+                            
+                            # Verify adapter was initialized correctly
+                            print(f"   [IMAGE] ImageAdapter initialized:")
+                            print(f"      Provider: {image_adapter.provider}")
+                            print(f"      Model: {image_adapter.model}")
+                            print(f"      Base URL: {image_adapter.base_url}")
+                            
+                            if image_adapter.provider == "openai":
+                                raise Exception("ImageAdapter provider is 'openai' - DALL-E is deprecated!")
+                            
+                            image_result = await image_adapter.generate_image(
+                                prompt=image_prompt,
+                                style=campaign.get('image_style', 'professional')
+                            )
+                            
+                            # Check for URL first (ImageAdapter usually provides this as data URL)
+                            if image_result and image_result.get('url'):
+                                image_url = image_result['url']
+                                print(f"   [IMAGE] ✓ Generated successfully with {default_img_model}!")
+                                print(f"   [IMAGE] Image URL length: {len(image_url)}")
+                            # Fallback to base64 if URL doesn't exist or is empty
+                            elif image_result and image_result.get('image_base64'):
+                                # Handle base64 images by creating a data URL
+                                image_url = f"data:image/png;base64,{image_result['image_base64']}"
+                                print(f"   [IMAGE] ✓ Generated successfully with {default_img_model} (base64)!")
+                                print(f"   [IMAGE] Base64 image length: {len(image_result['image_base64'])}")
+                            else:
+                                print(f"   [IMAGE] {default_img_model} failed, trying Google AI Studio fallback...")
+                                # Fallback to Google AI Studio (same as create page)
+                                system_api_key, _ = await get_system_api_key("google_ai_studio")
+                                if system_api_key:
+                                    image_adapter = ImageAdapter(
+                                        api_key=system_api_key,
+                                        provider="google_ai_studio",
+                                        model="gemini-2.5-flash-image"
+                                    )
+                                    image_result = await image_adapter.generate_image(
+                                        prompt=image_prompt,
+                                        style=campaign.get('image_style', 'professional')
+                                    )
+                                    if image_result and image_result.get('url'):
+                                        image_url = image_result['url']
+                                    elif image_result and image_result.get('image_base64'):
+                                        image_url = f"data:image/png;base64,{image_result['image_base64']}"
+                        else:
+                            print(f"   [IMAGE] No API key available, skipping AI image generation")
+                    except Exception as ai_error:
+                        print(f"   [IMAGE] AI generation failed: {ai_error}, no image generated")
+                        import traceback
+                        print(f"   [IMAGE] Error traceback: {traceback.format_exc()}")
                     
             except Exception as img_error:
                 print(f"   [WARNING] Image generation failed: {img_error}")
@@ -203,6 +428,22 @@ async def generate_content(request: ContentGenerationRequest):
         author_name = None
         if profile_type and linkedin_author_id:
             author_name = await resolve_author_name(request.org_id, profile_type, linkedin_author_id)
+        
+        # Debug: Log image URL status
+        if image_url:
+            try:
+                # Ensure image_url is a string before slicing
+                image_url_str = str(image_url) if image_url else ""
+                if image_url_str and len(image_url_str) > 100:
+                    print(f"   [IMAGE] Final image_url set: {image_url_str[:100]}...")
+                else:
+                    print(f"   [IMAGE] Final image_url set: {image_url_str}")
+                print(f"   [IMAGE] Image URL length: {len(image_url_str) if image_url_str else 0}")
+            except Exception as url_error:
+                print(f"   [IMAGE] Error logging image URL: {url_error}")
+                print(f"   [IMAGE] Image URL type: {type(image_url)}")
+        else:
+            print(f"   [IMAGE] No image_url set (will be None)")
         
         ai_post = AIGeneratedPost(
             campaign_id=request.campaign_id,
@@ -225,104 +466,191 @@ async def generate_content(request: ContentGenerationRequest):
         
         # If auto_post is enabled, automatically schedule the post
         if auto_post:
-            from ..models.scheduled_post import ScheduledPost, PostStatus
-            from ..models.draft import Draft, DraftStatus, DraftMode
-            import uuid
-            
-            # Get next available time slot from campaign
-            time_slots = campaign.get('posting_schedule', {}).get('time_slots', ['09:00'])
-            
-            # Find the next available slot (check existing scheduled posts)
-            existing_posts = await db.scheduled_posts.find({
-                "org_id": request.org_id,
-                "status": {"$in": ["scheduled", "queued"]}
-            }).to_list(length=None)
-            
-            # Get all scheduled times
-            scheduled_times = [post.get('publish_time') for post in existing_posts if post.get('publish_time')]
-            
-            # Find next available slot
-            from datetime import timedelta
-            import pytz
-            
-            now = datetime.utcnow()
-            next_slot_time = None
-            
-            # Try to find a slot in the next 7 days
-            for day_offset in range(7):
-                check_date = now + timedelta(days=day_offset)
-                for time_slot in time_slots:
-                    hours, minutes = map(int, time_slot.split(':'))
-                    slot_datetime = check_date.replace(hour=hours, minute=minutes, second=0, microsecond=0)
-                    
-                    # Skip if in the past
-                    if slot_datetime <= now:
+            try:
+                from ..models.scheduled_post import ScheduledPost, PostStatus
+                from ..models.draft import Draft, DraftStatus, DraftMode
+                import uuid
+                
+                # Get next available time slot from campaign
+                time_slots_raw = campaign.get('posting_schedule', {}).get('time_slots', ['09:00'])
+                
+                # Ensure time_slots is a list (handle case where it might be stored as string)
+                if isinstance(time_slots_raw, str):
+                    # Try to parse as JSON string if it looks like JSON
+                    try:
+                        import json
+                        time_slots = json.loads(time_slots_raw)
+                        if not isinstance(time_slots, list):
+                            time_slots = [time_slots_raw]  # Fallback to single string as list
+                    except:
+                        # If not JSON, treat as comma-separated or single value
+                        if ',' in time_slots_raw:
+                            time_slots = [ts.strip() for ts in time_slots_raw.split(',')]
+                        else:
+                            time_slots = [time_slots_raw]
+                elif isinstance(time_slots_raw, list):
+                    time_slots = time_slots_raw
+                else:
+                    # Fallback to default
+                    time_slots = ['09:00']
+                
+                # Ensure all items are strings
+                time_slots = [str(ts) for ts in time_slots if ts]
+                
+                if not time_slots:
+                    time_slots = ['09:00']  # Final fallback
+                
+                # Find the next available slot (check existing scheduled posts)
+                # Only check active scheduled posts (exclude cancelled/deleted)
+                existing_posts = await db.scheduled_posts.find({
+                    "org_id": request.org_id,
+                    "status": {"$in": ["scheduled", "queued"]},
+                    "publish_time": {"$ne": None, "$exists": True}
+                }).to_list(length=None)
+                
+                # Also check ai_generated_posts for scheduled posts
+                ai_existing_posts = await db.ai_generated_posts.find({
+                    "org_id": request.org_id,
+                    "status": "approved",  # Only approved posts
+                    "scheduled_for": {"$ne": None, "$exists": True}
+                }, {"scheduled_for": 1}).to_list(length=None)
+                
+                # Filter out any posts that might have been deleted/status changed
+                existing_posts = [p for p in existing_posts if p.get('status') not in ["cancelled", "deleted"]]
+                
+                # Get all scheduled times from scheduled_posts
+                scheduled_times = [post.get('publish_time') for post in existing_posts if post.get('publish_time')]
+                
+                # Also add times from ai_generated_posts
+                for ai_post in ai_existing_posts:
+                    if ai_post.get('scheduled_for'):
+                        scheduled_times.append(ai_post['scheduled_for'])
+                
+                # Find next available slot
+                from datetime import timedelta
+                import pytz
+                
+                now = datetime.utcnow()
+                next_slot_time = None
+                
+                # Try to find a slot in the next 7 days
+                # Ensure day_offset is always an integer
+                for day_offset_int in range(7):
+                    try:
+                        day_offset = int(day_offset_int)  # Ensure it's an integer
+                        check_date = now + timedelta(days=day_offset)
+                    except (ValueError, TypeError) as e:
+                        print(f"   [WARNING] Invalid day_offset: {day_offset}, error: {e}")
                         continue
+                    for time_slot in time_slots:
+                        try:
+                            # Ensure time_slot is a string and parse it
+                            if not isinstance(time_slot, str):
+                                time_slot = str(time_slot)
+                            if ':' not in time_slot:
+                                continue
+                            time_parts = time_slot.split(':')
+                            if len(time_parts) != 2:
+                                continue
+                            hours = int(time_parts[0])
+                            minutes = int(time_parts[1])
+                            slot_datetime = check_date.replace(hour=hours, minute=minutes, second=0, microsecond=0)
+                        except (ValueError, TypeError, AttributeError) as e:
+                            print(f"   [WARNING] Invalid time slot format: {time_slot}, error: {e}")
+                            continue
+                        
+                        # Skip if in the past
+                        if slot_datetime <= now:
+                            continue
+                        
+                        # Check if this slot is already taken
+                        slot_taken = False
+                        for st in scheduled_times:
+                            if not st:
+                                continue
+                            try:
+                                # Handle both string and datetime objects
+                                if isinstance(st, str):
+                                    # Parse ISO string, handling both Z and timezone formats
+                                    st_parsed = datetime.fromisoformat(st.replace('Z', '+00:00'))
+                                elif isinstance(st, datetime):
+                                    st_parsed = st.replace(tzinfo=None) if st.tzinfo else st
+                                else:
+                                    continue
+                                
+                                # Compare with 5-minute tolerance
+                                if abs((st_parsed - slot_datetime).total_seconds()) < 300:
+                                    slot_taken = True
+                                    break
+                            except (ValueError, AttributeError, TypeError) as e:
+                                # Skip invalid datetime formats
+                                print(f"   [WARNING] Invalid datetime format: {st}, error: {e}")
+                                continue
+                        
+                        if not slot_taken:
+                            next_slot_time = slot_datetime
+                            break
                     
-                    # Check if this slot is already taken
-                    slot_taken = any(
-                        abs((datetime.fromisoformat(st.replace('Z', '+00:00')) - slot_datetime).total_seconds()) < 300
-                        for st in scheduled_times if st
-                    )
-                    
-                    if not slot_taken:
-                        next_slot_time = slot_datetime
+                    if next_slot_time:
                         break
                 
-                if next_slot_time:
-                    break
-            
-            # If no slot found, use next available time slot + 1 hour
-            if not next_slot_time:
-                next_slot_time = now + timedelta(hours=1)
-            
-            # Create draft first
-            draft = Draft(
-                id=str(uuid.uuid4()),
-                org_id=request.org_id,
-                campaign_id=request.campaign_id,
-                author_id="system",
-                mode=DraftMode.TEXT,
-                content={
-                    "body": ai_post.content,
-                    "image_url": ai_post.image_url
-                },
-                assets=[{"url": ai_post.image_url, "type": "image"}] if ai_post.image_url else [],
-                linkedin_author_type=campaign.get('profile_type', 'personal'),
-                linkedin_author_id=campaign.get('linkedin_author_id'),
-                status=DraftStatus.APPROVED
-            )
-            
-            draft_dict = draft.model_dump()
-            draft_dict['created_at'] = datetime.utcnow()
-            draft_dict['updated_at'] = datetime.utcnow()
-            await db.drafts.insert_one(draft_dict)
-            
-            # Create scheduled post
-            scheduled_post = ScheduledPost(
-                id=str(uuid.uuid4()),
-                draft_id=draft.id,
-                org_id=request.org_id,
-                publish_time=next_slot_time,
-                timezone="UTC",
-                status=PostStatus.SCHEDULED,
-                require_approval=False,
-                approved_by="auto_post",
-                approved_at=datetime.utcnow()
-            )
-            
-            scheduled_dict = scheduled_post.model_dump()
-            scheduled_dict['created_at'] = datetime.utcnow()
-            scheduled_dict['updated_at'] = datetime.utcnow()
-            await db.scheduled_posts.insert_one(scheduled_dict)
-            
-            # Update AI post with scheduled time
-            await db.ai_generated_posts.update_one(
-                {"id": ai_post.id},
-                {"$set": {"scheduled_for": next_slot_time.isoformat()}}
-            )
-            
-            print(f"🚀 Auto-post enabled: Post automatically scheduled for {next_slot_time.isoformat()}")
+                # If no slot found, use next available time slot + 1 hour
+                if not next_slot_time:
+                    next_slot_time = now + timedelta(hours=1)
+                
+                # Create draft first
+                draft = Draft(
+                    id=str(uuid.uuid4()),
+                    org_id=request.org_id,
+                    campaign_id=request.campaign_id,
+                    author_id="system",
+                    mode=DraftMode.TEXT,
+                    content={
+                        "body": ai_post.content,
+                        "image_url": ai_post.image_url
+                    },
+                    assets=[{"url": ai_post.image_url, "type": "image"}] if ai_post.image_url else [],
+                    linkedin_author_type=campaign.get('profile_type', 'personal'),
+                    linkedin_author_id=campaign.get('linkedin_author_id'),
+                    status=DraftStatus.APPROVED
+                )
+                
+                draft_dict = draft.model_dump()
+                draft_dict['created_at'] = datetime.utcnow()
+                draft_dict['updated_at'] = datetime.utcnow()
+                await db.drafts.insert_one(draft_dict)
+                
+                # Create scheduled post
+                scheduled_post = ScheduledPost(
+                    id=str(uuid.uuid4()),
+                    draft_id=draft.id,
+                    org_id=request.org_id,
+                    publish_time=next_slot_time,
+                    timezone="UTC",
+                    status=PostStatus.SCHEDULED,
+                    require_approval=False,
+                    approved_by="auto_post",
+                    approved_at=datetime.utcnow()
+                )
+                
+                scheduled_dict = scheduled_post.model_dump()
+                scheduled_dict['created_at'] = datetime.utcnow()
+                scheduled_dict['updated_at'] = datetime.utcnow()
+                await db.scheduled_posts.insert_one(scheduled_dict)
+                
+                # Update AI post with scheduled time
+                await db.ai_generated_posts.update_one(
+                    {"id": ai_post.id},
+                    {"$set": {"scheduled_for": next_slot_time.isoformat()}}
+                )
+                
+                print(f"🚀 Auto-post enabled: Post automatically scheduled for {next_slot_time.isoformat()}")
+            except Exception as auto_post_error:
+                print(f"   [WARNING] Auto-post scheduling failed: {auto_post_error}")
+                print(f"   [WARNING] Error type: {type(auto_post_error).__name__}")
+                import traceback
+                print(f"   [WARNING] Traceback: {traceback.format_exc()}")
+                # Continue without auto-posting - post is still generated
         
         # Update campaign analytics
         await db.campaigns.update_one(
@@ -344,8 +672,8 @@ async def generate_content(request: ContentGenerationRequest):
             "post": ai_post.model_dump(),
             "validation": validation,
             "auto_posted": auto_post,
-            "provider_used": request.provider,
-            "model_used": result.get('model')
+            "provider_used": result.get('provider', provider_used),
+            "model_used": result.get('model', model_used)
         }
         
         if auto_post:
@@ -426,28 +754,20 @@ async def get_review_queue(org_id: str):
     return posts
 
 @router.get("/approved-posts")
-async def get_approved_posts(org_id: str, include_posted: bool = False):
+async def get_approved_posts(org_id: str, include_posted: bool = True):
     """Get all approved/posted AI-generated posts
     
     Args:
         org_id: Organization ID
-        include_posted: If True, also return POSTED posts (for analytics)
+        include_posted: If True, also return POSTED posts (default: True for calendar view)
     """
     db = get_db()
     
-    # Build query based on include_posted flag
-    if include_posted:
-        # For analytics - get both approved and posted
-        query = {
-            "org_id": org_id, 
-            "status": {"$in": [AIGeneratedPostStatus.APPROVED.value, AIGeneratedPostStatus.POSTED.value]}
-        }
-    else:
-        # For calendar - only approved (scheduled for future)
-        query = {
-            "org_id": org_id, 
-            "status": AIGeneratedPostStatus.APPROVED.value
-        }
+    # Build query - always include posted posts so they remain visible in calendar
+    query = {
+        "org_id": org_id, 
+        "status": {"$in": [AIGeneratedPostStatus.APPROVED.value, AIGeneratedPostStatus.POSTED.value]}
+    }
     
     posts = await db.ai_generated_posts.find(
         query,

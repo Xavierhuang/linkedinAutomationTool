@@ -311,7 +311,7 @@ NO markdown formatting, ONLY the JSON object."""
             include_images=campaign_data.get('include_images', False),
             use_ai_images=False,  # Default to stock photos
             image_style=campaign_data.get('image_style', 'professional'),
-            image_model="openai/dall-e-3",  # Only used if user enables AI images
+            image_model="google/gemini-2.5-flash-image",  # Default to Gemini 2.5 Flash Image
             status=CampaignStatus.DRAFT,
             auto_post=False,
             created_by=created_by

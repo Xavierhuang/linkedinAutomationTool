@@ -249,6 +249,18 @@ const DraftsView = ({ orgId }) => {
                     src={draft.image_url} 
                     alt="Draft" 
                     className="w-full h-48 object-cover rounded-lg mb-4"
+                    onError={(e) => {
+                      // Handle expired or broken image URLs gracefully
+                      e.target.style.display = 'none';
+                      const parent = e.target.parentElement;
+                      if (parent && !parent.querySelector('.image-error-placeholder')) {
+                        const placeholder = document.createElement('div');
+                        placeholder.className = 'image-error-placeholder';
+                        placeholder.style.cssText = 'width: 100%; height: 192px; display: flex; align-items: center; justify-content: center; background: #F3F4F6; color: #9CA3AF; border-radius: 8px; margin-bottom: 1rem; font-size: 14px;';
+                        placeholder.textContent = 'Image unavailable (expired link)';
+                        parent.insertBefore(placeholder, e.target);
+                      }
+                    }}
                   />
                 )}
                 <p className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-4 mb-4">

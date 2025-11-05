@@ -1236,6 +1236,18 @@ const BeeBotDraftsView = ({ orgId }) => {
                                     setSelectedMessageForTextOverlay(message);
                                     setShowTextOverlayModal(true);
                                   }}
+                                  onError={(e) => {
+                                    // Handle expired or broken image URLs gracefully
+                                    e.target.style.display = 'none';
+                                    const parent = e.target.parentElement;
+                                    if (parent && !parent.querySelector('.image-error-placeholder')) {
+                                      const placeholder = document.createElement('div');
+                                      placeholder.className = 'image-error-placeholder';
+                                      placeholder.style.cssText = 'padding: 20px; text-align: center; color: #9CA3AF; background: #F3F4F6; border-radius: 8px; font-size: 14px;';
+                                      placeholder.textContent = 'Image unavailable (expired link)';
+                                      parent.appendChild(placeholder);
+                                    }
+                                  }}
                                   data-has-overlays={message.textOverlays?.length > 0 || imageOverlays[message.image]?.length > 0 ? 'true' : 'false'}
                                   className="w-full rounded-lg cursor-pointer"
                                   style={{ border: '1px solid #E5E7EB' }}
@@ -1457,9 +1469,6 @@ const BeeBotDraftsView = ({ orgId }) => {
                 <option value="gemini-stock">Gemini 2.5 Flash → Stock (Default)</option>
                 <option value="google/gemini-2.5-flash-image">Gemini 2.5 Flash Only</option>
                 <option value="stock">Stock Photo Only (Free & Fast)</option>
-                <option value="dall-e-3">DALL-E 3 (AI Generated - HD)</option>
-                <option value="dall-e-2">DALL-E 2 (AI Generated - Faster)</option>
-                <option value="gpt-image-1" disabled>GPT Image 1 (Requires Org Verification)</option>
                 <option value="ai_horde">AI Horde (Free, Slow)</option>
               </select>
               {imageModel === 'gemini-stock' && (
@@ -1470,12 +1479,6 @@ const BeeBotDraftsView = ({ orgId }) => {
               )}
               {imageModel === 'stock' && (
                 <span className="text-xs text-blue-600">Free stock photos</span>
-              )}
-              {imageModel === 'dall-e-3' && (
-                <span className="text-xs text-green-600">Most photorealistic, HD quality</span>
-              )}
-              {imageModel === 'dall-e-2' && (
-                <span className="text-xs text-blue-600">Fast generation</span>
               )}
               {imageModel === 'ai_horde' && (
                 <span className="text-xs text-gray-500">May take 30s-5min</span>

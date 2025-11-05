@@ -69,10 +69,10 @@ class CampaignCreateRequest(PydanticBaseModel):
     content_types: List[str] = ["text"]
     duration: Optional[CampaignDuration] = None
     text_model: Optional[str] = "openai/gpt-4o-mini"
-    include_images: bool = False
-    use_ai_images: bool = False
+    include_images: bool = True
+    use_ai_images: bool = True
     image_style: Optional[str] = "professional"
-    image_model: Optional[str] = "openai/dall-e-3"
+    image_model: Optional[str] = "google/gemini-2.5-flash-image"
     profile_type: Optional[str] = "personal"
     linkedin_author_id: Optional[str] = None
     status: CampaignStatus = CampaignStatus.DRAFT
@@ -112,6 +112,12 @@ async def create_campaign(request: CampaignCreateRequest):
     if request.profile_type and request.linkedin_author_id:
         author_name = await resolve_author_name(request.org_id, request.profile_type, request.linkedin_author_id)
     
+    # Validate and reject DALL-E models (deprecated)
+    image_model = request.image_model or "google/gemini-2.5-flash-image"
+    if image_model.lower() and ('dall-e' in image_model.lower() or image_model.lower().startswith('openai:')):
+        print(f"[WARNING] DALL-E model detected in create: {image_model}, converting to Gemini")
+        image_model = "google/gemini-2.5-flash-image"
+    
     # Create campaign with all new fields
     campaign = Campaign(
         id=request.id if hasattr(request, 'id') else f"camp_{int(datetime.utcnow().timestamp() * 1000)}",
@@ -124,6 +130,11 @@ async def create_campaign(request: CampaignCreateRequest):
         tone_voice=request.tone_voice,
         content_types=request.content_types,
         duration=request.duration or CampaignDuration(),
+        text_model=request.text_model,
+        include_images=request.include_images,
+        use_ai_images=request.use_ai_images,
+        image_style=request.image_style,
+        image_model=image_model,
         profile_type=request.profile_type,
         linkedin_author_id=request.linkedin_author_id,
         author_name=author_name,
@@ -208,10 +219,18 @@ async def update_campaign(campaign_id: str, request: CampaignUpdateRequest):
         update_data['text_model'] = request.text_model
     if request.include_images is not None:
         update_data['include_images'] = request.include_images
+    if request.use_ai_images is not None:
+        update_data['use_ai_images'] = request.use_ai_images
     if request.image_style is not None:
         update_data['image_style'] = request.image_style
     if request.image_model is not None:
-        update_data['image_model'] = request.image_model
+        # Validate and reject DALL-E models (deprecated)
+        image_model = request.image_model.lower()
+        if 'dall-e' in image_model or image_model.startswith('openai:'):
+            print(f"[WARNING] DALL-E model detected in update: {request.image_model}, converting to Gemini")
+            update_data['image_model'] = "google/gemini-2.5-flash-image"
+        else:
+            update_data['image_model'] = request.image_model
     if request.profile_type is not None:
         update_data['profile_type'] = request.profile_type
     if request.linkedin_author_id is not None:

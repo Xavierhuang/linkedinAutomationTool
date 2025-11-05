@@ -84,11 +84,15 @@ const CalendarView = ({ orgId }) => {
         axios.get(`${BACKEND_URL}/api/posts?org_id=${orgId}&range_start=${weekStart.toISOString()}&range_end=${weekEnd.toISOString()}`)
       ]);
 
-      // Create a map of posted posts by scheduled_post_id for quick lookup
+      // Create a map of posted posts by scheduled_post_id and ai_post_id for quick lookup
       const postedMap = {};
       postedRes.data.forEach(post => {
         if (post.scheduled_post_id) {
           postedMap[post.scheduled_post_id] = post;
+        }
+        // Also map by AI post ID if available
+        if (post.ai_post_id) {
+          postedMap[post.ai_post_id] = post;
         }
       });
 
@@ -112,12 +116,17 @@ const CalendarView = ({ orgId }) => {
           };
         }),
         // AI posts already have scheduled_for and content
-        ...aiPostsRes.data.map(p => ({
-          ...p,
-          source: 'ai',
-          scheduled_for: p.scheduled_for || null,
-          is_posted: false // AI posts don't have posted status yet
-        }))
+        ...aiPostsRes.data.map(p => {
+          const postedInfo = postedMap[p.id]; // Check if this AI post was posted
+          return {
+            ...p,
+            source: 'ai',
+            scheduled_for: p.scheduled_for || null,
+            is_posted: p.status === 'posted' || p.status === 'POSTED' || !!postedInfo, // Check status or posted map
+            platform_url: postedInfo?.platform_url || null,
+            posted_at: postedInfo?.posted_at || p.posted_at || null
+          };
+        })
       ];
 
       // Fetch campaigns and enrich posts with author names
@@ -307,19 +316,23 @@ const CalendarView = ({ orgId }) => {
   const handleDeletePost = async (e, post) => {
     e.stopPropagation();
     
-    if (!window.confirm('Delete this scheduled post?')) {
+    if (!window.confirm('Delete this scheduled post? This will permanently remove it and free up the time slot.')) {
       return;
     }
 
     try {
-      if (post.source === 'ai') {
-        await axios.delete(`${BACKEND_URL}/api/ai-content/posts/${post.id}`);
-      } else {
-        await axios.delete(`${BACKEND_URL}/api/scheduled-posts/${post.id}`);
-      }
+      // Delete from all possible collections to ensure complete removal
+      await Promise.allSettled([
+        axios.delete(`${BACKEND_URL}/api/ai-content/posts/${post.id}`),
+        axios.delete(`${BACKEND_URL}/api/scheduled-posts/${post.id}`),
+        axios.delete(`${BACKEND_URL}/api/posts/${post.id}`)
+      ]);
 
       // Remove from local state
       setScheduledPosts(prevPosts => prevPosts.filter(p => p.id !== post.id));
+      
+      // Refresh scheduled posts to reflect the deletion
+      fetchScheduledPosts();
     } catch (error) {
       console.error('Error deleting post:', error);
       alert('Failed to delete post. Please try again.');
@@ -1594,6 +1607,18 @@ const CalendarView = ({ orgId }) => {
                                     // Open text overlay editor
                                     setSelectedImageForEdit(post.image_url);
                                     setShowTextOverlayModal(true);
+                                  }}
+                                  onError={(e) => {
+                                    // Handle expired or broken image URLs gracefully
+                                    e.target.style.display = 'none';
+                                    const parent = e.target.parentElement;
+                                    if (parent && !parent.querySelector('.image-error-placeholder')) {
+                                      const placeholder = document.createElement('div');
+                                      placeholder.className = 'image-error-placeholder';
+                                      placeholder.style.cssText = 'width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #F3F4F6; color: #9CA3AF; font-size: 10px; text-align: center;';
+                                      placeholder.textContent = 'Image expired';
+                                      parent.appendChild(placeholder);
+                                    }
                                   }}
                                   style={{ 
                                     width: '100%',

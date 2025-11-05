@@ -9,6 +9,14 @@ const APIKeysManagement = () => {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [activeTab, setActiveTab] = useState('openai');
+  const [modelSettings, setModelSettings] = useState({
+    text_draft_content: 'google_ai_studio:gemini-2.5-flash',
+    text_text_overlay: 'google_ai_studio:gemini-2.5-flash',
+    text_carousel_content: 'google_ai_studio:gemini-2.5-flash',
+    image_draft_image: 'google_ai_studio:gemini-2.5-flash-image',
+    image_carousel_images: 'google_ai_studio:gemini-2.5-flash-image'
+  });
+  const [availableModels, setAvailableModels] = useState({ text_models: {}, image_models: {} });
   const [keys, setKeys] = useState({
     openai_api_key: '',
     openrouter_api_key: '',
@@ -42,6 +50,8 @@ const APIKeysManagement = () => {
 
   useEffect(() => {
     fetchSystemKeys();
+    fetchModelSettings();
+    fetchAvailableModels();
   }, []);
 
   const fetchSystemKeys = async () => {
@@ -76,6 +86,42 @@ const APIKeysManagement = () => {
 
   const toggleKeyVisibility = (keyName) => {
     setShowKeys({ ...showKeys, [keyName]: !showKeys[keyName] });
+  };
+
+  const fetchModelSettings = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/admin/model-settings`);
+      setModelSettings(response.data);
+    } catch (error) {
+      console.error('Error fetching model settings:', error);
+    }
+  };
+
+  const fetchAvailableModels = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/admin/available-models`);
+      setAvailableModels(response.data);
+    } catch (error) {
+      console.error('Error fetching available models:', error);
+    }
+  };
+
+  const handleSaveModelSettings = async () => {
+    setSaving(true);
+    setMessage({ type: '', text: '' });
+
+    try {
+      await axios.post(`${API_URL}/api/admin/model-settings`, modelSettings);
+      setMessage({ type: 'success', text: 'Model settings saved successfully!' });
+    } catch (error) {
+      setMessage({
+        type: 'error',
+        text: error.response?.data?.detail || 'Failed to save model settings',
+      });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMessage({ type: '', text: '' }), 5000);
+    }
   };
 
   const getKeyStatus = (key) => {
@@ -169,10 +215,17 @@ const APIKeysManagement = () => {
         { id: 'stripe_webhook_secret', label: 'Webhook Secret', placeholder: 'whsec_...' },
         { id: 'stripe_pro_price_id', label: 'Pro Plan Price ID', placeholder: 'price_...' }
       ]
+    },
+    {
+      id: 'models',
+      name: 'AI Models',
+      description: 'Default AI models for text and image generation',
+      isModelTab: true
     }
   ];
 
   const activeProvider = providers.find(p => p.id === activeTab);
+  const isModelTab = activeTab === 'models';
 
   return (
     <div className="space-y-6">
@@ -210,8 +263,9 @@ const APIKeysManagement = () => {
         <div className="border-b border-gray-200">
           <nav className="flex overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             {providers.map((provider) => {
-              const hasAllKeys = provider.keys.every(k => keys[k.id] && keys[k.id].trim() !== '');
-              const hasSomeKeys = provider.keys.some(k => keys[k.id] && keys[k.id].trim() !== '');
+              const isModelProvider = provider.isModelTab;
+              const hasAllKeys = isModelProvider ? true : provider.keys.every(k => keys[k.id] && keys[k.id].trim() !== '');
+              const hasSomeKeys = isModelProvider ? true : provider.keys.some(k => keys[k.id] && keys[k.id].trim() !== '');
               
               return (
                 <button
@@ -224,13 +278,13 @@ const APIKeysManagement = () => {
                   }`}
                 >
                   <span>{provider.name}</span>
-                  {hasAllKeys ? (
+                  {!isModelProvider && (hasAllKeys ? (
                     <CheckCircle className="w-3.5 h-3.5 text-green-500" />
                   ) : hasSomeKeys ? (
                     <AlertCircle className="w-3.5 h-3.5 text-yellow-500" />
                   ) : (
                     <XCircle className="w-3.5 h-3.5 text-red-500" />
-                  )}
+                  ))}
                 </button>
               );
             })}
@@ -239,7 +293,133 @@ const APIKeysManagement = () => {
 
         {/* Tab Content */}
         <div className="p-6">
-          {activeProvider && (
+          {isModelTab ? (
+            /* Model Settings Tab */
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">AI Model Configuration</h2>
+                <p className="text-sm text-gray-600 mt-1">Set default AI models for different features in the application</p>
+              </div>
+
+              {/* Text Generation Models */}
+              <div className="border border-gray-200 rounded-lg p-6">
+                <h3 className="text-md font-semibold text-gray-900 mb-4">Text Generation Models</h3>
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Draft Content Generation
+                    </label>
+                    <select
+                      value={modelSettings.text_draft_content}
+                      onChange={(e) => setModelSettings({ ...modelSettings, text_draft_content: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    >
+                      {Object.entries(availableModels.text_models || {}).flatMap(([provider, models]) =>
+                        models.map(model => (
+                          <option key={model.value} value={model.value}>{model.label}</option>
+                        ))
+                      )}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Used when generating post content from topics</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Text Overlay Generation
+                    </label>
+                    <select
+                      value={modelSettings.text_text_overlay}
+                      onChange={(e) => setModelSettings({ ...modelSettings, text_text_overlay: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    >
+                      {Object.entries(availableModels.text_models || {}).flatMap(([provider, models]) =>
+                        models.map(model => (
+                          <option key={model.value} value={model.value}>{model.label}</option>
+                        ))
+                      )}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Used when generating AI text overlays for images</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Carousel Content Generation
+                    </label>
+                    <select
+                      value={modelSettings.text_carousel_content}
+                      onChange={(e) => setModelSettings({ ...modelSettings, text_carousel_content: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    >
+                      {Object.entries(availableModels.text_models || {}).flatMap(([provider, models]) =>
+                        models.map(model => (
+                          <option key={model.value} value={model.value}>{model.label}</option>
+                        ))
+                      )}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Used when generating carousel post captions</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Image Generation Models */}
+              <div className="border border-gray-200 rounded-lg p-6">
+                <h3 className="text-md font-semibold text-gray-900 mb-4">Image Generation Models</h3>
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Draft Image Generation
+                    </label>
+                    <select
+                      value={modelSettings.image_draft_image}
+                      onChange={(e) => setModelSettings({ ...modelSettings, image_draft_image: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    >
+                      {Object.entries(availableModels.image_models || {}).flatMap(([provider, models]) =>
+                        models.map(model => (
+                          <option key={model.value} value={model.value}>{model.label}</option>
+                        ))
+                      )}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Used when generating images for draft posts</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Carousel Image Generation
+                    </label>
+                    <select
+                      value={modelSettings.image_carousel_images}
+                      onChange={(e) => setModelSettings({ ...modelSettings, image_carousel_images: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    >
+                      {Object.entries(availableModels.image_models || {}).flatMap(([provider, models]) =>
+                        models.map(model => (
+                          <option key={model.value} value={model.value}>{model.label}</option>
+                        ))
+                      )}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Used when generating images for carousel posts</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Helper Text */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-blue-900">
+                    <p className="font-semibold mb-1">About Model Selection:</p>
+                    <ul className="list-disc list-inside space-y-1 ml-2">
+                      <li>These are default models used system-wide</li>
+                      <li>Format: provider:model-name (e.g., google_ai_studio:gemini-2.5-flash)</li>
+                      <li>Users can override defaults if they have their own API keys</li>
+                      <li>Make sure the corresponding API keys are configured in the API Keys tab</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : activeProvider && (
             <div className="space-y-6">
               {/* Provider Info */}
               <div>
@@ -338,12 +518,12 @@ const APIKeysManagement = () => {
       {/* Save Button */}
       <div className="flex justify-end">
         <button
-          onClick={handleSave}
+          onClick={isModelTab ? handleSaveModelSettings : handleSave}
           disabled={saving}
           className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
         >
           <Save className="w-5 h-5" />
-          {saving ? 'Saving...' : 'Save All Keys'}
+          {saving ? 'Saving...' : isModelTab ? 'Save Model Settings' : 'Save All Keys'}
         </button>
       </div>
 

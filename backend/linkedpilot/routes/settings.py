@@ -145,7 +145,7 @@ async def save_api_keys(request: ApiKeysRequest):
         
         # Always update these
         encrypted_data["text_model"] = request.text_model or 'gpt-4o'
-        encrypted_data["image_model"] = request.image_model or 'dall-e-3'
+        encrypted_data["image_model"] = request.image_model or 'google/gemini-2.5-flash-image'
         encrypted_data["user_id"] = request.user_id
         
         from datetime import datetime, timezone

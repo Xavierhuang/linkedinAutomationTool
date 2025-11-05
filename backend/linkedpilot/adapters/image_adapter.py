@@ -1,7 +1,7 @@
 """
 Image Generation Adapter
-Supports: OpenAI DALL-E 2/3, AI Horde (free), OpenRouter image models
-Priority: DALL-E 2 (user's API key) → AI Horde (free fallback)
+Supports: Google AI Studio (Gemini 2.5 Flash Image), AI Horde (free), OpenRouter image models
+Note: DALL-E is deprecated - use Google AI Studio (Gemini 2.5 Flash Image) instead
 """
 
 import os
@@ -10,9 +10,9 @@ from typing import Optional, List
 import httpx
 
 class ImageAdapter:
-    """Adapter for image generation using OpenAI DALL-E or AI Horde fallback"""
+    """Adapter for image generation using Google AI Studio (Gemini 2.5 Flash Image) or AI Horde fallback"""
     
-    def __init__(self, api_key: Optional[str] = None, provider: str = "openai", model: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, provider: str = "google_ai_studio", model: Optional[str] = None):
         self.provider = provider
         
         # Check if it's a mock model first
@@ -40,7 +40,8 @@ class ImageAdapter:
         if self.provider == "google_ai_studio":
             self.api_key = api_key or os.getenv('GOOGLE_AI_API_KEY')
             self.base_url = "https://generativelanguage.googleapis.com/v1beta"
-            self.model = model or os.getenv('IMAGE_MODEL', 'gemini-2.0-flash-exp')
+            # Always use gemini-2.5-flash-image for Google AI Studio image generation
+            self.model = "gemini-2.5-flash-image"
         elif self.provider == "openrouter":
             self.api_key = api_key or os.getenv('OPENROUTER_API_KEY') or os.getenv('OPENAI_API_KEY')
             self.base_url = "https://openrouter.ai/api/v1"
@@ -52,11 +53,12 @@ class ImageAdapter:
             self.base_url = "https://stablehorde.net/api/v2"
             self.model = model or "stable_diffusion_xl"
         else:
-            # OpenAI DALL-E (default)
-            self.api_key = api_key or os.getenv('OPENAI_API_KEY')
-            self.base_url = "https://api.openai.com/v1"
-            # Default to DALL-E 2 (cheaper, faster than DALL-E 3)
-            self.model = model or os.getenv('IMAGE_MODEL', 'dall-e-2')
+            # Unknown provider - default to Google AI Studio (DALL-E removed)
+            print(f"[WARNING] Unknown provider '{self.provider}', defaulting to Google AI Studio")
+            self.provider = "google_ai_studio"
+            self.api_key = api_key or os.getenv('GOOGLE_AI_API_KEY')
+            self.base_url = "https://generativelanguage.googleapis.com/v1beta"
+            self.model = "gemini-2.5-flash-image"
         
         self.mock_mode = not self.api_key or os.getenv('MOCK_IMAGE', 'false').lower() == 'true'
         
@@ -65,6 +67,13 @@ class ImageAdapter:
         print(f"   Model: {self.model}")
         print(f"   API key present: {bool(self.api_key)}")
         print(f"   Mock mode: {self.mock_mode}")
+        print(f"   Base URL: {self.base_url}")
+        
+        # Safety check: If provider was set to openai, raise error (DALL-E is deprecated)
+        if self.provider == "openai":
+            print(f"[ERROR] OpenAI/DALL-E provider detected - DALL-E is deprecated!")
+            print(f"[ERROR] Use 'google_ai_studio' provider for Gemini 2.5 Flash Image instead")
+            raise ValueError("DALL-E is deprecated. Use 'google_ai_studio' provider for Gemini 2.5 Flash Image.")
     
     async def generate_image(self, prompt: str, style: str = "professional", size: str = "1024x1024") -> dict:
         """
@@ -108,19 +117,37 @@ class ImageAdapter:
             
             async with httpx.AsyncClient(timeout=120.0) as client:
                 if self.provider == "google_ai_studio":
-                    # Google AI Studio direct API
+                    # Google AI Studio direct API - Gemini 2.5 Flash Image
+                    # Documentation: https://ai.google.dev/gemini-api/docs/image-generation
+                    # Model: gemini-2.5-flash-image
+                    # Endpoint: POST /v1beta/models/gemini-2.5-flash-image:generateContent
+                    model_name = "gemini-2.5-flash-image"
+                    endpoint = f"{self.base_url}/models/{model_name}:generateContent"
+                    
+                    # Request format per Google docs:
+                    # {
+                    #   "contents": [{
+                    #     "parts": [{"text": "prompt"}]
+                    #   }]
+                    # }
+                    request_body = {
+                        "contents": [{
+                            "parts": [{
+                                "text": full_prompt
+                            }]
+                        }]
+                    }
+                    
+                    print(f"[IMAGE] Calling Gemini API: {endpoint}")
+                    print(f"[IMAGE] Request body keys: {list(request_body.keys())}")
+                    
                     response = await client.post(
-                        f"{self.base_url}/models/{self.model}:generateContent?key={self.api_key}",
+                        endpoint,
                         headers={
+                            "x-goog-api-key": self.api_key,
                             "Content-Type": "application/json"
                         },
-                        json={
-                            "contents": [{
-                                "parts": [{
-                                    "text": f"Generate an image: {full_prompt}"
-                                }]
-                            }]
-                        }
+                        json=request_body
                     )
                 elif self.provider == "openrouter":
                     # OpenRouter image generation (supports Gemini, Flux, SDXL, etc.)
@@ -171,8 +198,16 @@ class ImageAdapter:
                 elif self.provider == "ai_horde":
                     # AI Horde (Stable Horde) - Free crowdsourced generation
                     return await self._generate_ai_horde(full_prompt, size)
-                else:
-                    # OpenAI image generation (DALL-E 2/3 or GPT Image 1) with maximum photorealism
+                elif self.provider == "openai":
+                    # OpenAI image generation (DALL-E 2/3 or GPT Image 1) - ONLY if explicitly using OpenAI provider
+                    # Note: DALL-E is deprecated - use Google AI Studio (Gemini) instead
+                    print(f"[ERROR] ⚠️⚠️⚠️ DALL-E PROVIDER DETECTED - THIS SHOULD NOT HAPPEN! ⚠️⚠️⚠️")
+                    print(f"[ERROR] Provider: {self.provider}, Model: {self.model}")
+                    print(f"[ERROR] Stack trace:")
+                    import traceback
+                    traceback.print_stack()
+                    print(f"[WARNING] OpenAI/DALL-E provider detected - DALL-E is deprecated. Use Google AI Studio instead.")
+                    raise ValueError("DALL-E is deprecated and should not be used. This code path should not be reached. Please use 'google_ai_studio' provider.")
                     
                     # Try GPT Image 1 first if selected, with automatic fallback to DALL-E 3
                     if self.model == "gpt-image-1":
@@ -284,23 +319,31 @@ class ImageAdapter:
                         image_url = None
                         
                         for part in parts:
-                            if 'inlineData' in part:
-                                # Direct base64 image data
-                                inline_data = part['inlineData']
+                            # Check for inlineData (per Google docs: part.inline_data.data)
+                            # Handle both camelCase (JSON) and snake_case (Python SDK) formats
+                            inline_data = part.get('inlineData') or part.get('inline_data')
+                            if inline_data:
+                                # Extract base64 image data from inline_data.data
                                 image_base64 = inline_data.get('data')
-                                mime_type = inline_data.get('mimeType', 'image/png')
                                 if image_base64:
+                                    # Get MIME type (default to image/png per docs)
+                                    mime_type = inline_data.get('mimeType') or inline_data.get('mime_type', 'image/png')
+                                    # Create data URL as per Google's documentation pattern
                                     image_url = f"data:{mime_type};base64,{image_base64}"
+                                    print(f"   [IMAGE] Found image in inline_data.data (MIME: {mime_type})")
                                     break
-                            elif 'text' in part and 'base64' in part['text']:
-                                # Base64 in text format
-                                text_content = part['text']
-                                import re
-                                base64_match = re.search(r'[A-Za-z0-9+/]{100,}={0,2}', text_content)
-                                if base64_match:
-                                    image_base64 = base64_match.group()
-                                    image_url = f"data:image/png;base64,{image_base64}"
-                                    break
+                            # Also check for text that might contain base64 (fallback)
+                            elif part.get('text'):
+                                text_content = part.get('text')
+                                # Skip descriptive text, only look for base64 patterns
+                                if text_content and len(text_content) > 100 and any(char in text_content for char in ['+', '/', '=']):
+                                    import re
+                                    base64_match = re.search(r'[A-Za-z0-9+/]{100,}={0,2}', text_content)
+                                    if base64_match:
+                                        image_base64 = base64_match.group()
+                                        image_url = f"data:image/png;base64,{image_base64}"
+                                        print(f"   [IMAGE] Found image in text part (base64 pattern match)")
+                                        break
                         
                         if image_base64 or image_url:
                             print(f"[SUCCESS] Image generated successfully with Google AI Studio!")
@@ -317,7 +360,19 @@ class ImageAdapter:
                         else:
                             print(f"[WARNING] Could not extract image from Google AI Studio response")
                             print(f"   Response structure: {list(result.keys())}")
-                            raise Exception("No image data found in Google AI Studio response")
+                            if result.get('candidates'):
+                                print(f"   Candidates: {len(result['candidates'])}")
+                                if len(result['candidates']) > 0:
+                                    candidate = result['candidates'][0]
+                                    print(f"   Candidate keys: {list(candidate.keys())}")
+                                    if candidate.get('content'):
+                                        content = candidate['content']
+                                        print(f"   Content keys: {list(content.keys())}")
+                                        if content.get('parts'):
+                                            print(f"   Parts count: {len(content['parts'])}")
+                                            for i, part in enumerate(content['parts']):
+                                                print(f"   Part {i} keys: {list(part.keys())}")
+                            raise Exception("No image data found in Google AI Studio response. Response structure logged above.")
                 
                 elif self.provider == "openrouter" and "gemini" in self.model.lower():
                     # Gemini 2.5 Flash Image returns the image in the message content
@@ -373,7 +428,9 @@ class ImageAdapter:
                             raise Exception("No image data found in Gemini response")
                 
                 elif result.get('data') and len(result['data']) > 0:
-                    # Standard OpenAI/OpenRouter image response
+                    # Standard OpenAI/OpenRouter image response (only for OpenAI provider)
+                    if self.provider != "openai":
+                        raise Exception(f"Unexpected response format for provider {self.provider}")
                     image_url = result['data'][0]['url']
                     print(f"[SUCCESS] Image generated successfully!")
                     print(f"   URL: {image_url[:50]}...")
@@ -385,8 +442,9 @@ class ImageAdapter:
                         "size": size
                     }
                 else:
+                    # Unknown provider or response format
                     print(f"[ERROR] Unexpected response format: {result}")
-                    raise Exception("No image was generated")
+                    raise Exception(f"Unsupported provider or response format: {self.provider}. Use 'google_ai_studio' for Gemini 2.5 Flash Image.")
                 
         except Exception as e:
             print(f"[ERROR] Error generating image: {e}")

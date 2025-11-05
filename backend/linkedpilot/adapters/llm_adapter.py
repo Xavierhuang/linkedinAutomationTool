@@ -20,11 +20,11 @@ class LLMAdapter:
         elif provider == "google_ai_studio":
             self.api_key = api_key or os.getenv('GOOGLE_AI_API_KEY')
             self.base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
-            self.model = model or 'gemini-2.0-flash-exp'
+            self.model = model or 'gemini-2.5-flash'  # Gemini 2.5 Flash for text generation
         elif provider == "anthropic":
             self.api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
             self.base_url = "https://api.anthropic.com/v1"
-            self.model = model or 'claude-3-5-sonnet-20241022'
+            self.model = model or 'claude-3-5-sonnet'  # Valid Anthropic model name
         else:  # openai (default)
             self.api_key = api_key or os.getenv('OPENAI_API_KEY')
             self.base_url = "https://api.openai.com/v1"
@@ -113,6 +113,12 @@ Call-to-Action (CTA):
 End with a conversation prompt, not a sales pitch.
 Example: "What's your take?" / "How are you approaching this?" / "Would you try this?"
 
+Hashtags (REQUIRED):
+Include exactly 5 relevant hashtags at the very end of the post, on a new line after the CTA.
+- Mix trending hashtags with niche-specific ones
+- Make them relevant to the topic and industry
+- Use proper LinkedIn hashtag format (e.g., #Leadership #BusinessGrowth #StartupTips)
+
 Formatting Rules:
 
 Keep total length under 260 words.
@@ -123,14 +129,14 @@ Avoid dense blocks of text — it should look like it breathes on screen.
 
 If you use lists, use the "→" arrow style or emojis for flow.
 
-OUTPUT FORMAT (respond ONLY with valid JSON):
-{{
-  "body": "Complete post text formatted with natural rhythm, short paragraphs, line breaks, and emojis — easy to scan and read on LinkedIn.\nEach paragraph should be 1–3 lines max.\nInclude a clear CTA at the end.",
-  "hashtags": ["#HashtagOne", "#HashtagTwo", "#HashtagThree", "#HashtagFour", "#HashtagFive"],
-  "cta": "Exact question or invitation to engage from the final paragraph"
-}}
+Output Format:
+Write the complete post with all content, then add 5 hashtags at the end on a new line.
+Example:
+[Your post content here with paragraphs separated by line breaks]
 
-CRITICAL: Your response must be valid JSON only. Do not include any text before or after the JSON object."""
+What's your take?
+
+#HashtagOne #HashtagTwo #HashtagThree #HashtagFour #HashtagFive"""
 
             print("[API] Calling OpenAI-compatible API with optimized parameters...")
             # Build request kwargs with provider-specific compatibility
@@ -307,33 +313,116 @@ Make it engaging and actionable!"""
             }
     
     def _parse_post_response(self, response: str) -> Dict:
-        """Parse OpenAI response into post structure"""
-        import json
+        """Parse post response - expects prose text with hashtags at the end"""
         import re
         
         try:
-            # Try to extract JSON from markdown code blocks if present
-            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            # Clean up response (remove any markdown code blocks if present)
+            text = response.strip()
+            if text.startswith('```'):
+                # Remove markdown code blocks
+                text = re.sub(r'```(?:json|text)?\s*', '', text)
+                text = re.sub(r'```\s*$', '', text)
+            
+            # Try to extract JSON if LLM still outputs JSON (backward compatibility)
+            json_match = re.search(r'\{[^{}]*"body"[^{}]*\}', text, re.DOTALL)
             if json_match:
-                json_str = json_match.group(1)
+                try:
+                    import json
+                    parsed = json.loads(json_match.group(0))
+                    body = parsed.get("body", "")
+                    hashtags = parsed.get("hashtags", [])
+                    # Combine body and hashtags if hashtags are separate
+                    if hashtags:
+                        body_with_hashtags = f"{body}\n\n{' '.join(hashtags)}"
+                    else:
+                        body_with_hashtags = body
+                    return {
+                        "body": body_with_hashtags,
+                        "hashtags": hashtags if isinstance(hashtags, list) else [],
+                        "cta": parsed.get("cta", "")
+                    }
+                except:
+                    pass
+            
+            # Parse prose format: extract hashtags from the end
+            # Look for hashtags at the end (usually last line with # symbols)
+            lines = text.split('\n')
+            hashtags = []
+            hashtag_line_indices = []
+            
+            # Find hashtags at the end (last 1-2 lines)
+            for i in range(len(lines) - 1, max(-1, len(lines) - 3), -1):
+                line = lines[i].strip()
+                if line and '#' in line:
+                    # Extract all hashtags from this line
+                    found_hashtags = re.findall(r'#\w+', line)
+                    if found_hashtags:
+                        hashtags.extend(found_hashtags)
+                        hashtag_line_indices.append(i)
+            
+            # Reverse hashtags to maintain order
+            hashtags = list(reversed(hashtags)) if hashtags else []
+            
+            # Ensure we have at least 5 hashtags - if we have fewer, the AI might not have included them
+            # or they might be embedded in the text. Let's check if we need to extract more.
+            if len(hashtags) < 5:
+                # Try to find hashtags anywhere in the text (not just at the end)
+                all_hashtags = re.findall(r'#\w+', text)
+                if all_hashtags and len(all_hashtags) >= 5:
+                    # Take the last 5 hashtags found
+                    hashtags = all_hashtags[-5:]
+                elif len(hashtags) == 0:
+                    # No hashtags found at all - this shouldn't happen with the updated prompt
+                    # but we'll add defaults as fallback
+                    hashtags = ["#LinkedIn", "#Business", "#Professional", "#Growth", "#Success"]
+            
+            # Extract CTA from text before removing hashtags
+            # Look for question mark in last few paragraphs
+            cta_match = re.search(r'([^.!?\n]+\?[^.!?\n]*)', text, re.MULTILINE)
+            cta = cta_match.group(1).strip() if cta_match else ""
+            
+            # If we found hashtags, ensure we have exactly 5 and format properly
+            if hashtags:
+                # Remove hashtag lines from body text
+                body_lines = [line for i, line in enumerate(lines) if i not in hashtag_line_indices]
+                text = '\n'.join(body_lines).strip()
+                
+                # Ensure we have exactly 5 hashtags
+                hashtags_to_use = hashtags[:5] if len(hashtags) >= 5 else hashtags
+                # If we have fewer than 5, pad with defaults (but prefer AI-generated ones)
+                if len(hashtags_to_use) < 5:
+                    defaults = ["#LinkedIn", "#Business", "#Professional", "#Growth", "#Success"]
+                    # Only add defaults that aren't already in hashtags_to_use
+                    for default in defaults:
+                        if len(hashtags_to_use) >= 5:
+                            break
+                        if default.lower() not in [h.lower() for h in hashtags_to_use]:
+                            hashtags_to_use.append(default)
+                
+                # Re-add exactly 5 hashtags at the end
+                body_text = f"{text}\n\n{' '.join(hashtags_to_use)}"
+                hashtags = hashtags_to_use
             else:
-                json_str = response
+                # No hashtags found, use text as-is and add exactly 5 default hashtags
+                body_text = text
+                hashtags = ["#LinkedIn", "#Business", "#Professional", "#Growth", "#Success"]
+                body_text = f"{body_text}\n\n{' '.join(hashtags)}"
             
-            parsed = json.loads(json_str)
-            
-            # Ensure required fields exist
             return {
-                "body": parsed.get("body", response),
-                "hashtags": parsed.get("hashtags", ["#LinkedIn", "#Business"]),
-                "cta": parsed.get("cta", "Learn more")
+                "body": body_text,
+                "hashtags": hashtags,
+                "cta": cta
             }
+            
         except Exception as e:
             print(f"Error parsing post response: {e}")
-            # Fallback to extracting text content
+            # Fallback: return text as-is with default hashtags (5 total)
+            hashtags = ["#LinkedIn", "#Business", "#Professional", "#Growth", "#Success"]
             return {
-                "body": response,
-                "hashtags": ["#LinkedIn", "#Business"],
-                "cta": "Learn more"
+                "body": f"{response.strip()}\n\n{' '.join(hashtags)}",
+                "hashtags": hashtags,
+                "cta": "What's your take?"
             }
     
     async def generate_completion(self, prompt: str, temperature: float = 0.7) -> str:

@@ -897,3 +897,126 @@ async def save_system_keys(
     
     return {"message": "System API keys saved successfully"}
 
+
+# ============================================================================
+# DEFAULT AI MODEL SETTINGS
+# ============================================================================
+
+class ModelSettingsRequest(BaseModel):
+    # Text generation models
+    text_draft_content: Optional[str] = 'google_ai_studio:gemini-2.5-flash'  # Provider:Model
+    text_text_overlay: Optional[str] = 'google_ai_studio:gemini-2.5-flash'
+    text_carousel_content: Optional[str] = 'google_ai_studio:gemini-2.5-flash'
+    
+    # Image generation models
+    image_draft_image: Optional[str] = 'google_ai_studio:gemini-2.5-flash-image'
+    image_carousel_images: Optional[str] = 'google_ai_studio:gemini-2.5-flash-image'
+
+
+@router.get("/model-settings")
+async def get_model_settings(admin_user: dict = Depends(get_current_admin_user)):
+    """Get default AI model settings (admin only)"""
+    db = get_db()
+    
+    # Fetch model settings from database
+    model_settings = await db.system_settings.find_one({"_id": "model_settings"})
+    
+    if not model_settings:
+        # Return default values
+        return {
+            "text_draft_content": "google_ai_studio:gemini-2.5-flash",
+            "text_text_overlay": "google_ai_studio:gemini-2.5-flash",
+            "text_carousel_content": "google_ai_studio:gemini-2.5-flash",
+            "image_draft_image": "google_ai_studio:gemini-2.5-flash-image",
+            "image_carousel_images": "google_ai_studio:gemini-2.5-flash-image"
+        }
+    
+    return {
+        "text_draft_content": model_settings.get('text_draft_content', 'google_ai_studio:gemini-2.5-flash'),
+        "text_text_overlay": model_settings.get('text_text_overlay', 'google_ai_studio:gemini-2.5-flash'),
+        "text_carousel_content": model_settings.get('text_carousel_content', 'google_ai_studio:gemini-2.5-flash'),
+        "image_draft_image": model_settings.get('image_draft_image', 'google_ai_studio:gemini-2.5-flash-image'),
+        "image_carousel_images": model_settings.get('image_carousel_images', 'google_ai_studio:gemini-2.5-flash-image')
+    }
+
+
+@router.post("/model-settings")
+async def save_model_settings(
+    settings: ModelSettingsRequest,
+    admin_user: dict = Depends(get_current_admin_user),
+    request: Request = None
+):
+    """Save default AI model settings (admin only)"""
+    db = get_db()
+    
+    # Save model settings
+    settings_data = {
+        "_id": "model_settings",
+        "text_draft_content": settings.text_draft_content or "google_ai_studio:gemini-2.5-flash",
+        "text_text_overlay": settings.text_text_overlay or "google_ai_studio:gemini-2.5-flash",
+        "text_carousel_content": settings.text_carousel_content or "google_ai_studio:gemini-2.5-flash",
+        "image_draft_image": settings.image_draft_image or "google_ai_studio:gemini-2.5-flash-image",
+        "image_carousel_images": settings.image_carousel_images or "google_ai_studio:gemini-2.5-flash-image",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": admin_user['id']
+    }
+    
+    # Upsert model settings
+    await db.system_settings.update_one(
+        {"_id": "model_settings"},
+        {"$set": settings_data},
+        upsert=True
+    )
+    
+    # Log admin activity
+    if request:
+        await log_admin_activity(
+            admin_id=admin_user['id'],
+            action="model_settings_updated",
+            details={"settings": settings.dict()},
+            ip_address=request.client.host if request.client else None
+        )
+    
+    return {"message": "Model settings saved successfully"}
+
+
+@router.get("/available-models")
+async def get_available_models(admin_user: dict = Depends(get_current_admin_user)):
+    """Get list of available AI models organized by provider"""
+    return {
+        "text_models": {
+            "google_ai_studio": [
+                {"value": "google_ai_studio:gemini-2.5-flash", "label": "Gemini 2.5 Flash (Recommended)"},
+                {"value": "google_ai_studio:gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
+                {"value": "google_ai_studio:gemini-2.0-flash", "label": "Gemini 2.0 Flash"},
+            ],
+            "openai": [
+                {"value": "openai:gpt-4o", "label": "GPT-4o (Recommended)"},
+                {"value": "openai:gpt-4-turbo", "label": "GPT-4 Turbo"},
+                {"value": "openai:gpt-3.5-turbo", "label": "GPT-3.5 Turbo"},
+            ],
+            "anthropic": [
+                {"value": "anthropic:claude-3-5-sonnet", "label": "Claude 3.5 Sonnet (Recommended)"},
+                {"value": "anthropic:claude-3-opus", "label": "Claude 3 Opus"},
+                {"value": "anthropic:claude-3-haiku", "label": "Claude 3 Haiku"},
+            ],
+            "openrouter": [
+                {"value": "openrouter:anthropic/claude-3.5-sonnet", "label": "Claude 3.5 Sonnet (via OpenRouter)"},
+                {"value": "openrouter:google/gemini-pro", "label": "Gemini Pro (via OpenRouter)"},
+            ]
+        },
+        "image_models": {
+            "google_ai_studio": [
+                {"value": "google_ai_studio:gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image (Recommended)"},
+            ],
+            "openrouter": [
+                {"value": "openrouter:google/gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image (via OpenRouter)"},
+                {"value": "openrouter:black-forest-labs/flux-1.1-pro", "label": "Flux 1.1 Pro (via OpenRouter)"},
+            ],
+            "stock": [
+                {"value": "stock:unsplash", "label": "Unsplash Stock Photos"},
+                {"value": "stock:pexels", "label": "Pexels Stock Photos"},
+            ]
+        }
+    }
+

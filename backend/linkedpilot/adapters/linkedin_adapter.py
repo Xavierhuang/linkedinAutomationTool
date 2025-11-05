@@ -128,7 +128,7 @@ class LinkedInAdapter:
                     import base64 as _b64
                     content_bytes = _b64.b64decode(b64)
                 else:
-                    media_response = await client.get(media_url)
+            media_response = await client.get(media_url)
                     media_response.raise_for_status()
                     content_bytes = media_response.content
                     # Try to get content type from headers

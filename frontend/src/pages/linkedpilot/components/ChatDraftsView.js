@@ -277,7 +277,19 @@ const ChatDraftsView = ({ orgId }) => {
                           {message.image && (
                             <div className="mt-3">
                               <img 
-                                src={message.image} 
+                                src={message.image}
+                                onError={(e) => {
+                                  // Handle expired or broken image URLs gracefully
+                                  e.target.style.display = 'none';
+                                  const parent = e.target.parentElement;
+                                  if (parent && !parent.querySelector('.image-error-placeholder')) {
+                                    const placeholder = document.createElement('div');
+                                    placeholder.className = 'image-error-placeholder';
+                                    placeholder.style.cssText = 'padding: 20px; text-align: center; color: #9CA3AF; background: #F3F4F6; border-radius: 8px; font-size: 14px;';
+                                    placeholder.textContent = 'Image unavailable (expired link)';
+                                    parent.appendChild(placeholder);
+                                  }
+                                }}
                                 alt="Generated" 
                                 className="w-full rounded-lg border border-gray-200"
                               />
@@ -389,7 +401,19 @@ const ChatDraftsView = ({ orgId }) => {
               <p className="text-sm font-medium text-gray-700 mb-2">Post Preview:</p>
               {selectedPost.image && (
                 <img 
-                  src={selectedPost.image} 
+                  src={selectedPost.image}
+                  onError={(e) => {
+                    // Handle expired or broken image URLs gracefully
+                    e.target.style.display = 'none';
+                    const parent = e.target.parentElement;
+                    if (parent && !parent.querySelector('.image-error-placeholder')) {
+                      const placeholder = document.createElement('div');
+                      placeholder.className = 'image-error-placeholder';
+                      placeholder.style.cssText = 'padding: 20px; text-align: center; color: #9CA3AF; background: #F3F4F6; border-radius: 8px; font-size: 14px;';
+                      placeholder.textContent = 'Image unavailable (expired link)';
+                      parent.appendChild(placeholder);
+                    }
+                  }}
                   alt="Preview" 
                   className="w-full h-24 object-cover rounded-lg mb-2"
                 />

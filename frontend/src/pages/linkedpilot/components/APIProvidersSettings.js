@@ -391,10 +391,6 @@ const APIProvidersSettings = ({
                   <option value="google/gemini-2.5-flash-image">Gemini 2.5 Flash (Recommended)</option>
                   <option value="google/gemini-2.0-flash-exp">Gemini 2.0 Flash Experimental</option>
                 </optgroup>
-                <optgroup label="OpenAI">
-                  <option value="openai/gpt-image-1" disabled>GPT Image 1 (Requires Org Verification)</option>
-                  <option value="openai/dall-e-3">DALL-E 3 (Most Photorealistic - HD)</option>
-                </optgroup>
               </select>
             </div>
           </div>

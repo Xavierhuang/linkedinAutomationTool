@@ -29,7 +29,7 @@ class ImageGenerateRequest(PydanticBaseModel):
     style: str = "professional"
     user_id: str  # Add user_id to fetch API key
     org_id: Optional[str] = None  # Organization ID for prompt logging
-    model: str = "dall-e-2"  # Image model to use
+    model: str = "gemini-2.5-flash-image"  # Image model to use (default: Gemini 2.5 Flash Image)
     session_id: Optional[str] = None  # Session ID for WebSocket progress updates
     draft_id: Optional[str] = None  # Draft ID for prompt history tracking
 
@@ -39,6 +39,47 @@ def get_db():
     from motor.motor_asyncio import AsyncIOMotorClient
     client = AsyncIOMotorClient(os.environ['MONGO_URL'])
     return client[os.environ['DB_NAME']]
+
+async def get_default_model_setting(setting_key: str) -> str:
+    """Get default model setting from system_settings
+    
+    Args:
+        setting_key: One of 'text_draft_content', 'text_text_overlay', 'text_carousel_content',
+                     'image_draft_image', 'image_carousel_images'
+    
+    Returns:
+        Model string in format 'provider:model' or default value
+    """
+    db = get_db()
+    model_settings = await db.system_settings.find_one({"_id": "model_settings"})
+    
+    if not model_settings:
+        # Return defaults
+        defaults = {
+            'text_draft_content': 'google_ai_studio:gemini-2.5-flash',
+            'text_text_overlay': 'google_ai_studio:gemini-2.5-flash',
+            'text_carousel_content': 'google_ai_studio:gemini-2.5-flash',
+            'image_draft_image': 'google_ai_studio:gemini-2.5-flash-image',
+            'image_carousel_images': 'google_ai_studio:gemini-2.5-flash-image'
+        }
+        return defaults.get(setting_key, 'google_ai_studio:gemini-2.5-flash')
+    
+    return model_settings.get(setting_key, 'google_ai_studio:gemini-2.5-flash')
+
+def parse_model_setting(model_string: str) -> tuple:
+    """Parse model setting string into (provider, model) tuple
+    
+    Args:
+        model_string: Format 'provider:model' (e.g., 'google_ai_studio:gemini-2.5-flash')
+    
+    Returns:
+        Tuple of (provider, model)
+    """
+    if ':' in model_string:
+        provider, model = model_string.split(':', 1)
+        return provider, model
+    # Fallback: assume google_ai_studio if no provider specified
+    return 'google_ai_studio', model_string
 
 async def get_system_api_key(key_type: str = "any") -> tuple:
     """Get system-wide API key from admin-managed settings
@@ -292,13 +333,55 @@ async def generate_draft_content(request: DraftGenerateRequest):
     print(f"   Topic: {request.topic}")
     print(f"   Tone: {request.tone}")
     
-    # Multi-provider fallback: Prefer Google first (user has credits), then OpenAI → Claude → OpenRouter
-    providers_to_try = [
-        ("google_ai_studio", "gemini-2.0-flash-exp"),
-        ("openai", "gpt-4o"),
-        ("anthropic", "claude-3-5-sonnet-20241022"),
-        ("openrouter", "anthropic/claude-3.5-sonnet")
-    ]
+    # Get default model setting from admin configuration
+    default_model_setting = await get_default_model_setting('text_draft_content')
+    default_provider, default_model = parse_model_setting(default_model_setting)
+    
+    print(f"[DRAFT] Using default model: {default_provider}:{default_model}")
+    
+    # Multi-provider fallback: Use configured default first, then fallback providers
+    providers_to_try = []
+    
+    # Priority 1: Use configured default model
+    default_key, _ = await get_system_api_key(default_provider)
+    if not default_key:
+        default_key, _ = await get_user_api_key(request.created_by, default_provider)
+    if default_key:
+        providers_to_try.append((default_provider, default_model))
+        print(f"   [SUCCESS] Added default model: {default_provider}:{default_model}")
+    
+    # Priority 2-4: Add other providers if keys are present (for fallback)
+    # Google AI Studio
+    if default_provider != "google_ai_studio":
+        google_key, _ = await get_system_api_key("google_ai_studio")
+        if not google_key:
+            google_key, _ = await get_user_api_key(request.created_by, "google_ai_studio")
+        if google_key:
+            providers_to_try.append(("google_ai_studio", "gemini-2.5-flash"))
+    
+    # OpenAI
+    if default_provider != "openai":
+        openai_key, _ = await get_system_api_key("openai")
+        if not openai_key:
+            openai_key, _ = await get_user_api_key(request.created_by, "openai")
+        if openai_key:
+            providers_to_try.append(("openai", "gpt-4o"))
+    
+    # Anthropic
+    if default_provider != "anthropic":
+        anthropic_key, _ = await get_system_api_key("anthropic")
+        if not anthropic_key:
+            anthropic_key, _ = await get_user_api_key(request.created_by, "anthropic")
+        if anthropic_key:
+            providers_to_try.append(("anthropic", "claude-3-5-sonnet"))
+    
+    # OpenRouter
+    if default_provider != "openrouter":
+        openrouter_key, _ = await get_system_api_key("openrouter")
+        if not openrouter_key:
+            openrouter_key, _ = await get_user_api_key(request.created_by, "openrouter")
+        if openrouter_key:
+            providers_to_try.append(("openrouter", "anthropic/claude-3.5-sonnet"))
     
     content_data = None
     last_error = None
@@ -494,7 +577,7 @@ async def generate_image_for_draft(request: ImageGenerateRequest):
     Generate image for a draft with Gemini 2.5 Flash Image as default and Stock as fallback:
     1. Gemini 2.5 Flash Image (google/gemini-2.5-flash-image) - Default Primary
     2. Stock Photos (Unsplash/Pexels) - Primary Fallback
-    3. DALL-E 2/3 - Secondary Fallback
+    3. OpenRouter (for Gemini models) - Secondary Fallback
     4. AI Horde (free) - Last resort
     """
     print(f"\n{'='*60}")
@@ -573,9 +656,13 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
     
     print(f"   [IMAGE] Step 3/3: Generating image with optimized prompt...")
     
-    # NEW DEFAULT: Gemini 2.5 Flash Image as primary, with fallbacks
-    # Use model from request, but default to 'gemini-stock' which tries Gemini first, then Stock
-    image_model = request.model or 'gemini-stock'  # Default to gemini-stock if None
+    # Get default image model setting from admin configuration
+    default_image_setting = await get_default_model_setting('image_draft_image')
+    default_img_provider, default_img_model = parse_model_setting(default_image_setting)
+    
+    # Use model from request, or fallback to admin-configured default
+    image_model = request.model or default_img_model
+    print(f"[IMAGE] Using model: {image_model} (from request) or default: {default_img_provider}:{default_img_model}")
     
     print(f"[DEBUG] Request model: '{request.model}' -> Processing as: '{image_model}'")
     
@@ -584,10 +671,46 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
         image_model = 'stock-only'
         print(f"[DEBUG] Mapped 'stock' -> 'stock-only' (will skip Gemini)")
     
-    # Priority 1: Gemini 2.5 Flash Image (NEW DEFAULT)
-    if image_model in ['gemini-stock', 'google/gemini-2.5-flash-image', 'gemini-2.5-flash-image']:
-        print(f"[IMAGE] Attempting Gemini 2.5 Flash Image (default)...")
-        # First try Google AI Studio direct API
+    # Priority 1: Use configured default image model
+    # Check if default model is Google AI Studio or matches image_model
+    if image_model == default_img_model or image_model in ['gemini-stock', 'google/gemini-2.5-flash-image', 'gemini-2.5-flash-image', 'gemini-2.0-flash-exp'] or image_model is None:
+        print(f"[IMAGE] Priority 1: Attempting {default_img_provider} with {default_img_model}...")
+        
+        # Try to get API key for configured provider
+        system_api_key, provider = await get_system_api_key(default_img_provider)
+        
+        if not system_api_key:
+            system_api_key, provider = await get_user_api_key(request.user_id, default_img_provider)
+        
+        if system_api_key:
+            try:
+                image_adapter = ImageAdapter(
+                    api_key=system_api_key,
+                    provider=default_img_provider,
+                    model=default_img_model
+                )
+                
+                image_data = await image_adapter.generate_image(enhanced_prompt, request.style)
+                
+                print(f"[SUCCESS] Image generated via {default_img_provider} with {default_img_model}!")
+                print(f"{'='*60}\n")
+                
+                return await log_and_return_result({
+                    "url": image_data.get('url'),
+                    "image_base64": image_data.get('image_base64'),
+                    "prompt": enhanced_prompt,
+                    "model": default_img_model,
+                    "provider": default_img_provider.replace('_', ' ').title()
+                })
+            except Exception as e:
+                print(f"[WARNING] {default_img_provider} failed: {e}")
+                print(f"[FALLBACK] Will try fallback providers...")
+        else:
+            print(f"[WARNING] No {default_img_provider} API key found, trying fallback providers...")
+    
+    # Fallback 1: Google AI Studio (if not already tried)
+    if default_img_provider != "google_ai_studio" and (image_model in ['gemini-stock', 'google/gemini-2.5-flash-image', 'gemini-2.5-flash-image'] or image_model is None):
+        print(f"[IMAGE] Fallback 1: Trying Google AI Studio...")
         system_api_key, provider = await get_system_api_key("google_ai_studio")
         
         if not system_api_key:
@@ -598,12 +721,12 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
                 image_adapter = ImageAdapter(
                     api_key=system_api_key,
                     provider="google_ai_studio",
-                    model="gemini-2.5-flash-image"  # Google's latest image generation model
+                    model="gemini-2.5-flash-image"
                 )
                 
                 image_data = await image_adapter.generate_image(enhanced_prompt, request.style)
                 
-                print(f"[SUCCESS] Gemini Flash Image generated via Google AI Studio!")
+                print(f"[SUCCESS] Image generated via Google AI Studio!")
                 print(f"{'='*60}\n")
                 
                 return await log_and_return_result({
@@ -615,16 +738,11 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
                 })
             except Exception as e:
                 print(f"[WARNING] Google AI Studio failed: {e}")
-                if image_model in ['gemini-stock', 'stock-only']:
-                    print(f"[FALLBACK] Trying stock photos...")
-                else:
-                    raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
-        else:
-            print(f"[WARNING] No Google AI Studio API key found")
+                print(f"[FALLBACK] Will try stock photos next...")
     
-    # Priority 1.5: Stock Photos (Primary Fallback when gemini-stock is requested OR when stock-only selected)
-    if image_model in ['gemini-stock', 'stock-only', 'stock']:
-        print(f"[IMAGE] Trying stock photos (primary fallback)...")
+    # Priority 2: Stock Photos (Fallback after Google AI Studio - only if explicitly requested)
+    if image_model in ['gemini-stock', 'stock-only', 'stock'] or (image_model is None and default_img_provider != "google_ai_studio"):
+        print(f"[IMAGE] Priority 2: Trying stock photos (fallback)...")
         try:
             from linkedpilot.utils.stock_image_fetcher import StockImageFetcher, extract_image_keywords_ai
             
@@ -698,40 +816,42 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
         except Exception as stock_error:
             print(f"   [WARNING] Stock image failed: {stock_error}")
     
-    # Priority 2: DALL-E (system OpenAI API key, admin-managed)
-    if image_model in ['dall-e-2', 'dall-e-3']:
-        system_api_key, provider = await get_system_api_key("openai")
+    # Priority 3: OpenRouter (Fallback for Gemini if direct Google AI Studio failed)
+    # Try OpenRouter as fallback for Gemini models only
+    if image_model in ['google/gemini-2.5-flash-image', 'gemini-2.5-flash-image'] or (image_model is None and default_img_model in ['gemini-2.5-flash-image', 'google/gemini-2.5-flash-image']):
+        print(f"[IMAGE] Priority 4: Trying OpenRouter as last resort...")
+        openrouter_key, _ = await get_system_api_key("openrouter")
         
-        print(f"   [DEBUG] System OpenAI key found for image generation: {bool(system_api_key)}")
+        if not openrouter_key:
+            openrouter_key, _ = await get_user_api_key(request.user_id, "openrouter")
         
-        if system_api_key:
-            print(f"[IMAGE] Using {image_model.upper()} with system API key")
-            image_adapter = ImageAdapter(
-                api_key=system_api_key,
-                provider="openai",
-                model=image_model
-            )
-            
+        if openrouter_key:
             try:
+                image_adapter = ImageAdapter(
+                    api_key=openrouter_key,
+                    provider="openrouter",
+                    model="google/gemini-2.5-flash-image"  # OpenRouter format
+                )
+                
                 image_data = await image_adapter.generate_image(enhanced_prompt, request.style)
                 
-                print(f"[SUCCESS] {image_model.upper()} image generated!")
+                print(f"[SUCCESS] Image generated via OpenRouter!")
                 print(f"{'='*60}\n")
                 
                 return await log_and_return_result({
                     "url": image_data.get('url'),
                     "image_base64": image_data.get('image_base64'),
                     "prompt": enhanced_prompt,
-                    "model": image_model,
-                    "provider": "OpenAI"
+                    "model": "google/gemini-2.5-flash-image",
+                    "provider": "OpenRouter"
                 })
             except Exception as e:
-                print(f"[WARNING] {image_model.upper()} failed: {e}, falling back to AI Horde...")
+                print(f"[WARNING] OpenRouter failed: {e}")
         else:
-            print(f"[WARNING] No OpenAI API key found, falling back to AI Horde...")
+            print(f"[WARNING] No OpenRouter API key found")
     
-    # Priority 3: AI Horde (free, crowdsourced) - Last resort
-    if image_model in ['ai_horde', 'dall-e-2', 'dall-e-3', 'gemini-stock', 'stock']:
+    # Priority 5: AI Horde (free, crowdsourced) - Absolute last resort
+    if image_model in ['ai_horde', 'gemini-stock', 'stock', 'google/gemini-2.5-flash-image', 'gemini-2.5-flash-image', 'gemini-2.0-flash-exp'] or image_model is None:
         print(f"[IMAGE] Using AI Horde (free, crowdsourced - last resort)")
         image_adapter = ImageAdapter(
             api_key="0000000000",
@@ -761,46 +881,12 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
                 detail=f"Image generation failed. All methods exhausted. Please try again later or add your API key in Settings."
             )
     
-    # Handle other explicit models (OpenRouter, etc.)
-    user_api_key, provider = await get_user_api_key(request.user_id, "openrouter")
-    
-    if not user_api_key:
-        print(f"[ERROR] No API key found for {image_model}")
-        raise HTTPException(
-            status_code=400,
-            detail=f"API key required for {image_model}. Please add your API key in Settings or use DALL-E 2 / AI Horde."
-        )
-    
-    print(f"[IMAGE] Using {image_model} with user's API key")
-    
-    # Determine provider
-    if image_model.startswith('google/'):
-        provider = "openrouter"
-    elif image_model.startswith('gemini-'):
-        provider = "google_ai_studio"
-    
-    image_adapter = ImageAdapter(
-        api_key=user_api_key,
-        provider=provider,
-        model=image_model
+    # If we get here, all methods have been exhausted
+    print(f"[ERROR] All image generation methods failed for model: {image_model}")
+    raise HTTPException(
+        status_code=500,
+        detail=f"Image generation failed. All providers exhausted. Please add API keys in Settings or try again later."
     )
-    
-    try:
-        image_data = await image_adapter.generate_image(enhanced_prompt, request.style)
-        print(f"[SUCCESS] Image generated!")
-        print(f"{'='*60}\n")
-        
-        return await log_and_return_result({
-            "url": image_data.get('url'),
-            "image_base64": image_data.get('image_base64'),
-            "prompt": enhanced_prompt,
-            "model": image_model,
-            "provider": provider
-        })
-    except Exception as e:
-        print(f"[ERROR] Image generation failed: {e}")
-        print(f"{'='*60}\n")
-        raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
 
 @router.post("/upload-image")
 async def upload_user_image(
@@ -962,13 +1048,53 @@ async def generate_ai_text_overlay(request: Dict):
     image_prompt = request.get('imagePrompt', '')
     image_description = request.get('imageDescription', '')
     
-    # Multi-provider fallback (prioritize Google since user has credits)
-    providers_to_try = [
-        ("google_ai_studio", "gemini-2.0-flash-exp"),
-        ("openai", "gpt-4o"),
-        ("anthropic", "claude-3-5-sonnet-20241022"),
-        ("openrouter", "anthropic/claude-3.5-sonnet")
-    ]
+    # Get default model setting from admin configuration
+    default_model_setting = await get_default_model_setting('text_text_overlay')
+    default_provider, default_model = parse_model_setting(default_model_setting)
+    
+    print(f"[TEXT OVERLAY] Using default model: {default_provider}:{default_model}")
+    
+    # Get user_id from request if available
+    user_id = request.get('user_id') or request.get('created_by', '')
+    
+    # Multi-provider fallback: Use configured default first, then fallback providers
+    providers_to_try = []
+    
+    # Priority 1: Use configured default model
+    default_key, _ = await get_system_api_key(default_provider)
+    if not default_key and user_id:
+        default_key, _ = await get_user_api_key(user_id, default_provider)
+    if default_key:
+        providers_to_try.append((default_provider, default_model))
+    
+    # Priority 2-4: Add other providers if keys are present (for fallback)
+    if default_provider != "google_ai_studio":
+        google_key, _ = await get_system_api_key("google_ai_studio")
+        if not google_key and user_id:
+            google_key, _ = await get_user_api_key(user_id, "google_ai_studio")
+        if google_key:
+            providers_to_try.append(("google_ai_studio", "gemini-2.5-flash"))
+    
+    if default_provider != "openai":
+        openai_key, _ = await get_system_api_key("openai")
+        if not openai_key and user_id:
+            openai_key, _ = await get_user_api_key(user_id, "openai")
+        if openai_key:
+            providers_to_try.append(("openai", "gpt-4o"))
+    
+    if default_provider != "anthropic":
+        anthropic_key, _ = await get_system_api_key("anthropic")
+        if not anthropic_key and user_id:
+            anthropic_key, _ = await get_user_api_key(user_id, "anthropic")
+        if anthropic_key:
+            providers_to_try.append(("anthropic", "claude-3-5-sonnet"))
+    
+    if default_provider != "openrouter":
+        openrouter_key, _ = await get_system_api_key("openrouter")
+        if not openrouter_key and user_id:
+            openrouter_key, _ = await get_user_api_key(user_id, "openrouter")
+        if openrouter_key:
+            providers_to_try.append(("openrouter", "anthropic/claude-3.5-sonnet"))
     
     result = None
     last_error = None
@@ -1131,8 +1257,8 @@ async def chat_edit_draft(draft_id: str, message: str):
     return {"draft_id": draft_id, "content": draft['content'], "version": draft['version']}
 
 @router.post("/{draft_id}/generate-images")
-async def generate_images_for_draft(draft_id: str, provider: str = "openai", style: str = "professional"):
-    """Generate images for draft"""
+async def generate_images_for_draft(draft_id: str, provider: str = "google_ai_studio", style: str = "professional"):
+    """Generate images for draft using Google AI Studio (Gemini 2.5 Flash Image) - DALL-E removed"""
     db = get_db()
     draft = await db.drafts.find_one({"id": draft_id}, {"_id": 0})
     
@@ -1140,7 +1266,20 @@ async def generate_images_for_draft(draft_id: str, provider: str = "openai", sty
         raise HTTPException(status_code=404, detail="Draft not found")
     
     # Generate image using cinematic approach
-    image_adapter = ImageAdapter()
+    # Get Google AI Studio API key (DALL-E removed - always use Gemini)
+    from linkedpilot.routes.drafts import get_system_api_key
+    system_api_key, _ = await get_system_api_key("google_ai_studio")
+    if not system_api_key:
+        raise HTTPException(status_code=500, detail="Google AI Studio API key not configured")
+    
+    # Force provider to google_ai_studio (DALL-E removed)
+    provider = "google_ai_studio"
+    
+    image_adapter = ImageAdapter(
+        api_key=system_api_key,
+        provider=provider,
+        model="gemini-2.5-flash-image"
+    )
     content_preview = draft['content'].get('body', '')
     # Extract hook for cinematic generation
     lines = content_preview.split('\n')

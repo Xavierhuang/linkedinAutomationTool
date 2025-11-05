@@ -168,13 +168,14 @@ Write with a {tone_voice} voice that is {tone_desc}
    - OR provide a clear next step for the reader
    - Make it feel natural, not forced
 
-4. **Hashtags** (3-5):
+4. **Hashtags (REQUIRED)**:
+   - Include exactly 5 relevant hashtags at the very end of the post, on a new line after the CTA
    - Mix trending hashtags with niche-specific ones
-   - Relevant to {current_year} and the content pillar
-   - Include industry-specific tags
+   - Make them relevant to the topic and industry
+   - Use proper LinkedIn hashtag format (e.g., #Leadership #BusinessGrowth #StartupTips)
 
 **QUALITY STANDARDS**:
-- Length: 250-300 words (optimal for LinkedIn algorithm)
+- Length: Under 260 words (optimal for LinkedIn algorithm)
 - Readability: Use line breaks between paragraphs for mobile readability
 - Engagement: Include 2-3 strategic emojis (not excessive)
 - Value: Provide genuine, specific insights - not generic advice
@@ -182,36 +183,25 @@ Write with a {tone_voice} voice that is {tone_desc}
 - Variety: Make each post unique - vary sentence structure, examples, and perspectives
 - Specificity: Use concrete examples, numbers, or scenarios
 
-**EXAMPLE STRUCTURE PATTERN**:
-```
-[Hook: Surprising insight or question about {content_pillar}]
+**OUTPUT FORMAT**:
+Write the complete post with all content, then add exactly 5 hashtags at the end on a new line.
 
-[Point 1: Specific insight with context for {', '.join(industries[:2]) if industries else 'professionals'}]
+Example:
+[Your post content here with paragraphs separated by line breaks]
 
-[Point 2: Actionable takeaway or real example]
+What's your take?
 
-[Point 3: Connect to bigger picture or future implications]
-
-[CTA: Thought-provoking question that sparks discussion]
-
-[Hashtags: Mix of trending and niche tags]
-```
+#HashtagOne #HashtagTwo #HashtagThree #HashtagFour #HashtagFive
 
 **OUTPUT REQUIREMENTS**:
-- Write ONLY the post content (no meta-commentary)
-- Use \\n\\n for paragraph breaks (double line breaks)
-- Place hashtags at the end on their own line
+- Write the complete post with all content
+- Use line breaks between paragraphs
+- Include exactly 5 hashtags at the end on a new line
 - Make it feel authentic and human-written
 - Ensure variety - do NOT repeat patterns from previous posts
 - Focus on "{content_pillar}" but approach it from fresh angles each time
-
-Generate the LinkedIn post now:
-
-IMPORTANT:
-- Do NOT use hashtags (we'll add them separately)
 - Do NOT include any meta-commentary or explanations
-- Return ONLY the post content itself
-- Make it feel personal and genuine
+- Return ONLY the post content with hashtags
 
 Generate the LinkedIn post now:"""
 
