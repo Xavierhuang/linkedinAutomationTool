@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Key, Eye, EyeOff, Save, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { useThemeTokens } from '../hooks/useThemeTokens';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const APIKeysManagement = () => {
+  const tokens = useThemeTokens();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -126,15 +128,15 @@ const APIKeysManagement = () => {
 
   const getKeyStatus = (key) => {
     if (!keys[key] || keys[key].trim() === '') {
-      return <XCircle className="w-4 h-4 text-red-500" />;
+      return <XCircle className="w-4 h-4" style={{ color: '#ef4444' }} />;
     }
-    return <CheckCircle className="w-4 h-4 text-green-500" />;
+    return <CheckCircle className="w-4 h-4" style={{ color: tokens.colors.accent.lime }} />;
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-2 border-t-transparent" style={{ borderColor: tokens.colors.accent.lime }}></div>
       </div>
     );
   }
@@ -228,11 +230,11 @@ const APIKeysManagement = () => {
   const isModelTab = activeTab === 'models';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">API Keys Management</h1>
-        <p className="text-gray-600 mt-2">
+      <div className="animate-in fade-in duration-500">
+        <h1 style={{ fontSize: '24px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary, fontWeight: 500 }}>API Keys Management</h1>
+        <p style={{ color: tokens.colors.text.secondary, fontWeight: 300, marginTop: '8px' }}>
           Configure system-wide API keys that will be used by all users. These keys are encrypted and stored securely.
         </p>
       </div>
@@ -240,11 +242,14 @@ const APIKeysManagement = () => {
       {/* Alert Banner */}
       {message.text && (
         <div
-          className={`p-4 rounded-lg border ${
-            message.type === 'success'
-              ? 'bg-green-50 border-green-200 text-green-800'
-              : 'bg-red-50 border-red-200 text-red-800'
-          }`}
+          style={{
+            padding: '16px',
+            borderRadius: tokens.radius.lg,
+            border: `1px solid ${message.type === 'success' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+            backgroundColor: message.type === 'success' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            color: message.type === 'success' ? '#22c55e' : '#ef4444'
+          }}
+          className="animate-in fade-in duration-300"
         >
           <div className="flex items-center gap-2">
             {message.type === 'success' ? (
@@ -258,9 +263,9 @@ const APIKeysManagement = () => {
       )}
 
       {/* Horizontal Tabs */}
-      <div className="bg-white rounded-lg border border-gray-200">
+      <div style={{ backgroundColor: tokens.colors.background.layer1, borderRadius: tokens.radius.xl, border: `1px solid ${tokens.colors.border.default}` }}>
         {/* Tab Headers */}
-        <div className="border-b border-gray-200">
+        <div style={{ borderBottom: `1px solid ${tokens.colors.border.default}` }}>
           <nav className="flex overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             {providers.map((provider) => {
               const isModelProvider = provider.isModelTab;
@@ -271,19 +276,38 @@ const APIKeysManagement = () => {
                 <button
                   key={provider.id}
                   onClick={() => setActiveTab(provider.id)}
-                  className={`flex items-center gap-1.5 px-4 py-3 text-xs font-medium border-b-2 transition whitespace-nowrap ${
-                    activeTab === provider.id
-                      ? 'border-gray-900 text-gray-900'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '12px 16px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    borderBottom: `2px solid ${activeTab === provider.id ? tokens.colors.accent.lime : 'transparent'}`,
+                    color: activeTab === provider.id ? tokens.colors.accent.lime : tokens.colors.text.secondary,
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (activeTab !== provider.id) {
+                      e.currentTarget.style.color = tokens.colors.text.primary;
+                      e.currentTarget.style.borderBottomColor = tokens.colors.border.strong;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (activeTab !== provider.id) {
+                      e.currentTarget.style.color = tokens.colors.text.secondary;
+                      e.currentTarget.style.borderBottomColor = 'transparent';
+                    }
+                  }}
                 >
                   <span>{provider.name}</span>
                   {!isModelProvider && (hasAllKeys ? (
-                    <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                    <CheckCircle className="w-3.5 h-3.5" style={{ color: tokens.colors.accent.lime }} />
                   ) : hasSomeKeys ? (
-                    <AlertCircle className="w-3.5 h-3.5 text-yellow-500" />
+                    <AlertCircle className="w-3.5 h-3.5" style={{ color: '#facc15' }} />
                   ) : (
-                    <XCircle className="w-3.5 h-3.5 text-red-500" />
+                    <XCircle className="w-3.5 h-3.5" style={{ color: '#ef4444' }} />
                   ))}
                 </button>
               );
@@ -295,121 +319,111 @@ const APIKeysManagement = () => {
         <div className="p-6">
           {isModelTab ? (
             /* Model Settings Tab */
-            <div className="space-y-6">
+            <div className="space-y-6 animate-in fade-in duration-500">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">AI Model Configuration</h2>
-                <p className="text-sm text-gray-600 mt-1">Set default AI models for different features in the application</p>
+                <h2 style={{ fontSize: '18px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary }}>AI Model Configuration</h2>
+                <p style={{ fontSize: '14px', color: tokens.colors.text.secondary, fontWeight: 300, marginTop: '4px' }}>Set default AI models for different features in the application</p>
               </div>
 
               {/* Text Generation Models */}
-              <div className="border border-gray-200 rounded-lg p-6">
-                <h3 className="text-md font-semibold text-gray-900 mb-4">Text Generation Models</h3>
+              <div style={{ border: `1px solid ${tokens.colors.border.default}`, borderRadius: tokens.radius.lg, padding: '24px', backgroundColor: tokens.colors.background.input }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 500, color: tokens.colors.text.primary, marginBottom: '16px' }}>Text Generation Models</h3>
                 <div className="space-y-5">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Draft Content Generation
-                    </label>
-                    <select
-                      value={modelSettings.text_draft_content}
-                      onChange={(e) => setModelSettings({ ...modelSettings, text_draft_content: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                    >
-                      {Object.entries(availableModels.text_models || {}).flatMap(([provider, models]) =>
-                        models.map(model => (
-                          <option key={model.value} value={model.value}>{model.label}</option>
-                        ))
-                      )}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">Used when generating post content from topics</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Text Overlay Generation
-                    </label>
-                    <select
-                      value={modelSettings.text_text_overlay}
-                      onChange={(e) => setModelSettings({ ...modelSettings, text_text_overlay: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                    >
-                      {Object.entries(availableModels.text_models || {}).flatMap(([provider, models]) =>
-                        models.map(model => (
-                          <option key={model.value} value={model.value}>{model.label}</option>
-                        ))
-                      )}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">Used when generating AI text overlays for images</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Carousel Content Generation
-                    </label>
-                    <select
-                      value={modelSettings.text_carousel_content}
-                      onChange={(e) => setModelSettings({ ...modelSettings, text_carousel_content: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                    >
-                      {Object.entries(availableModels.text_models || {}).flatMap(([provider, models]) =>
-                        models.map(model => (
-                          <option key={model.value} value={model.value}>{model.label}</option>
-                        ))
-                      )}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">Used when generating carousel post captions</p>
-                  </div>
+                  {['text_draft_content', 'text_text_overlay', 'text_carousel_content'].map((key, idx) => {
+                    const labels = ['Draft Content Generation', 'Text Overlay Generation', 'Carousel Content Generation'];
+                    const descriptions = ['Used when generating post content from topics', 'Used when generating AI text overlays for images', 'Used when generating carousel post captions'];
+                    return (
+                      <div key={key}>
+                        <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: tokens.colors.text.secondary, marginBottom: '8px' }}>
+                          {labels[idx]}
+                        </label>
+                        <select
+                          value={modelSettings[key]}
+                          onChange={(e) => setModelSettings({ ...modelSettings, [key]: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 16px',
+                            backgroundColor: tokens.colors.background.input,
+                            border: `1px solid ${tokens.colors.border.default}`,
+                            color: tokens.colors.text.primary,
+                            borderRadius: tokens.radius.lg,
+                            outline: 'none'
+                          }}
+                          onFocus={(e) => {
+                            e.currentTarget.style.borderColor = tokens.colors.accent.lime;
+                            e.currentTarget.style.boxShadow = `0 0 0 2px ${tokens.colors.accent.lime}33`;
+                          }}
+                          onBlur={(e) => {
+                            e.currentTarget.style.borderColor = tokens.colors.border.default;
+                            e.currentTarget.style.boxShadow = 'none';
+                          }}
+                        >
+                          {Object.entries(availableModels.text_models || {}).flatMap(([provider, models]) =>
+                            models.map(model => (
+                              <option key={model.value} value={model.value}>{model.label}</option>
+                            ))
+                          )}
+                        </select>
+                        <p style={{ fontSize: '12px', color: tokens.colors.text.tertiary, marginTop: '4px' }}>{descriptions[idx]}</p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Image Generation Models */}
-              <div className="border border-gray-200 rounded-lg p-6">
-                <h3 className="text-md font-semibold text-gray-900 mb-4">Image Generation Models</h3>
+              <div style={{ border: `1px solid ${tokens.colors.border.default}`, borderRadius: tokens.radius.lg, padding: '24px', backgroundColor: tokens.colors.background.input }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 500, color: tokens.colors.text.primary, marginBottom: '16px' }}>Image Generation Models</h3>
                 <div className="space-y-5">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Draft Image Generation
-                    </label>
-                    <select
-                      value={modelSettings.image_draft_image}
-                      onChange={(e) => setModelSettings({ ...modelSettings, image_draft_image: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                    >
-                      {Object.entries(availableModels.image_models || {}).flatMap(([provider, models]) =>
-                        models.map(model => (
-                          <option key={model.value} value={model.value}>{model.label}</option>
-                        ))
-                      )}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">Used when generating images for draft posts</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Carousel Image Generation
-                    </label>
-                    <select
-                      value={modelSettings.image_carousel_images}
-                      onChange={(e) => setModelSettings({ ...modelSettings, image_carousel_images: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                    >
-                      {Object.entries(availableModels.image_models || {}).flatMap(([provider, models]) =>
-                        models.map(model => (
-                          <option key={model.value} value={model.value}>{model.label}</option>
-                        ))
-                      )}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">Used when generating images for carousel posts</p>
-                  </div>
+                  {['image_draft_image', 'image_carousel_images'].map((key, idx) => {
+                    const labels = ['Draft Image Generation', 'Carousel Image Generation'];
+                    const descriptions = ['Used when generating images for draft posts', 'Used when generating images for carousel posts'];
+                    return (
+                      <div key={key}>
+                        <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: tokens.colors.text.secondary, marginBottom: '8px' }}>
+                          {labels[idx]}
+                        </label>
+                        <select
+                          value={modelSettings[key]}
+                          onChange={(e) => setModelSettings({ ...modelSettings, [key]: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 16px',
+                            backgroundColor: tokens.colors.background.input,
+                            border: `1px solid ${tokens.colors.border.default}`,
+                            color: tokens.colors.text.primary,
+                            borderRadius: tokens.radius.lg,
+                            outline: 'none'
+                          }}
+                          onFocus={(e) => {
+                            e.currentTarget.style.borderColor = tokens.colors.accent.lime;
+                            e.currentTarget.style.boxShadow = `0 0 0 2px ${tokens.colors.accent.lime}33`;
+                          }}
+                          onBlur={(e) => {
+                            e.currentTarget.style.borderColor = tokens.colors.border.default;
+                            e.currentTarget.style.boxShadow = 'none';
+                          }}
+                        >
+                          {Object.entries(availableModels.image_models || {}).flatMap(([provider, models]) =>
+                            models.map(model => (
+                              <option key={model.value} value={model.value}>{model.label}</option>
+                            ))
+                          )}
+                        </select>
+                        <p style={{ fontSize: '12px', color: tokens.colors.text.tertiary, marginTop: '4px' }}>{descriptions[idx]}</p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Helper Text */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: tokens.radius.lg, padding: '16px' }}>
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <div className="text-sm text-blue-900">
-                    <p className="font-semibold mb-1">About Model Selection:</p>
-                    <ul className="list-disc list-inside space-y-1 ml-2">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#3b82f6' }} />
+                  <div style={{ fontSize: '14px', color: '#93c5fd' }}>
+                    <p style={{ fontWeight: 600, marginBottom: '4px' }}>About Model Selection:</p>
+                    <ul style={{ listStyle: 'disc', paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <li>These are default models used system-wide</li>
                       <li>Format: provider:model-name (e.g., google_ai_studio:gemini-2.5-flash)</li>
                       <li>Users can override defaults if they have their own API keys</li>
@@ -420,11 +434,11 @@ const APIKeysManagement = () => {
               </div>
             </div>
           ) : activeProvider && (
-            <div className="space-y-6">
+            <div className="space-y-6 animate-in fade-in duration-500">
               {/* Provider Info */}
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">{activeProvider.name}</h2>
-                <p className="text-sm text-gray-600 mt-1">{activeProvider.description}</p>
+                <h2 style={{ fontSize: '18px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary }}>{activeProvider.name}</h2>
+                <p style={{ fontSize: '14px', color: tokens.colors.text.secondary, fontWeight: 300, marginTop: '4px' }}>{activeProvider.description}</p>
               </div>
 
               {/* API Key Fields */}
@@ -432,12 +446,12 @@ const APIKeysManagement = () => {
                 {activeProvider.keys.map((key) => (
                   <div key={key.id}>
                     <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-medium text-gray-700">
+                      <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: tokens.colors.text.secondary }}>
                         {key.label}
                       </label>
                       <div className="flex items-center gap-2">
                         {getKeyStatus(key.id)}
-                        <span className="text-xs text-gray-500">
+                        <span style={{ fontSize: '12px', color: tokens.colors.text.tertiary }}>
                           {keys[key.id] && keys[key.id].trim() !== '' ? 'Configured' : 'Not configured'}
                         </span>
                       </div>
@@ -448,12 +462,32 @@ const APIKeysManagement = () => {
                         value={keys[key.id] || ''}
                         onChange={(e) => setKeys({ ...keys, [key.id]: e.target.value })}
                         placeholder={key.placeholder}
-                        className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent text-sm"
+                        style={{
+                          width: '100%',
+                          padding: '12px 16px',
+                          paddingRight: '48px',
+                          backgroundColor: tokens.colors.background.input,
+                          border: `1px solid ${tokens.colors.border.default}`,
+                          color: tokens.colors.text.primary,
+                          borderRadius: tokens.radius.lg,
+                          fontSize: '14px',
+                          outline: 'none'
+                        }}
+                        onFocus={(e) => {
+                          e.currentTarget.style.borderColor = tokens.colors.accent.lime;
+                          e.currentTarget.style.boxShadow = `0 0 0 2px ${tokens.colors.accent.lime}33`;
+                        }}
+                        onBlur={(e) => {
+                          e.currentTarget.style.borderColor = tokens.colors.border.default;
+                          e.currentTarget.style.boxShadow = 'none';
+                        }}
                       />
                       <button
                         type="button"
                         onClick={() => toggleKeyVisibility(key.id)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                        style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: tokens.colors.text.secondary }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+                        onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
                       >
                         {showKeys[key.id] ? (
                           <EyeOff className="w-5 h-5" />
@@ -467,39 +501,39 @@ const APIKeysManagement = () => {
               </div>
 
               {/* Helper Text */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: tokens.radius.lg, padding: '16px' }}>
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <div className="text-sm text-blue-900">
-                    <p className="font-semibold mb-1">How to get {activeProvider.name} API keys:</p>
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#3b82f6' }} />
+                  <div style={{ fontSize: '14px', color: '#93c5fd' }}>
+                    <p style={{ fontWeight: 600, marginBottom: '4px' }}>How to get {activeProvider.name} API keys:</p>
                     {activeProvider.id === 'openai' && (
-                      <p>Visit <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline font-medium">OpenAI Platform</a> to create an API key. You'll need an OpenAI account with billing set up.</p>
+                      <p>Visit <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>OpenAI Platform</a> to create an API key. You'll need an OpenAI account with billing set up.</p>
                     )}
                     {activeProvider.id === 'openrouter' && (
-                      <p>Visit <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline font-medium">OpenRouter</a> to create an API key. OpenRouter gives you access to multiple AI models (GPT-4, Claude, Gemini, etc.) through one unified API.</p>
+                      <p>Visit <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>OpenRouter</a> to create an API key. OpenRouter gives you access to multiple AI models (GPT-4, Claude, Gemini, etc.) through one unified API.</p>
                     )}
                     {activeProvider.id === 'anthropic' && (
-                      <p>Visit <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="underline font-medium">Anthropic Console</a> to create an API key for Claude models. You'll need an Anthropic account with billing configured.</p>
+                      <p>Visit <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>Anthropic Console</a> to create an API key for Claude models. You'll need an Anthropic account with billing configured.</p>
                     )}
                     {activeProvider.id === 'google' && (
-                      <p>Visit <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-medium">Google AI Studio</a> to create an API key for Gemini models.</p>
+                      <p>Visit <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>Google AI Studio</a> to create an API key for Gemini models.</p>
                     )}
                     {activeProvider.id === 'linkedin' && (
-                      <p>Visit <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener noreferrer" className="underline font-medium">LinkedIn Developers</a> to create an app and get your OAuth credentials.</p>
+                      <p>Visit <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>LinkedIn Developers</a> to create an app and get your OAuth credentials.</p>
                     )}
                     {activeProvider.id === 'unsplash' && (
-                      <p>Visit <a href="https://unsplash.com/developers" target="_blank" rel="noopener noreferrer" className="underline font-medium">Unsplash Developers</a> to create an application and get your access key.</p>
+                      <p>Visit <a href="https://unsplash.com/developers" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>Unsplash Developers</a> to create an application and get your access key.</p>
                     )}
                     {activeProvider.id === 'pexels' && (
-                      <p>Visit <a href="https://www.pexels.com/api/" target="_blank" rel="noopener noreferrer" className="underline font-medium">Pexels API</a> to create an account and generate an API key.</p>
+                      <p>Visit <a href="https://www.pexels.com/api/" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>Pexels API</a> to create an account and generate an API key.</p>
                     )}
                     {activeProvider.id === 'canva' && (
-                      <p>Visit <a href="https://www.canva.com/developers/" target="_blank" rel="noopener noreferrer" className="underline font-medium">Canva Developers</a> to create an app and get your API key.</p>
+                      <p>Visit <a href="https://www.canva.com/developers/" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>Canva Developers</a> to create an app and get your API key.</p>
                     )}
                     {activeProvider.id === 'stripe' && (
                       <div className="space-y-2">
-                        <p>Visit <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" className="underline font-medium">Stripe Dashboard</a> to get your API keys.</p>
-                        <ul className="list-disc list-inside space-y-1 text-sm ml-2">
+                        <p>Visit <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>Stripe Dashboard</a> to get your API keys.</p>
+                        <ul style={{ listStyle: 'disc', paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '14px' }}>
                           <li><strong>Secret Key:</strong> Found in Developers → API keys (starts with sk_live_ or sk_test_)</li>
                           <li><strong>Publishable Key:</strong> Found in same location (starts with pk_live_ or pk_test_)</li>
                           <li><strong>Webhook Secret:</strong> Create webhook endpoint at Developers → Webhooks (starts with whsec_)</li>
@@ -516,11 +550,30 @@ const APIKeysManagement = () => {
       </div>
 
       {/* Save Button */}
-      <div className="flex justify-end">
+      <div className="flex justify-end animate-in fade-in duration-500">
         <button
           onClick={isModelTab ? handleSaveModelSettings : handleSave}
           disabled={saving}
-          className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 24px',
+            backgroundColor: tokens.colors.accent.lime,
+            color: tokens.colors.text.inverse,
+            borderRadius: tokens.radius.lg,
+            fontWeight: 500,
+            opacity: saving ? 0.5 : 1,
+            cursor: saving ? 'not-allowed' : 'pointer',
+            border: 'none'
+          }}
+          className="transition"
+          onMouseEnter={(e) => {
+            if (!saving) e.currentTarget.style.opacity = '0.9';
+          }}
+          onMouseLeave={(e) => {
+            if (!saving) e.currentTarget.style.opacity = '1';
+          }}
         >
           <Save className="w-5 h-5" />
           {saving ? 'Saving...' : isModelTab ? 'Save Model Settings' : 'Save All Keys'}
@@ -528,12 +581,12 @@ const APIKeysManagement = () => {
       </div>
 
       {/* Info Section */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+      <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: tokens.radius.lg, padding: '24px' }} className="animate-in fade-in duration-500">
         <div className="flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-blue-900">
-            <p className="font-semibold mb-2">Important Notes:</p>
-            <ul className="list-disc list-inside space-y-1">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#3b82f6' }} />
+          <div style={{ fontSize: '14px', color: '#93c5fd' }}>
+            <p style={{ fontWeight: 600, marginBottom: '8px' }}>Important Notes:</p>
+            <ul style={{ listStyle: 'disc', paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <li>All API keys are encrypted before storage</li>
               <li>These keys will be used by all users across the platform</li>
               <li>Users will not need to configure their own API keys</li>

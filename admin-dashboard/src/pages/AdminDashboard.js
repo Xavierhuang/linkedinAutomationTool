@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { useAdminAuth } from '../contexts/AdminAuthContext';
+import { useThemeTokens } from '../hooks/useThemeTokens';
+import { useTheme } from 'next-themes';
 import {
   LayoutDashboard,
   Users,
@@ -11,7 +13,10 @@ import {
   LogOut,
   Menu,
   X,
-  Key
+  Key,
+  Sun,
+  Moon,
+  Sparkles
 } from 'lucide-react';
 
 // Import page components
@@ -22,16 +27,44 @@ import BillingManagement from './BillingManagement';
 import AnalyticsView from './AnalyticsView';
 import ActivityLogs from './ActivityLogs';
 import SystemSettings from './SystemSettings';
+import AIPromptsManagement from './AIPromptsManagement';
+
+const getIsDesktop = () => {
+  if (typeof window === 'undefined') {
+    return true;
+  }
+  return window.innerWidth >= 1024;
+};
 
 const AdminDashboard = () => {
   const { logout, adminUser } = useAdminAuth();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(getIsDesktop());
+  const tokens = useThemeTokens();
+  const { theme, setTheme } = useTheme();
+
+  useEffect(() => {
+    const handleResize = () => {
+      const desktop = getIsDesktop();
+      setIsDesktop(desktop);
+      if (desktop) {
+        setSidebarOpen(false);
+      }
+    };
+    if (typeof window !== 'undefined') {
+      handleResize();
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+    }
+    return undefined;
+  }, []);
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Users', href: '/users', icon: Users },
     { name: 'API Keys', href: '/api-keys', icon: Key },
+    { name: 'AI Prompts', href: '/ai-prompts', icon: Sparkles },
     { name: 'Billing', href: '/billing', icon: CreditCard },
     { name: 'Analytics', href: '/analytics', icon: BarChart3 },
     { name: 'Activity Logs', href: '/logs', icon: FileText },
@@ -43,32 +76,45 @@ const AdminDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div style={{ minHeight: '100vh', backgroundColor: tokens.colors.background.app }}>
       {/* Sidebar */}
       <div
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 transform transition-transform duration-300 ease-in-out ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0`}
+        style={{
+          position: 'fixed',
+          top: 0,
+          bottom: 0,
+          left: 0,
+          zIndex: 50,
+          width: isDesktop ? '256px' : '85vw',
+          maxWidth: '400px',
+          backgroundColor: tokens.colors.background.layer1,
+          borderRight: `1px solid ${tokens.colors.border.default}`,
+          transform: isDesktop ? 'translateX(0)' : (sidebarOpen ? 'translateX(0)' : 'translateX(-100%)'),
+          transition: 'transform 300ms ease-in-out'
+        }}
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="flex items-center justify-between h-16 px-6 border-b border-gray-800">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '64px', padding: '0 24px', borderBottom: `1px solid ${tokens.colors.border.default}` }}>
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
-                <span className="text-gray-900 font-bold text-sm">LP</span>
+              <div style={{ width: '32px', height: '32px', backgroundColor: tokens.colors.accent.lime, borderRadius: tokens.radius.lg }} className="flex items-center justify-center">
+                <span style={{ color: tokens.colors.text.inverse, fontWeight: 700, fontSize: '14px' }}>LP</span>
               </div>
-              <span className="text-white font-semibold">Admin</span>
+              <span style={{ color: tokens.colors.text.primary, fontWeight: 600, fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic' }}>Admin</span>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}
-              className="lg:hidden text-gray-400 hover:text-white"
+              style={{ color: tokens.colors.text.secondary }}
+              className="lg:hidden"
+              onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+              onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+          <nav style={{ flex: 1, padding: '16px', paddingTop: '24px', overflowY: 'auto' }} className="space-y-1">
             {navigation.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.href);
@@ -77,11 +123,31 @@ const AdminDashboard = () => {
                   key={item.name}
                   to={item.href}
                   onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${
-                    active
-                      ? 'bg-gray-800 text-white'
-                      : 'text-gray-400 hover:text-white hover:bg-gray-800'
-                  }`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '10px 12px',
+                    borderRadius: tokens.radius.lg,
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    backgroundColor: active ? tokens.colors.accent.lime : 'transparent',
+                    color: active ? tokens.colors.text.inverse : tokens.colors.text.secondary,
+                    fontFamily: tokens.typography.fontFamily.sans
+                  }}
+                  className="transition"
+                  onMouseEnter={(e) => {
+                    if (!active) {
+                      e.currentTarget.style.color = tokens.colors.text.primary;
+                      e.currentTarget.style.backgroundColor = tokens.colors.background.input;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!active) {
+                      e.currentTarget.style.color = tokens.colors.text.secondary;
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }
+                  }}
                 >
                   <Icon className="w-5 h-5" />
                   {item.name}
@@ -91,25 +157,45 @@ const AdminDashboard = () => {
           </nav>
 
           {/* User info and logout */}
-          <div className="border-t border-gray-800 p-4">
+          <div style={{ borderTop: `1px solid ${tokens.colors.border.default}`, padding: '16px' }}>
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center">
-                <span className="text-white font-semibold text-sm">
+              <div style={{ width: '40px', height: '40px', backgroundColor: tokens.colors.accent.lime, borderRadius: '50%' }} className="flex items-center justify-center">
+                <span style={{ color: tokens.colors.text.inverse, fontWeight: 600, fontSize: '14px' }}>
                   {adminUser?.full_name?.charAt(0) || 'A'}
                 </span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">
+                <p style={{ fontSize: '14px', fontWeight: 500, color: tokens.colors.text.primary }} className="truncate">
                   {adminUser?.full_name || 'Admin'}
                 </p>
-                <p className="text-xs text-gray-400 truncate">
+                <p style={{ fontSize: '12px', color: tokens.colors.text.tertiary }} className="truncate">
                   {adminUser?.email || 'admin@mandi.media'}
                 </p>
               </div>
             </div>
             <button
               onClick={logout}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition"
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                padding: '8px 12px',
+                backgroundColor: tokens.colors.background.input,
+                color: tokens.colors.text.primary,
+                borderRadius: tokens.radius.lg,
+                fontSize: '14px',
+                fontWeight: 500,
+                border: `1px solid ${tokens.colors.border.default}`
+              }}
+              className="transition"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = tokens.colors.background.layer2;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = tokens.colors.background.input;
+              }}
             >
               <LogOut className="w-4 h-4" />
               Logout
@@ -119,30 +205,86 @@ const AdminDashboard = () => {
       </div>
 
       {/* Main content */}
-      <div className="lg:pl-64">
+      <div
+        className="lg:pl-64 transition-[padding] duration-300"
+        style={{
+          paddingLeft: isDesktop ? '256px' : '0px',
+          width: '100%'
+        }}
+      >
+        {/* Desktop Header */}
+        <div style={{ backgroundColor: tokens.colors.background.app, borderBottom: `1px solid ${tokens.colors.border.default}`, padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} className="hidden lg:flex">
+          <div style={{ fontSize: '20px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary, fontWeight: 500 }}>
+            {location.pathname === '/dashboard' || location.pathname === '/' ? 'Dashboard Overview' :
+             location.pathname === '/users' ? 'Users Management' :
+             location.pathname === '/api-keys' ? 'API Keys Management' :
+             location.pathname === '/ai-prompts' ? 'AI Prompts Management' :
+             location.pathname === '/billing' ? 'Billing Management' :
+             location.pathname === '/analytics' ? 'Analytics' :
+             location.pathname === '/logs' ? 'Activity Logs' :
+             location.pathname === '/settings' ? 'System Settings' : 'Admin Dashboard'}
+          </div>
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 16px',
+              backgroundColor: tokens.colors.background.input,
+              color: tokens.colors.text.primary,
+              borderRadius: tokens.radius.full,
+              fontSize: '14px',
+              fontWeight: 500,
+              border: `1px solid ${tokens.colors.border.default}`,
+              fontFamily: tokens.typography.fontFamily.sans
+            }}
+            className="transition"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = tokens.colors.background.layer2;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = tokens.colors.background.input;
+            }}
+          >
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            <span className="hidden xl:inline">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+          </button>
+        </div>
+
         {/* Mobile header */}
-        <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-4 flex items-center justify-between">
+        <div style={{ backgroundColor: tokens.colors.background.app, borderBottom: `1px solid ${tokens.colors.border.default}`, padding: '16px' }} className="lg:hidden flex items-center justify-between">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="text-gray-600 hover:text-gray-900"
+            style={{ color: tokens.colors.text.secondary }}
+            onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+            onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
           >
             <Menu className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-gray-900 rounded flex items-center justify-center">
-              <span className="text-white font-bold text-xs">LP</span>
+            <div style={{ width: '24px', height: '24px', backgroundColor: tokens.colors.accent.lime, borderRadius: tokens.radius.md }} className="flex items-center justify-center">
+              <span style={{ color: tokens.colors.text.inverse, fontWeight: 700, fontSize: '12px' }}>LP</span>
             </div>
-            <span className="font-semibold text-gray-900">Admin</span>
+            <span style={{ fontWeight: 600, color: tokens.colors.text.primary, fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic' }}>Admin</span>
           </div>
-          <div className="w-6" />
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            style={{ width: '24px', height: '24px', color: tokens.colors.text.secondary }}
+            onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+            onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
+          >
+            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
         </div>
 
         {/* Page content */}
-        <main className="p-4 lg:p-8">
+        <main style={{ padding: '16px', paddingTop: '32px', paddingBottom: '32px', backgroundColor: tokens.colors.background.app }} className="lg:p-8">
           <Routes>
             <Route path="/dashboard" element={<DashboardOverview />} />
             <Route path="/users" element={<UsersManagement />} />
             <Route path="/api-keys" element={<APIKeysManagement />} />
+            <Route path="/ai-prompts" element={<AIPromptsManagement />} />
             <Route path="/billing" element={<BillingManagement />} />
             <Route path="/analytics" element={<AnalyticsView />} />
             <Route path="/logs" element={<ActivityLogs />} />
@@ -155,7 +297,14 @@ const AdminDashboard = () => {
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: tokens.colors.background.app + 'CC',
+            backdropFilter: 'blur(4px)',
+            zIndex: 40
+          }}
+          className="lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { DollarSign, TrendingUp, Users, AlertCircle } from 'lucide-react';
+import { useThemeTokens } from '../hooks/useThemeTokens';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const BillingManagement = () => {
+  const tokens = useThemeTokens();
   const [overview, setOverview] = useState(null);
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,15 +33,15 @@ const BillingManagement = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-2 border-t-transparent" style={{ borderColor: tokens.colors.accent.lime }}></div>
       </div>
     );
   }
 
   if (!overview) {
     return (
-      <div className="text-center py-12">
-        <p className="text-gray-600">Unable to load billing data. Check backend connection.</p>
+      <div className="text-center py-12 animate-in fade-in duration-500">
+        <p style={{ color: tokens.colors.text.secondary }}>Unable to load billing data. Check backend connection.</p>
       </div>
     );
   }
@@ -72,88 +74,96 @@ const BillingManagement = () => {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Billing & Subscriptions</h1>
-        <p className="text-gray-600 mt-1">
+      <div className="animate-in fade-in duration-500">
+        <h1 style={{ fontSize: '24px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary, fontWeight: 500 }}>Billing & Subscriptions</h1>
+        <p style={{ color: tokens.colors.text.secondary, fontWeight: 300, marginTop: '4px' }}>
           Manage subscriptions and revenue
         </p>
       </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-in fade-in duration-500">
         {metrics.map((metric) => {
           const Icon = metric.icon;
           return (
             <div
               key={metric.name}
-              className="bg-white rounded-xl border border-gray-200 p-6"
+              style={{
+                backgroundColor: tokens.colors.background.layer1,
+                borderRadius: tokens.radius.xl,
+                border: `1px solid ${tokens.colors.border.default}`,
+                padding: '24px'
+              }}
+              className="transition-all"
+              onMouseEnter={(e) => e.currentTarget.style.borderColor = tokens.colors.border.strong}
+              onMouseLeave={(e) => e.currentTarget.style.borderColor = tokens.colors.border.default}
             >
               <div className={`${metric.color} p-3 rounded-lg inline-flex mb-4`}>
                 <Icon className="w-6 h-6 text-white" />
               </div>
-              <h3 className="text-2xl font-bold text-gray-900">{metric.value}</h3>
-              <p className="text-sm text-gray-600 mt-1">{metric.name}</p>
+              <h3 style={{ fontSize: '24px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary }}>{metric.value}</h3>
+              <p style={{ fontSize: '14px', color: tokens.colors.text.secondary, marginTop: '4px' }}>{metric.name}</p>
             </div>
           );
         })}
       </div>
 
       {/* Subscriptions Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">
+      <div style={{ backgroundColor: tokens.colors.background.layer1, borderRadius: tokens.radius.xl, border: `1px solid ${tokens.colors.border.default}`, overflow: 'hidden' }} className="animate-in fade-in duration-500">
+        <div style={{ padding: '16px 24px', borderBottom: `1px solid ${tokens.colors.border.default}` }}>
+          <h2 style={{ fontSize: '18px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary }}>
             Active Subscriptions
           </h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
+            <thead style={{ backgroundColor: tokens.colors.background.input, borderBottom: `1px solid ${tokens.colors.border.default}` }}>
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: tokens.colors.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   User
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: tokens.colors.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Plan
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: tokens.colors.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: tokens.colors.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Started
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody style={{ backgroundColor: tokens.colors.background.layer1 }}>
               {subscriptions.length === 0 ? (
                 <tr>
-                  <td colSpan="4" className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan="4" style={{ padding: '48px 24px', textAlign: 'center', color: tokens.colors.text.tertiary }}>
                     No active subscriptions yet
                   </td>
                 </tr>
               ) : (
                 subscriptions.map((sub) => (
-                  <tr key={sub.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
+                  <tr key={sub.id} style={{ borderTop: `1px solid ${tokens.colors.border.subtle}` }} className="transition-colors" onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.background.layer2} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.background.layer1}>
+                    <td style={{ padding: '16px 24px', whiteSpace: 'nowrap' }}>
                       <div>
-                        <div className="text-sm font-medium text-gray-900">
+                        <div style={{ fontSize: '14px', fontWeight: 500, color: tokens.colors.text.primary }}>
                           {sub.full_name}
                         </div>
-                        <div className="text-sm text-gray-500">{sub.email}</div>
+                        <div style={{ fontSize: '14px', color: tokens.colors.text.tertiary }}>{sub.email}</div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
+                    <td style={{ padding: '16px 24px', whiteSpace: 'nowrap' }}>
+                      <span style={{ padding: '4px 8px', display: 'inline-flex', fontSize: '12px', lineHeight: '20px', fontWeight: 600, borderRadius: tokens.radius.full, backgroundColor: 'rgba(168, 85, 247, 0.2)', color: '#a855f7', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
                         PRO - $49/month
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                    <td style={{ padding: '16px 24px', whiteSpace: 'nowrap' }}>
+                      <span style={{ padding: '4px 8px', display: 'inline-flex', fontSize: '12px', lineHeight: '20px', fontWeight: 600, borderRadius: tokens.radius.full, backgroundColor: 'rgba(34, 197, 94, 0.2)', color: '#22c55e', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
                         {(sub.subscription_status || 'active').toUpperCase()}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td style={{ padding: '16px 24px', whiteSpace: 'nowrap', fontSize: '14px', color: tokens.colors.text.tertiary }}>
                       {sub.subscription_start_date
                         ? new Date(sub.subscription_start_date).toLocaleDateString()
                         : 'N/A'}

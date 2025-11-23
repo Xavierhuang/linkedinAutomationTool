@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FileText, User, Settings, Shield } from 'lucide-react';
+import { useThemeTokens } from '../hooks/useThemeTokens';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const ActivityLogs = () => {
+  const tokens = useThemeTokens();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -35,94 +37,104 @@ const ActivityLogs = () => {
     return FileText;
   };
 
+
   const getActionColor = (action) => {
     if (action.includes('suspended') || action.includes('deleted')) {
-      return 'bg-red-100 text-red-800';
+      return { backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' };
     }
     if (action.includes('updated') || action.includes('modified')) {
-      return 'bg-blue-100 text-blue-800';
+      return { backgroundColor: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.3)' };
     }
     if (action.includes('login')) {
-      return 'bg-green-100 text-green-800';
+      return { backgroundColor: 'rgba(34, 197, 94, 0.2)', color: '#22c55e', border: '1px solid rgba(34, 197, 94, 0.3)' };
     }
-    return 'bg-gray-100 text-gray-800';
+    return { backgroundColor: tokens.colors.background.input, color: tokens.colors.text.secondary, border: `1px solid ${tokens.colors.border.default}` };
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Activity Logs</h1>
-        <p className="text-gray-600 mt-1">
+      <div className="animate-in fade-in duration-500">
+        <h1 style={{ fontSize: '24px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary, fontWeight: 500 }}>Activity Logs</h1>
+        <p style={{ color: tokens.colors.text.secondary, fontWeight: 300, marginTop: '4px' }}>
           Admin actions and system events
         </p>
       </div>
 
       {/* Logs Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div style={{ backgroundColor: tokens.colors.background.layer1, borderRadius: tokens.radius.xl, border: `1px solid ${tokens.colors.border.default}`, overflow: 'hidden' }} className="animate-in fade-in duration-500">
         {loading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-2 border-t-transparent" style={{ borderColor: tokens.colors.accent.lime }}></div>
           </div>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead style={{ backgroundColor: tokens.colors.background.input, borderBottom: `1px solid ${tokens.colors.border.default}` }}>
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: tokens.colors.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Timestamp
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: tokens.colors.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Admin
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: tokens.colors.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Action
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: tokens.colors.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       Target
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: tokens.colors.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       IP Address
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody style={{ backgroundColor: tokens.colors.background.layer1 }}>
                   {logs.length === 0 ? (
                     <tr>
-                      <td colSpan="5" className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan="5" style={{ padding: '48px 24px', textAlign: 'center', color: tokens.colors.text.tertiary }}>
                         No activity logs yet. Admin actions will appear here.
                       </td>
                     </tr>
                   ) : logs.map((log) => {
                     const Icon = getActionIcon(log.action);
+                    const actionColor = getActionColor(log.action);
                     return (
-                      <tr key={log.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <tr key={log.id} style={{ borderTop: `1px solid ${tokens.colors.border.subtle}` }} className="transition-colors" onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.background.layer2} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.background.layer1}>
+                        <td style={{ padding: '16px 24px', whiteSpace: 'nowrap', fontSize: '14px', color: tokens.colors.text.tertiary }}>
                           {new Date(log.timestamp).toLocaleString()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
+                        <td style={{ padding: '16px 24px', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: '14px', fontWeight: 500, color: tokens.colors.text.primary }}>
                             {log.admin?.full_name || 'Admin'}
                           </div>
-                          <div className="text-sm text-gray-500">
+                          <div style={{ fontSize: '14px', color: tokens.colors.text.tertiary }}>
                             {log.admin?.email || log.admin_id}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td style={{ padding: '16px 24px', whiteSpace: 'nowrap' }}>
                           <span
-                            className={`px-2 py-1 inline-flex items-center gap-1.5 text-xs leading-5 font-semibold rounded-full ${getActionColor(
-                              log.action
-                            )}`}
+                            style={{
+                              padding: '4px 8px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontSize: '12px',
+                              lineHeight: '20px',
+                              fontWeight: 600,
+                              borderRadius: tokens.radius.full,
+                              ...actionColor
+                            }}
                           >
                             <Icon className="w-3 h-3" />
                             {log.action.replace(/_/g, ' ').toUpperCase()}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td style={{ padding: '16px 24px', whiteSpace: 'nowrap', fontSize: '14px', color: tokens.colors.text.primary }}>
                           {log.target_user_id || 'System'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td style={{ padding: '16px 24px', whiteSpace: 'nowrap', fontSize: '14px', color: tokens.colors.text.tertiary }}>
                           {log.ip_address || 'N/A'}
                       </td>
                     </tr>
@@ -134,21 +146,55 @@ const ActivityLogs = () => {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+              <div style={{ padding: '16px 24px', borderTop: `1px solid ${tokens.colors.border.default}` }} className="flex items-center justify-between">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: tokens.colors.background.input,
+                    border: `1px solid ${tokens.colors.border.default}`,
+                    color: tokens.colors.text.primary,
+                    borderRadius: tokens.radius.lg,
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    opacity: page === 1 ? 0.5 : 1,
+                    cursor: page === 1 ? 'not-allowed' : 'pointer'
+                  }}
+                  className="transition-colors"
+                  onMouseEnter={(e) => {
+                    if (page !== 1) e.currentTarget.style.backgroundColor = tokens.colors.background.layer2;
+                  }}
+                  onMouseLeave={(e) => {
+                    if (page !== 1) e.currentTarget.style.backgroundColor = tokens.colors.background.input;
+                  }}
                 >
                   Previous
                 </button>
-                <span className="text-sm text-gray-700">
+                <span style={{ fontSize: '14px', color: tokens.colors.text.secondary }}>
                   Page {page} of {totalPages}
                 </span>
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: tokens.colors.background.input,
+                    border: `1px solid ${tokens.colors.border.default}`,
+                    color: tokens.colors.text.primary,
+                    borderRadius: tokens.radius.lg,
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    opacity: page === totalPages ? 0.5 : 1,
+                    cursor: page === totalPages ? 'not-allowed' : 'pointer'
+                  }}
+                  className="transition-colors"
+                  onMouseEnter={(e) => {
+                    if (page !== totalPages) e.currentTarget.style.backgroundColor = tokens.colors.background.layer2;
+                  }}
+                  onMouseLeave={(e) => {
+                    if (page !== totalPages) e.currentTarget.style.backgroundColor = tokens.colors.background.input;
+                  }}
                 >
                   Next
                 </button>

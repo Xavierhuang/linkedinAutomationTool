@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Settings, Save, AlertCircle } from 'lucide-react';
+import { useThemeTokens } from '../hooks/useThemeTokens';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const SystemSettings = () => {
+  const tokens = useThemeTokens();
   const [settings, setSettings] = useState({
     free_tier_ai_tokens: 1000,
     free_tier_post_limit: 50,
@@ -51,46 +53,51 @@ const SystemSettings = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-2 border-t-transparent" style={{ borderColor: tokens.colors.accent.lime }}></div>
       </div>
     );
   }
 
   if (!settings) {
     return (
-      <div className="text-center py-12">
-        <p className="text-gray-600">Unable to load settings. Check backend connection.</p>
+      <div className="text-center py-12 animate-in fade-in duration-500">
+        <p style={{ color: tokens.colors.text.secondary }}>Unable to load settings. Check backend connection.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">System Settings</h1>
-        <p className="text-gray-600 mt-1">
+      <div className="animate-in fade-in duration-500">
+        <h1 style={{ fontSize: '24px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary, fontWeight: 500 }}>System Settings</h1>
+        <p style={{ color: tokens.colors.text.secondary, fontWeight: 300, marginTop: '4px' }}>
           Configure system-wide settings and limits
         </p>
       </div>
 
       {message.text && (
         <div
-          className={`rounded-lg p-4 flex items-start gap-3 ${
-            message.type === 'success'
-              ? 'bg-green-50 border border-green-200'
-              : 'bg-red-50 border border-red-200'
-          }`}
+          style={{
+            borderRadius: tokens.radius.lg,
+            padding: '16px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '12px',
+            backgroundColor: message.type === 'success' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            border: `1px solid ${message.type === 'success' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`
+          }}
+          className="animate-in fade-in duration-300"
         >
           <AlertCircle
-            className={`w-5 h-5 flex-shrink-0 ${
-              message.type === 'success' ? 'text-green-600' : 'text-red-600'
-            }`}
+            style={{ width: '20px', height: '20px', flexShrink: 0, color: message.type === 'success' ? '#22c55e' : '#ef4444' }}
           />
           <p
-            className={`text-sm font-medium ${
-              message.type === 'success' ? 'text-green-800' : 'text-red-800'
-            }`}
+            style={{
+              fontSize: '14px',
+              fontWeight: 500,
+              color: message.type === 'success' ? '#22c55e' : '#ef4444'
+            }}
           >
             {message.text}
           </p>
@@ -98,14 +105,14 @@ const SystemSettings = () => {
       )}
 
       {/* Settings Form */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div style={{ backgroundColor: tokens.colors.background.layer1, borderRadius: tokens.radius.xl, border: `1px solid ${tokens.colors.border.default}`, padding: '24px' }} className="animate-in fade-in duration-500">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 bg-gray-900 rounded-lg flex items-center justify-center">
-            <Settings className="w-5 h-5 text-white" />
+          <div style={{ width: '40px', height: '40px', backgroundColor: tokens.colors.accent.lime, borderRadius: tokens.radius.lg }} className="flex items-center justify-center">
+            <Settings style={{ width: '20px', height: '20px', color: tokens.colors.text.inverse }} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Usage Limits</h2>
-            <p className="text-sm text-gray-600">
+            <h2 style={{ fontSize: '20px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary }}>Usage Limits</h2>
+            <p style={{ fontSize: '14px', color: tokens.colors.text.secondary, fontWeight: 300 }}>
               Configure default limits for each tier
             </p>
           </div>
@@ -114,9 +121,9 @@ const SystemSettings = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Free Tier */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-gray-900 text-lg">Free Tier</h3>
+            <h3 style={{ fontWeight: 500, color: tokens.colors.text.primary, fontSize: '18px' }}>Free Tier</h3>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: tokens.colors.text.secondary, marginBottom: '8px' }}>
                 AI Tokens per Month
               </label>
               <input
@@ -128,11 +135,27 @@ const SystemSettings = () => {
                     free_tier_ai_tokens: parseInt(e.target.value),
                   })
                 }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent outline-none"
+                style={{
+                  width: '100%',
+                  padding: '8px 16px',
+                  backgroundColor: tokens.colors.background.input,
+                  border: `1px solid ${tokens.colors.border.default}`,
+                  color: tokens.colors.text.primary,
+                  borderRadius: tokens.radius.lg,
+                  outline: 'none'
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = tokens.colors.accent.lime;
+                  e.currentTarget.style.boxShadow = `0 0 0 2px ${tokens.colors.accent.lime}33`;
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = tokens.colors.border.default;
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: tokens.colors.text.secondary, marginBottom: '8px' }}>
                 Posts per Month
               </label>
               <input
@@ -144,16 +167,32 @@ const SystemSettings = () => {
                     free_tier_post_limit: parseInt(e.target.value),
                   })
                 }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent outline-none"
+                style={{
+                  width: '100%',
+                  padding: '8px 16px',
+                  backgroundColor: tokens.colors.background.input,
+                  border: `1px solid ${tokens.colors.border.default}`,
+                  color: tokens.colors.text.primary,
+                  borderRadius: tokens.radius.lg,
+                  outline: 'none'
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = tokens.colors.accent.lime;
+                  e.currentTarget.style.boxShadow = `0 0 0 2px ${tokens.colors.accent.lime}33`;
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = tokens.colors.border.default;
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
               />
             </div>
           </div>
 
           {/* Pro Tier */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-gray-900 text-lg">Pro Tier</h3>
+            <h3 style={{ fontWeight: 500, color: tokens.colors.text.primary, fontSize: '18px' }}>Pro Tier</h3>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: tokens.colors.text.secondary, marginBottom: '8px' }}>
                 AI Tokens per Month
               </label>
               <input
@@ -165,11 +204,27 @@ const SystemSettings = () => {
                     pro_tier_ai_tokens: parseInt(e.target.value),
                   })
                 }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent outline-none"
+                style={{
+                  width: '100%',
+                  padding: '8px 16px',
+                  backgroundColor: tokens.colors.background.input,
+                  border: `1px solid ${tokens.colors.border.default}`,
+                  color: tokens.colors.text.primary,
+                  borderRadius: tokens.radius.lg,
+                  outline: 'none'
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = tokens.colors.accent.lime;
+                  e.currentTarget.style.boxShadow = `0 0 0 2px ${tokens.colors.accent.lime}33`;
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = tokens.colors.border.default;
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: tokens.colors.text.secondary, marginBottom: '8px' }}>
                 Posts per Month
               </label>
               <input
@@ -181,20 +236,55 @@ const SystemSettings = () => {
                     pro_tier_post_limit: parseInt(e.target.value),
                   })
                 }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent outline-none"
+                style={{
+                  width: '100%',
+                  padding: '8px 16px',
+                  backgroundColor: tokens.colors.background.input,
+                  border: `1px solid ${tokens.colors.border.default}`,
+                  color: tokens.colors.text.primary,
+                  borderRadius: tokens.radius.lg,
+                  outline: 'none'
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = tokens.colors.accent.lime;
+                  e.currentTarget.style.boxShadow = `0 0 0 2px ${tokens.colors.accent.lime}33`;
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = tokens.colors.border.default;
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p style={{ fontSize: '12px', color: tokens.colors.text.tertiary, marginTop: '4px' }}>
                 Use -1 for unlimited
               </p>
             </div>
           </div>
         </div>
 
-        <div className="mt-8 pt-6 border-t border-gray-200">
+        <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: `1px solid ${tokens.colors.border.default}` }}>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '12px 24px',
+              backgroundColor: tokens.colors.accent.lime,
+              color: tokens.colors.text.inverse,
+              borderRadius: tokens.radius.lg,
+              fontWeight: 500,
+              opacity: saving ? 0.5 : 1,
+              cursor: saving ? 'not-allowed' : 'pointer',
+              border: 'none'
+            }}
+            className="transition"
+            onMouseEnter={(e) => {
+              if (!saving) e.currentTarget.style.opacity = '0.9';
+            }}
+            onMouseLeave={(e) => {
+              if (!saving) e.currentTarget.style.opacity = '1';
+            }}
           >
             <Save className="w-5 h-5" />
             {saving ? 'Saving...' : 'Save Settings'}
