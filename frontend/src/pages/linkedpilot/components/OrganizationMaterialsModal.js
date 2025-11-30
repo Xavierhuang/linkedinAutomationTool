@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { X, Upload, Link as LinkIcon, FileText, Image as ImageIcon, Trash2, Loader2, Sparkles, Plus, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
+import { useThemeTokens } from '@/hooks/useThemeTokens';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete, organization }) => {
+  const tokens = useThemeTokens();
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -198,40 +200,84 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
   };
 
   const getMaterialIcon = (type) => {
+    const iconStyle = { width: '20px', height: '20px' };
     switch (type) {
       case 'pdf':
       case 'document':
-        return <FileText className="w-5 h-5 text-red-600" />;
+        return <FileText style={{ ...iconStyle, color: '#EF4444' }} />;
       case 'image':
-        return <ImageIcon className="w-5 h-5 text-blue-600" />;
+        return <ImageIcon style={{ ...iconStyle, color: tokens.colors.accent.lime }} />;
       case 'website':
       case 'blog':
-        return <LinkIcon className="w-5 h-5 text-green-600" />;
+        return <LinkIcon style={{ ...iconStyle, color: '#10B981' }} />;
       default:
-        return <FileText className="w-5 h-5 text-gray-600" />;
+        return <FileText style={{ ...iconStyle, color: tokens.colors.text.tertiary }} />;
     }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <style>{`
-        .materials-modal input,
-        .materials-modal select {
-          color: #1A1A1A !important;
-          background-color: #FFFFFF !important;
-        }
-      `}</style>
-
-      <div className="materials-modal bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div 
+      className="fixed inset-0 flex items-center justify-center z-50 p-4"
+      style={{
+        backgroundColor: tokens.isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.5)',
+        backdropFilter: 'blur(8px)'
+      }}
+      onClick={onClose}
+    >
+      <div 
+        className="materials-modal max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+        style={{
+          backgroundColor: tokens.colors.background.layer2,
+          borderRadius: tokens.radius.xl,
+          border: `1px solid ${tokens.colors.border.default}`,
+          boxShadow: tokens.shadow.floating
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div 
+          className="px-6 py-4 flex items-center justify-between"
+          style={{
+            borderBottom: `1px solid ${tokens.colors.border.default}`,
+            backgroundColor: tokens.colors.background.layer1
+          }}
+        >
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Organizational Materials</h2>
-            <p className="text-sm text-gray-600 mt-1">Upload materials to auto-generate campaign insights</p>
+            <h2 
+              style={{
+                fontSize: '18px',
+                fontWeight: 600,
+                color: tokens.colors.text.primary,
+                fontFamily: tokens.typography.fontFamily.serif,
+                fontStyle: 'italic'
+              }}
+            >
+              Organizational Materials
+            </h2>
+            <p 
+              style={{
+                fontSize: '14px',
+                color: tokens.colors.text.secondary,
+                marginTop: '4px'
+              }}
+            >
+              Upload materials to auto-generate campaign insights
+            </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button 
+            onClick={onClose}
+            style={{
+              color: tokens.colors.text.tertiary,
+              cursor: 'pointer',
+              background: 'none',
+              border: 'none',
+              padding: '8px'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
+            onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.tertiary}
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -240,35 +286,86 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
         <div className="flex-1 overflow-y-auto p-6">
           {/* Website Suggestion Banner */}
           {showWebsiteSuggestion && organization?.website && (
-            <div className="mb-6 p-4 bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg">
+            <div 
+              className="mb-6 p-4 rounded-lg"
+              style={{
+                background: `linear-gradient(to right, ${tokens.colors.accent.lime}20, ${tokens.colors.accent.lime}10)`,
+                border: `1px solid ${tokens.colors.accent.lime}40`,
+                borderRadius: tokens.radius.lg
+              }}
+            >
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Globe className="w-5 h-5 text-white" />
+                <div 
+                  className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{
+                    backgroundColor: tokens.colors.accent.lime,
+                    borderRadius: tokens.radius.md
+                  }}
+                >
+                  <Globe className="w-5 h-5" style={{ color: '#000000' }} />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-green-900 mb-1">
-                    🎯 Organization Website Detected
+                  <h3 
+                    style={{
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      color: tokens.colors.text.primary,
+                      marginBottom: '4px'
+                    }}
+                  >
+                    Organization Website Detected
                   </h3>
-                  <p className="text-xs text-green-800 mb-2">
+                  <p 
+                    style={{
+                      fontSize: '12px',
+                      color: tokens.colors.text.secondary,
+                      marginBottom: '8px'
+                    }}
+                  >
                     We found your organization's website: <strong>{organization.website}</strong>
                   </p>
-                  <p className="text-xs text-green-700 mb-3">
+                  <p 
+                    style={{
+                      fontSize: '12px',
+                      color: tokens.colors.text.tertiary,
+                      marginBottom: '12px'
+                    }}
+                  >
                     Add it as a material to help AI analyze your brand and generate better campaigns.
                   </p>
                   <div className="flex gap-2">
-                    <Button
+                    <button
                       onClick={handleAddOrgWebsite}
                       disabled={loading}
-                      className="bg-green-600 hover:bg-green-700 text-white text-xs px-3 py-1 h-auto"
+                      style={{
+                        backgroundColor: tokens.colors.accent.lime,
+                        color: '#000000',
+                        fontSize: '12px',
+                        padding: '6px 12px',
+                        borderRadius: tokens.radius.md,
+                        border: 'none',
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        fontWeight: 500,
+                        opacity: loading ? 0.5 : 1
+                      }}
                     >
                       {loading ? 'Adding...' : 'Add Website'}
-                    </Button>
-                    <Button
+                    </button>
+                    <button
                       onClick={() => setShowWebsiteSuggestion(false)}
-                      className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs px-3 py-1 h-auto"
+                      style={{
+                        backgroundColor: tokens.colors.background.input,
+                        color: tokens.colors.text.secondary,
+                        fontSize: '12px',
+                        padding: '6px 12px',
+                        borderRadius: tokens.radius.md,
+                        border: `1px solid ${tokens.colors.border.default}`,
+                        cursor: 'pointer',
+                        fontWeight: 500
+                      }}
                     >
                       Dismiss
-                    </Button>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -277,12 +374,31 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
 
           {/* Upload Section */}
           <div className="mb-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Add Materials</h3>
+            <h3 
+              style={{
+                fontSize: '14px',
+                fontWeight: 600,
+                color: tokens.colors.text.primary,
+                marginBottom: '12px'
+              }}
+            >
+              Add Materials
+            </h3>
             <div className="flex gap-2">
               <label className="flex-1">
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-500 transition">
-                  <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                  <span className="text-sm text-gray-600">Upload PDF, Image, or Document</span>
+                <div 
+                  className="rounded-lg p-4 text-center cursor-pointer transition"
+                  style={{
+                    border: `2px dashed ${tokens.colors.border.default}`,
+                    borderRadius: tokens.radius.lg
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = tokens.colors.accent.lime}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = tokens.colors.border.default}
+                >
+                  <Upload className="w-6 h-6 mx-auto mb-2" style={{ color: tokens.colors.text.tertiary }} />
+                  <span style={{ fontSize: '14px', color: tokens.colors.text.secondary }}>
+                    Upload PDF, Image, or Document
+                  </span>
                   <input
                     type="file"
                     className="hidden"
@@ -295,21 +411,42 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
               
               <button
                 onClick={() => setShowUrlInput(!showUrlInput)}
-                className="flex-1 border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-500 transition"
+                className="flex-1 rounded-lg p-4 text-center transition"
+                style={{
+                  border: `2px dashed ${tokens.colors.border.default}`,
+                  borderRadius: tokens.radius.lg,
+                  background: 'none',
+                  cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.borderColor = tokens.colors.accent.lime}
+                onMouseLeave={(e) => e.currentTarget.style.borderColor = tokens.colors.border.default}
               >
-                <LinkIcon className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                <span className="text-sm text-gray-600">Add Website or Blog URL</span>
+                <LinkIcon className="w-6 h-6 mx-auto mb-2" style={{ color: tokens.colors.text.tertiary }} />
+                <span style={{ fontSize: '14px', color: tokens.colors.text.secondary }}>
+                  Add Website or Blog URL
+                </span>
               </button>
             </div>
 
             {showUrlInput && (
-              <div className="mt-3 p-4 bg-gray-50 rounded-lg">
+              <div 
+                className="mt-3 p-4 rounded-lg"
+                style={{
+                  backgroundColor: tokens.colors.background.input,
+                  borderRadius: tokens.radius.lg
+                }}
+              >
                 <div className="flex gap-2 mb-2">
                   <select
                     value={urlType}
                     onChange={(e) => setUrlType(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                    style={{ color: '#1A1A1A', backgroundColor: '#FFFFFF' }}
+                    className="px-3 py-2 rounded-lg text-sm"
+                    style={{
+                      color: tokens.colors.text.primary,
+                      backgroundColor: tokens.colors.background.layer2,
+                      border: `1px solid ${tokens.colors.border.default}`,
+                      borderRadius: tokens.radius.md
+                    }}
                   >
                     <option value="website">Website</option>
                     <option value="blog">Blog</option>
@@ -319,12 +456,32 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
                     placeholder="https://example.com"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                    style={{ color: '#1A1A1A', backgroundColor: '#FFFFFF' }}
+                    className="flex-1 px-3 py-2 rounded-lg text-sm"
+                    style={{
+                      color: tokens.colors.text.primary,
+                      backgroundColor: tokens.colors.background.layer2,
+                      border: `1px solid ${tokens.colors.border.default}`,
+                      borderRadius: tokens.radius.md
+                    }}
                   />
-                  <Button onClick={handleAddUrl} disabled={loading} className="bg-blue-600 text-white">
+                  <button
+                    onClick={handleAddUrl}
+                    disabled={loading}
+                    style={{
+                      backgroundColor: tokens.colors.accent.lime,
+                      color: '#000000',
+                      padding: '8px 12px',
+                      borderRadius: tokens.radius.md,
+                      border: 'none',
+                      cursor: loading ? 'not-allowed' : 'pointer',
+                      opacity: loading ? 0.5 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
                     <Plus className="w-4 h-4" />
-                  </Button>
+                  </button>
                 </div>
               </div>
             )}
@@ -332,15 +489,28 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
 
           {/* Materials List */}
           <div className="mb-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">
+            <h3 
+              style={{
+                fontSize: '14px',
+                fontWeight: 600,
+                color: tokens.colors.text.primary,
+                marginBottom: '12px'
+              }}
+            >
               Materials ({materials.length})
             </h3>
             {loading && materials.length === 0 ? (
               <div className="text-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
+                <Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: tokens.colors.text.tertiary }} />
               </div>
             ) : materials.length === 0 ? (
-              <div className="text-center py-8 text-gray-500 text-sm">
+              <div 
+                className="text-center py-8"
+                style={{
+                  color: tokens.colors.text.tertiary,
+                  fontSize: '14px'
+                }}
+              >
                 No materials added yet. Upload files or add URLs to get started.
               </div>
             ) : (
@@ -348,16 +518,47 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
                 {materials.map((material) => (
                   <div
                     key={material.id}
-                    className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition"
+                    className="flex items-center gap-3 p-3 rounded-lg transition"
+                    style={{
+                      backgroundColor: tokens.colors.background.input,
+                      borderRadius: tokens.radius.lg
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.background.layer1}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.background.input}
                   >
                     {getMaterialIcon(material.type)}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{material.name}</p>
-                      <p className="text-xs text-gray-500 capitalize">{material.type} • {material.status}</p>
+                      <p 
+                        className="truncate"
+                        style={{
+                          fontSize: '14px',
+                          fontWeight: 500,
+                          color: tokens.colors.text.primary
+                        }}
+                      >
+                        {material.name}
+                      </p>
+                      <p 
+                        className="capitalize"
+                        style={{
+                          fontSize: '12px',
+                          color: tokens.colors.text.tertiary
+                        }}
+                      >
+                        {material.type} • {material.status}
+                      </p>
                     </div>
                     <button
                       onClick={() => handleDelete(material.id)}
-                      className="text-red-600 hover:text-red-800"
+                      style={{
+                        color: tokens.colors.error,
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '4px'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+                      onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -370,37 +571,59 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
           {/* Analysis Section */}
           {brandAnalysis && (
             <div className="mb-6">
-              <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200 mb-4">
-                <h3 className="text-sm font-semibold text-blue-900 mb-3 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
+              <div 
+                className="p-4 rounded-lg mb-4"
+                style={{
+                  background: `linear-gradient(to right, ${tokens.colors.accent.lime}20, ${tokens.colors.accent.lime}10)`,
+                  border: `1px solid ${tokens.colors.accent.lime}40`,
+                  borderRadius: tokens.radius.lg
+                }}
+              >
+                <h3 
+                  className="mb-3 flex items-center gap-2"
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    color: tokens.colors.text.primary
+                  }}
+                >
+                  <Sparkles className="w-4 h-4" style={{ color: tokens.colors.accent.lime }} />
                   Brand Analysis Complete
                 </h3>
-                <div className="grid grid-cols-2 gap-3 text-xs mb-4">
+                <div className="grid grid-cols-2 gap-3 mb-4" style={{ fontSize: '12px' }}>
                   <div>
-                    <span className="text-blue-700 font-medium">Brand Voice:</span>
-                    <span className="text-blue-900 ml-1 capitalize">{brandAnalysis.brand_voice}</span>
+                    <span style={{ color: tokens.colors.text.secondary, fontWeight: 500 }}>Brand Voice:</span>
+                    <span className="ml-1 capitalize" style={{ color: tokens.colors.text.primary }}>{brandAnalysis.brand_voice}</span>
                   </div>
                   <div>
-                    <span className="text-blue-700 font-medium">Content Pillars:</span>
-                    <span className="text-blue-900 ml-1">{brandAnalysis.content_pillars?.length || 0}</span>
+                    <span style={{ color: tokens.colors.text.secondary, fontWeight: 500 }}>Content Pillars:</span>
+                    <span className="ml-1" style={{ color: tokens.colors.text.primary }}>{brandAnalysis.content_pillars?.length || 0}</span>
                   </div>
                   <div>
-                    <span className="text-blue-700 font-medium">Target Industries:</span>
-                    <span className="text-blue-900 ml-1">{brandAnalysis.target_audience?.industries?.length || 0}</span>
+                    <span style={{ color: tokens.colors.text.secondary, fontWeight: 500 }}>Target Industries:</span>
+                    <span className="ml-1" style={{ color: tokens.colors.text.primary }}>{brandAnalysis.target_audience?.industries?.length || 0}</span>
                   </div>
                   <div>
-                    <span className="text-blue-700 font-medium">Expert Segments:</span>
-                    <span className="text-blue-900 ml-1">{brandAnalysis.expert_segments?.length || 0}</span>
+                    <span style={{ color: tokens.colors.text.secondary, fontWeight: 500 }}>Expert Segments:</span>
+                    <span className="ml-1" style={{ color: tokens.colors.text.primary }}>{brandAnalysis.expert_segments?.length || 0}</span>
                   </div>
                 </div>
 
                 {/* Content Pillars Preview */}
                 {brandAnalysis.content_pillars && brandAnalysis.content_pillars.length > 0 && (
                   <div className="mb-3">
-                    <span className="text-xs text-blue-700 font-medium">Content Pillars:</span>
+                    <span style={{ fontSize: '12px', color: tokens.colors.text.secondary, fontWeight: 500 }}>Content Pillars:</span>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {brandAnalysis.content_pillars.slice(0, 6).map((pillar, idx) => (
-                        <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                        <span 
+                          key={idx} 
+                          className="px-2 py-1 rounded text-xs"
+                          style={{
+                            backgroundColor: tokens.colors.accent.lime + '30',
+                            color: tokens.colors.accent.lime,
+                            borderRadius: tokens.radius.sm
+                          }}
+                        >
                           {pillar}
                         </span>
                       ))}
@@ -411,10 +634,18 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
                 {/* Target Audience Preview */}
                 {brandAnalysis.target_audience?.job_titles && brandAnalysis.target_audience.job_titles.length > 0 && (
                   <div>
-                    <span className="text-xs text-blue-700 font-medium">Target Roles:</span>
+                    <span style={{ fontSize: '12px', color: tokens.colors.text.secondary, fontWeight: 500 }}>Target Roles:</span>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {brandAnalysis.target_audience.job_titles.slice(0, 5).map((title, idx) => (
-                        <span key={idx} className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">
+                        <span 
+                          key={idx} 
+                          className="px-2 py-1 rounded text-xs"
+                          style={{
+                            backgroundColor: tokens.colors.accent.lime + '30',
+                            color: tokens.colors.accent.lime,
+                            borderRadius: tokens.radius.sm
+                          }}
+                        >
                           {title}
                         </span>
                       ))}
@@ -425,24 +656,79 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
 
               {/* Suggested Campaigns */}
               {brandAnalysis.suggested_campaigns && brandAnalysis.suggested_campaigns.length > 0 && (
-                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <h4 className="text-sm font-semibold text-gray-900 mb-3">Suggested Campaigns</h4>
+                <div 
+                  className="p-4 rounded-lg"
+                  style={{
+                    backgroundColor: tokens.colors.background.input,
+                    border: `1px solid ${tokens.colors.border.default}`,
+                    borderRadius: tokens.radius.lg
+                  }}
+                >
+                  <h4 
+                    className="mb-3"
+                    style={{
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      color: tokens.colors.text.primary
+                    }}
+                  >
+                    Suggested Campaigns
+                  </h4>
                   <div className="space-y-2">
                     {brandAnalysis.suggested_campaigns.slice(0, 3).map((campaign, idx) => (
-                      <div key={idx} className="p-3 bg-white rounded border border-gray-200">
+                      <div 
+                        key={idx} 
+                        className="p-3 rounded"
+                        style={{
+                          backgroundColor: tokens.colors.background.layer2,
+                          border: `1px solid ${tokens.colors.border.default}`,
+                          borderRadius: tokens.radius.md
+                        }}
+                      >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <h5 className="text-sm font-medium text-gray-900">{campaign.name}</h5>
-                            <p className="text-xs text-gray-600 mt-1">{campaign.description}</p>
+                            <h5 
+                              style={{
+                                fontSize: '14px',
+                                fontWeight: 500,
+                                color: tokens.colors.text.primary
+                              }}
+                            >
+                              {campaign.name}
+                            </h5>
+                            <p 
+                              className="mt-1"
+                              style={{
+                                fontSize: '12px',
+                                color: tokens.colors.text.secondary
+                              }}
+                            >
+                              {campaign.description}
+                            </p>
                             {campaign.focus && (
-                              <span className="inline-block mt-2 px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
+                              <span 
+                                className="inline-block mt-2 px-2 py-1 rounded text-xs"
+                                style={{
+                                  backgroundColor: tokens.colors.accent.lime + '30',
+                                  color: tokens.colors.accent.lime,
+                                  borderRadius: tokens.radius.sm
+                                }}
+                              >
                                 {campaign.focus}
                               </span>
                             )}
                           </div>
                           <button
                             onClick={() => handleGenerateCampaign(campaign)}
-                            className="ml-2 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs flex items-center gap-1"
+                            className="ml-2 px-3 py-1 rounded text-xs flex items-center gap-1"
+                            style={{
+                              backgroundColor: tokens.colors.accent.lime,
+                              color: '#000000',
+                              border: 'none',
+                              cursor: 'pointer',
+                              borderRadius: tokens.radius.md,
+                              fontWeight: 500
+                            }}
                           >
                             <Sparkles className="w-3 h-3" />
                             Generate
@@ -458,14 +744,45 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 flex justify-between">
-          <Button onClick={onClose} className="bg-gray-100 hover:bg-gray-200 text-gray-900">
+        <div 
+          className="px-6 py-4 flex justify-between"
+          style={{
+            borderTop: `1px solid ${tokens.colors.border.default}`,
+            backgroundColor: tokens.colors.background.layer1
+          }}
+        >
+          <button
+            onClick={onClose}
+            style={{
+              backgroundColor: tokens.colors.background.input,
+              color: tokens.colors.text.primary,
+              padding: '10px 24px',
+              borderRadius: '9999px',
+              border: `1px solid ${tokens.colors.border.default}`,
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 500
+            }}
+          >
             Close
-          </Button>
-          <Button
+          </button>
+          <button
             onClick={handleAnalyze}
             disabled={analyzing || materials.length === 0}
-            className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
+            style={{
+              backgroundColor: analyzing || materials.length === 0 ? tokens.colors.text.tertiary : tokens.colors.accent.lime,
+              color: '#000000',
+              padding: '10px 24px',
+              borderRadius: '9999px',
+              border: 'none',
+              cursor: analyzing || materials.length === 0 ? 'not-allowed' : 'pointer',
+              fontSize: '14px',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              opacity: analyzing || materials.length === 0 ? 0.5 : 1
+            }}
           >
             {analyzing ? (
               <>
@@ -478,7 +795,7 @@ const OrganizationMaterialsModal = ({ isOpen, onClose, orgId, onAnalysisComplete
                 {brandAnalysis ? 'Re-analyze Materials' : 'Analyze & Generate Insights'}
               </>
             )}
-          </Button>
+          </button>
         </div>
       </div>
     </div>

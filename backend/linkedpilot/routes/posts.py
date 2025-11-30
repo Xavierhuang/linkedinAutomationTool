@@ -305,22 +305,43 @@ async def import_posts_from_linkedin(org_id: str):
         
         # Get organization
         org = await db.organizations.find_one({"id": org_id}, {"_id": 0})
-        if not org or not org.get('linkedin_access_token'):
-            raise HTTPException(status_code=400, detail="LinkedIn not connected")
+        if not org:
+            raise HTTPException(status_code=404, detail="Organization not found")
         
-        # Get author ID
+        # Check LinkedIn connection - try organization first, then user level
+        linkedin_access_token = org.get('linkedin_access_token')
         linkedin_profile = org.get('linkedin_profile', {})
+        user_id = org.get('created_by')
+        user_settings = None
+        
+        # If not at org level, check user settings
+        if not linkedin_access_token and user_id:
+            user_settings = await db.user_settings.find_one({"user_id": user_id}, {"_id": 0})
+            if user_settings:
+                linkedin_access_token = user_settings.get('linkedin_access_token')
+                if not linkedin_profile and user_settings.get('linkedin_profile'):
+                    linkedin_profile = user_settings.get('linkedin_profile', {})
+        
+        if not linkedin_access_token:
+            raise HTTPException(status_code=400, detail="LinkedIn not connected. Please connect LinkedIn in Settings.")
+        
+        # Get author ID - check org first, then user settings
         author_id = org.get('linkedin_person_urn') or linkedin_profile.get('sub') or org.get('linkedin_sub')
         
+        # If still no author_id, try user settings
+        if not author_id and user_settings:
+            user_linkedin_profile = user_settings.get('linkedin_profile', {})
+            author_id = user_linkedin_profile.get('sub')
+        
         if not author_id:
-            raise HTTPException(status_code=400, detail="No LinkedIn author ID found")
+            raise HTTPException(status_code=400, detail="No LinkedIn author ID found. Please reconnect LinkedIn in Settings.")
         
         # Initialize LinkedIn adapter
         linkedin = LinkedInAdapter(client_id="from_user", client_secret="from_user")
         
         # Fetch all posts from LinkedIn
         linkedin_posts = await linkedin.get_all_user_posts(
-            access_token=org['linkedin_access_token'],
+            access_token=linkedin_access_token,
             author_id=author_id,
             count=50
         )
@@ -353,7 +374,7 @@ async def import_posts_from_linkedin(org_id: str):
                 
                 # Fetch analytics for this post
                 analytics = await linkedin.get_post_analytics(
-                    access_token=org['linkedin_access_token'],
+                    access_token=linkedin_access_token,
                     post_urn=post_id
                 )
                 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useStripe, useElements, PaymentElement } from '@stripe/react-stripe-js';
-import { Loader2 } from 'lucide-react';
+import { Loader2, CheckCircle2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 const PaymentForm = ({ onSuccess, onError }) => {
   const stripe = useStripe();
@@ -48,43 +49,47 @@ const PaymentForm = ({ onSuccess, onError }) => {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <PaymentElement />
+      <div className="bg-card p-4 rounded-xl border border-border">
+        <PaymentElement 
+          options={{
+            layout: {
+              type: 'tabs',
+              defaultCollapsed: false,
+            },
+          }}
+        />
+      </div>
       
       {errorMessage && (
-        <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
+        <div className="text-red-400 text-sm bg-red-500/10 p-3 rounded-lg border border-red-500/20 flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
           {errorMessage}
         </div>
       )}
 
-      <button
+      <Button
         type="submit"
         disabled={!stripe || processing}
-        className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+        className="w-full bg-primary text-primary-foreground py-6 px-4 rounded-xl font-medium hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all duration-300 shadow-[0_0_20px_rgba(136,217,231,0.1)] hover:shadow-[0_0_30px_rgba(136,217,231,0.2)]"
       >
         {processing ? (
           <>
             <Loader2 className="w-5 h-5 animate-spin" />
-            Processing...
+            Processing Secure Payment...
           </>
         ) : (
-          'Subscribe Now'
+          <>
+            <CheckCircle2 className="w-5 h-5" />
+            Confirm Subscription
+          </>
         )}
-      </button>
+      </Button>
 
-      <p className="text-xs text-gray-500 text-center">
-        By subscribing, you agree to our terms and authorize us to charge your payment method.
+      <p className="text-[10px] text-muted-foreground text-center uppercase tracking-wide font-medium">
+        Secured by Stripe • Cancel Anytime
       </p>
     </form>
   );
 };
 
 export default PaymentForm;
-
-
-
-
-
-
-
-
-

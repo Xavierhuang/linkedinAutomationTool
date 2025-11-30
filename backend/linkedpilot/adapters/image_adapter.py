@@ -40,8 +40,9 @@ class ImageAdapter:
         if self.provider == "google_ai_studio":
             self.api_key = api_key or os.getenv('GOOGLE_AI_API_KEY')
             self.base_url = "https://generativelanguage.googleapis.com/v1beta"
-            # Always use gemini-2.5-flash-image for Google AI Studio image generation
-            self.model = "gemini-2.5-flash-image"
+            # Use provided model or default to Gemini 3 Pro Image Preview (Nano Banana Pro Preview)
+            # This is the advanced model for professional asset production
+            self.model = model or "gemini-3-pro-image-preview"
         elif self.provider == "openrouter":
             self.api_key = api_key or os.getenv('OPENROUTER_API_KEY') or os.getenv('OPENAI_API_KEY')
             self.base_url = "https://openrouter.ai/api/v1"
@@ -115,13 +116,13 @@ class ImageAdapter:
                 # Add style enhancement for simple prompts - PROFESSIONAL PHOTOGRAPHY ONLY
                 full_prompt = f"{photorealism_prefix}PROFESSIONAL PHOTOGRAPH - PHOTOREALISTIC 4K QUALITY. Shot on DSLR camera, 35mm lens, f/1.8 aperture. {prompt}. {style} lighting. National Geographic quality, documentary photography style, real photo, NOT illustration, NOT digital art, NOT cartoon, NOT anime. ABSOLUTELY NO TEXT OR WORDS - pure visual imagery only."
             
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:  # Increased timeout for Gemini 3 Pro
                 if self.provider == "google_ai_studio":
-                    # Google AI Studio direct API - Gemini 2.5 Flash Image
+                    # Google AI Studio direct API - Supports Gemini 2.5 Flash Image and Gemini 3 Pro Image Preview
                     # Documentation: https://ai.google.dev/gemini-api/docs/image-generation
-                    # Model: gemini-2.5-flash-image
-                    # Endpoint: POST /v1beta/models/gemini-2.5-flash-image:generateContent
-                    model_name = "gemini-2.5-flash-image"
+                    # Models: gemini-2.5-flash-image (fast) or gemini-3-pro-image-preview (advanced, 4K)
+                    # Endpoint: POST /v1beta/models/{model_name}:generateContent
+                    model_name = self.model  # Use the configured model (default: gemini-3-pro-image-preview)
                     endpoint = f"{self.base_url}/models/{model_name}:generateContent"
                     
                     # Request format per Google docs:
@@ -138,7 +139,18 @@ class ImageAdapter:
                         }]
                     }
                     
+                    # Add image config for Gemini 3 Pro Image Preview (supports aspect ratios and resolutions)
+                    if "gemini-3-pro-image-preview" in model_name.lower():
+                        # Gemini 3 Pro Image Preview supports aspect ratios and resolutions
+                        # Default to 1:1 aspect ratio, 1K resolution (1024x1024)
+                        request_body["generationConfig"] = {
+                            "imageConfig": {
+                                "aspectRatio": "1:1"  # Options: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
+                            }
+                        }
+                    
                     print(f"[IMAGE] Calling Gemini API: {endpoint}")
+                    print(f"[IMAGE] Model: {model_name}")
                     print(f"[IMAGE] Request body keys: {list(request_body.keys())}")
                     
                     response = await client.post(

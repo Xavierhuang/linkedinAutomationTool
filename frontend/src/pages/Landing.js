@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Youtube, Twitter, Instagram, Facebook, Clock, Users, Calendar, BarChart3, Sparkles, CheckCircle, Star, ArrowRight, Menu, X, Zap, TrendingUp, Shield } from 'lucide-react';
+import { useThemeTokens } from '@/hooks/useThemeTokens';
 
 const Landing = () => {
   const navigate = useNavigate();
+  const tokens = useThemeTokens();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrollY, setScrollY] = useState(0);
+
+  // Theme is now managed by ThemeProvider - no need to force dark mode
 
   // Scroll animations with Intersection Observer (2025 best practice)
   useEffect(() => {
@@ -224,78 +228,167 @@ const Landing = () => {
             opacity: 1;
           }
         }
+
+        @keyframes gradientShift {
+          0% {
+            background-position: 0% 50%;
+          }
+          50% {
+            background-position: 100% 50%;
+          }
+          100% {
+            background-position: 0% 50%;
+          }
+        }
+
+        @keyframes blob {
+          0% {
+            transform: translate(0px, 0px) scale(1);
+          }
+          33% {
+            transform: translate(30px, -50px) scale(1.1);
+          }
+          66% {
+            transform: translate(-20px, 20px) scale(0.9);
+          }
+          100% {
+            transform: translate(0px, 0px) scale(1);
+          }
+        }
+
+        @keyframes pulse {
+          0%, 100% {
+            opacity: 0.3;
+          }
+          50% {
+            opacity: 0.5;
+          }
+        }
       `}</style>
 
-      <div className="min-h-screen overflow-x-hidden" style={{ 
-        backgroundColor: '#7FDBCB', 
-        padding: 'clamp(16px, 4vw, 40px) clamp(12px, 3vw, 24px)', 
-        overflowY: 'scroll'
-      }}>
-      <div className="max-w-7xl mx-auto">
+      <div 
+        className="min-h-screen overflow-x-hidden relative" 
+        style={{ 
+          background: `linear-gradient(135deg, ${tokens.colors.background.app} 0%, ${tokens.colors.background.layer1} 25%, ${tokens.colors.background.app} 50%, ${tokens.colors.background.layer1} 75%, ${tokens.colors.background.app} 100%)`,
+          backgroundSize: '400% 400%',
+          padding: 'clamp(16px, 4vw, 40px) clamp(12px, 3vw, 24px)', 
+          overflowY: 'scroll',
+          animation: 'gradientShift 15s ease infinite'
+        }}
+      >
+        {/* Animated Background Overlay - Dark colors */}
+        <div 
+          className="absolute inset-0 opacity-20"
+          style={{
+            background: 'radial-gradient(circle at 20% 50%, rgba(136, 217, 231, 0.15) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(136, 217, 231, 0.1) 0%, transparent 50%), radial-gradient(circle at 40% 20%, rgba(136, 217, 231, 0.08) 0%, transparent 50%)',
+            animation: 'pulse 8s ease-in-out infinite'
+          }}
+        />
+        
+        {/* Floating Orbs - Dark theme */}
+        <div 
+          className="absolute top-20 left-10 w-72 h-72 rounded-full mix-blend-screen filter blur-xl opacity-10"
+          style={{ 
+            background: 'radial-gradient(circle, rgba(136, 217, 231, 0.3) 0%, transparent 70%)',
+            animation: 'blob 7s infinite' 
+          }}
+        />
+        <div 
+          className="absolute top-40 right-10 w-72 h-72 rounded-full mix-blend-screen filter blur-xl opacity-10"
+          style={{ 
+            background: 'radial-gradient(circle, rgba(136, 217, 231, 0.25) 0%, transparent 70%)',
+            animation: 'blob 9s infinite', 
+            animationDelay: '2s' 
+          }}
+        />
+        <div 
+          className="absolute -bottom-8 left-1/2 w-72 h-72 rounded-full mix-blend-screen filter blur-xl opacity-10"
+          style={{ 
+            background: 'radial-gradient(circle, rgba(136, 217, 231, 0.2) 0%, transparent 70%)',
+            animation: 'blob 11s infinite', 
+            animationDelay: '4s' 
+          }}
+        />
+      <div className="max-w-7xl mx-auto relative z-10">
         {/* Main Content Card - Ultra Responsive */}
-        <div className="bg-white relative overflow-hidden" style={{ 
-          borderRadius: 'clamp(24px, 5vw, 48px)', 
-          padding: 'clamp(24px, 5vw, 48px) clamp(20px, 4vw, 48px) clamp(40px, 8vw, 80px)', 
-          boxShadow: '0 clamp(12px, 3vw, 24px) clamp(40px, 8vw, 80px) rgba(0, 0, 0, 0.12)'
-        }}>
+        <main 
+          className="relative overflow-hidden backdrop-blur-xl" 
+          role="main"
+          aria-label="LinkedIn Pilot landing page content"
+          style={{ 
+            background: tokens.colors.background.layer2 + 'CC',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderRadius: 'clamp(24px, 5vw, 48px)', 
+            padding: 'clamp(24px, 5vw, 48px) clamp(20px, 4vw, 48px) clamp(40px, 8vw, 80px)', 
+            boxShadow: tokens.shadow.floating,
+            border: `1px solid ${tokens.colors.border.default}`,
+            willChange: 'transform',
+            isolation: 'isolate'
+          }}
+        >
           
-          {/* Gradient Accent - Top */}
+          {/* Accent Line - Top */}
           <div style={{
             position: 'absolute',
             top: 0,
             left: 0,
             right: 0,
-            height: '4px',
-            background: 'linear-gradient(90deg, #7FDBCB, #FF6B9D, #FFC857, #7FDBCB)',
-            backgroundSize: '200% 100%',
-            animation: 'gradientShift 3s ease infinite'
+            height: '2px',
+            background: `linear-gradient(90deg, transparent, ${tokens.colors.accent.lime}, transparent)`
           }} />
 
           {/* Header - Ultra Responsive */}
           <header className="flex justify-between items-center relative z-10" style={{ marginBottom: 'clamp(40px, 8vw, 80px)' }}>
-            <div style={{ 
-              fontSize: 'clamp(24px, 6vw, 32px)', 
-              fontWeight: 900, 
-              color: '#000000', 
-              letterSpacing: 'clamp(-1px, -0.3vw, -1.5px)',
-              background: 'linear-gradient(135deg, #000000 0%, #333333 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent'
-            }}>
-              SocialFlow
+            <div className="flex items-center gap-3">
+              <div style={{ width: '32px', height: '32px', backgroundColor: tokens.colors.accent.lime, borderRadius: tokens.radius.lg }} className="flex items-center justify-center overflow-hidden">
+                <img src="/pilot.gif" alt="LinkedIn Pilot" className="w-full h-full object-contain" />
+              </div>
+              <span style={{ 
+                fontFamily: tokens.typography.fontFamily.serif, 
+                fontStyle: 'italic', 
+                color: tokens.colors.text.primary,
+                fontSize: 'clamp(20px, 5vw, 26px)', 
+                letterSpacing: 'clamp(-1px, -0.3vw, -1.5px)'
+              }}>
+                LinkedIn Pilot
+              </span>
             </div>
             
             {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center gap-6">
               <button 
                 onClick={() => navigate('/pricing')}
-                className="text-base font-semibold text-gray-700 hover:text-black transition-colors"
+                style={{ fontSize: '16px', fontWeight: 500, color: tokens.colors.text.secondary }}
+                className="transition-colors"
+                onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+                onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
               >
                 Pricing
               </button>
               <button
                 data-testid="nav-login-btn"
                 onClick={() => navigate('/login')}
-                className="text-base font-semibold text-gray-700 hover:text-black transition-colors px-4 py-2"
+                style={{ fontSize: '16px', fontWeight: 500, color: tokens.colors.text.secondary, padding: '8px 16px' }}
+                className="transition-colors"
+                onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+                onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
               >
                 Login
               </button>
               <button
                 data-testid="nav-signup-btn"
                 onClick={() => navigate('/signup')}
-                style={{
-                  background: 'linear-gradient(135deg, #000000 0%, #1a1a1a 100%)',
-                  color: '#FFFFFF',
-                  fontSize: '15px',
-                  fontWeight: 700,
-                  padding: '14px 32px',
-                  borderRadius: '50px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
-                  transition: 'all 0.3s ease'
+                style={{ 
+                  borderRadius: tokens.radius.full, 
+                  padding: '8px 24px', 
+                  backgroundColor: tokens.colors.accent.lime, 
+                  color: tokens.colors.text.inverse, 
+                  fontWeight: 500 
                 }}
-                className="hover:scale-105 hover:shadow-2xl"
+                className="transition-colors"
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.lime}
               >
                 Get Started Free
               </button>
@@ -303,19 +396,22 @@ const Landing = () => {
 
             {/* Mobile Hamburger Button - Ultra Touch-Friendly */}
             <button
-              className="md:hidden bg-black rounded-xl flex items-center justify-center z-50 active:scale-95 transition-transform"
               style={{ 
+                backgroundColor: tokens.colors.background.layer2, 
+                border: `1px solid ${tokens.colors.border.default}`, 
+                borderRadius: tokens.radius.xl,
                 width: 'clamp(44px, 12vw, 56px)', 
                 height: 'clamp(44px, 12vw, 56px)',
                 minWidth: '44px',
                 minHeight: '44px'
               }}
+              className="md:hidden flex items-center justify-center z-50 active:scale-95 transition-transform"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
               {mobileMenuOpen ? (
-                <X style={{ width: 'clamp(20px, 5vw, 24px)', height: 'clamp(20px, 5vw, 24px)' }} className="text-white" />
+                <X style={{ width: 'clamp(20px, 5vw, 24px)', height: 'clamp(20px, 5vw, 24px)', color: tokens.colors.text.primary }} />
               ) : (
-                <Menu style={{ width: 'clamp(20px, 5vw, 24px)', height: 'clamp(20px, 5vw, 24px)' }} className="text-white" />
+                <Menu style={{ width: 'clamp(20px, 5vw, 24px)', height: 'clamp(20px, 5vw, 24px)', color: tokens.colors.text.primary }} />
               )}
             </button>
           </header>
@@ -324,11 +420,16 @@ const Landing = () => {
           <div
             className={`md:hidden fixed inset-0 z-40 transition-opacity duration-300 ${mobileMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
           >
-            <div className="absolute inset-0 bg-black bg-opacity-50" onClick={() => setMobileMenuOpen(false)} />
+            <div className="absolute inset-0 bg-black bg-opacity-80" onClick={() => setMobileMenuOpen(false)} />
             
             <div 
-              className={`absolute right-0 top-0 bottom-0 w-80 bg-white shadow-2xl transition-transform duration-300 ${mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}
-              style={{ borderTopLeftRadius: '32px', borderBottomLeftRadius: '32px' }}
+              style={{ 
+                backgroundColor: tokens.colors.background.layer2, 
+                borderLeft: `1px solid ${tokens.colors.border.default}`, 
+                borderTopLeftRadius: tokens.radius.xl, 
+                borderBottomLeftRadius: tokens.radius.xl 
+              }}
+              className={`absolute right-0 top-0 bottom-0 w-80 shadow-2xl transition-transform duration-300 ${mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}
             >
               <div className="flex flex-col p-8 pt-24">
                 <button
@@ -336,7 +437,10 @@ const Landing = () => {
                     navigate('/pricing');
                     setMobileMenuOpen(false);
                   }}
-                  className="text-xl font-semibold text-gray-800 py-4 text-left hover:text-black transition-colors"
+                  style={{ fontSize: '20px', fontWeight: 500, color: tokens.colors.text.secondary, padding: '16px 0', textAlign: 'left' }}
+                  className="transition-colors"
+                  onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+                  onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
                 >
                   Pricing
                 </button>
@@ -345,7 +449,10 @@ const Landing = () => {
                     navigate('/login');
                     setMobileMenuOpen(false);
                   }}
-                  className="text-xl font-semibold text-gray-800 py-4 text-left hover:text-black transition-colors"
+                  style={{ fontSize: '20px', fontWeight: 500, color: tokens.colors.text.secondary, padding: '16px 0', textAlign: 'left' }}
+                  className="transition-colors"
+                  onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+                  onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
                 >
                   Login
                 </button>
@@ -354,7 +461,18 @@ const Landing = () => {
                     navigate('/signup');
                     setMobileMenuOpen(false);
                   }}
-                  className="text-lg font-semibold text-white bg-black rounded-3xl px-6 py-4 mt-4 hover:-translate-y-0.5 transition-transform"
+                  style={{ 
+                    fontSize: '18px', 
+                    fontWeight: 500, 
+                    color: tokens.colors.text.inverse, 
+                    backgroundColor: tokens.colors.accent.lime, 
+                    borderRadius: tokens.radius.full, 
+                    padding: '16px 24px', 
+                    marginTop: '16px' 
+                  }}
+                  className="transition-colors"
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.lime}
                 >
                   Get Started Free
                 </button>
@@ -365,87 +483,98 @@ const Landing = () => {
           {/* Hero Section - Ultra Responsive */}
           <section className="text-center relative" style={{ padding: 'clamp(32px, 8vw, 64px) 0' }}>
             {/* Badge - Ultra Responsive */}
-            <div className="inline-flex items-center rounded-full bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 fade-in-scroll" style={{
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              borderRadius: tokens.radius.full,
+              backgroundColor: tokens.colors.accent.lime + '1A',
+              border: `1px solid ${tokens.colors.accent.lime}4D`,
               gap: 'clamp(6px, 1.5vw, 8px)',
               padding: 'clamp(6px, 1.5vw, 8px) clamp(12px, 3vw, 16px)',
               marginBottom: 'clamp(24px, 6vw, 32px)'
-            }}>
-              <Sparkles style={{ width: 'clamp(14px, 3.5vw, 16px)', height: 'clamp(14px, 3.5vw, 16px)' }} className="text-purple-600" />
-              <span className="font-semibold text-purple-900" style={{ fontSize: 'clamp(11px, 2.5vw, 14px)' }}>Trusted by 10,000+ businesses worldwide</span>
+            }} className="fade-in-scroll">
+              <Sparkles style={{ width: 'clamp(14px, 3.5vw, 16px)', height: 'clamp(14px, 3.5vw, 16px)', color: tokens.colors.accent.lime }} />
+              <span style={{ fontWeight: 500, color: tokens.colors.accent.lime, fontSize: 'clamp(11px, 2.5vw, 14px)' }}>Trusted by 10,000+ businesses worldwide</span>
             </div>
 
             {/* Headline - Fluid Typography */}
             <div className="relative z-10 px-4 fade-in-scroll" style={{ marginBottom: 'clamp(32px, 8vw, 48px)' }}>
               <h1 style={{ 
+                fontFamily: tokens.typography.fontFamily.serif,
+                fontStyle: 'italic',
                 fontSize: 'clamp(32px, 8vw, 80px)',
-                fontWeight: 900, 
+                fontWeight: 400, 
                 lineHeight: 1.1, 
-                color: '#000000', 
+                color: tokens.colors.text.primary, 
                 marginBottom: '32px', 
                 letterSpacing: '-2.5px',
                 maxWidth: '1000px',
                 margin: '0 auto 32px auto'
               }}>
-                Social Media Management,
+                LinkedIn Content,
                 <span style={{
-                  background: 'linear-gradient(135deg, #7FDBCB 0%, #FF6B9D 50%, #FFC857 100%)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
+                  color: tokens.colors.accent.lime,
                   display: 'inline-block',
                   marginLeft: '16px'
                 }}>
-                  Simplified
+                  Engineered
                 </span>
               </h1>
               
               <p style={{
                 fontSize: 'clamp(16px, 4vw, 20px)',
-                fontWeight: 500,
+                fontWeight: 300,
                 lineHeight: 1.6,
-                color: '#666666',
+                color: tokens.colors.text.secondary,
                 maxWidth: '700px',
                 margin: `0 auto clamp(32px, 6vw, 48px) auto`
               }}>
-                Create, schedule, and analyze your content across all social platforms. Save time, boost engagement, and grow your brand with intelligent automation.
+                Create, schedule, and analyze your LinkedIn content with AI-powered automation. Save time, boost engagement, and grow your professional presence.
               </p>
               
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center mb-8 fade-in-scroll" style={{ gap: 'clamp(12px, 3vw, 16px)' }}>
                 <button
                   data-testid="hero-get-started-btn"
                   onClick={() => navigate('/signup')}
-                  className="hover:scale-105 hover:shadow-2xl transition-all active:scale-100"
                   style={{
-                    background: 'linear-gradient(135deg, #000000 0%, #1a1a1a 100%)',
-                    color: '#FFFFFF',
+                    borderRadius: tokens.radius.full,
+                    padding: '16px 32px',
+                    backgroundColor: tokens.colors.accent.lime,
+                    color: tokens.colors.text.inverse,
+                    fontWeight: 500,
                     fontSize: 'clamp(16px, 3.5vw, 18px)',
-                    fontWeight: 700,
-                    padding: 'clamp(14px, 3.5vw, 18px) clamp(32px, 8vw, 48px)',
-                    borderRadius: '50px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.25)',
                     minHeight: '48px',
                     width: '100%',
-                    maxWidth: '280px'
+                    maxWidth: '280px',
+                    boxShadow: `0 0 20px ${tokens.colors.accent.lime}4D`
                   }}
+                  className="transition-all active:scale-95"
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.lime}
                 >
                   Start Free Trial →
                 </button>
                 <button
                   onClick={() => navigate('/demo')}
-                  className="hover:bg-black hover:text-white transition-all active:scale-95"
                   style={{
-                    background: 'transparent',
-                    color: '#000000',
+                    borderRadius: tokens.radius.full,
+                    padding: '16px 32px',
+                    border: `2px solid ${tokens.colors.border.default}`,
+                    color: tokens.colors.text.primary,
                     fontSize: 'clamp(16px, 3.5vw, 18px)',
-                    fontWeight: 700,
-                    padding: 'clamp(14px, 3.5vw, 18px) clamp(32px, 8vw, 48px)',
-                    borderRadius: '50px',
-                    border: '2px solid #000000',
-                    cursor: 'pointer',
                     minHeight: '48px',
                     width: '100%',
-                    maxWidth: '280px'
+                    maxWidth: '280px',
+                    backgroundColor: 'transparent'
+                  }}
+                  className="transition-all active:scale-95"
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = tokens.colors.border.default;
+                    e.currentTarget.style.backgroundColor = tokens.colors.background.input;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = tokens.colors.border.default;
+                    e.currentTarget.style.backgroundColor = 'transparent';
                   }}
                 >
                   Watch Demo
@@ -453,22 +582,27 @@ const Landing = () => {
               </div>
 
               {/* Trust Indicators - Ultra Responsive */}
-              <div className="flex flex-wrap items-center justify-center text-gray-600" style={{
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: tokens.colors.text.secondary,
                 gap: 'clamp(8px, 2vw, 12px)',
                 fontSize: 'clamp(12px, 3vw, 14px)'
               }}>
                 <div className="flex items-center gap-2">
-                  <CheckCircle style={{ width: 'clamp(14px, 3vw, 16px)', height: 'clamp(14px, 3vw, 16px)' }} className="text-green-500" />
+                  <CheckCircle style={{ width: 'clamp(14px, 3vw, 16px)', height: 'clamp(14px, 3vw, 16px)', color: tokens.colors.accent.lime }} />
                   <span>No credit card required</span>
                 </div>
-                <span className="hidden sm:inline">•</span>
+                <span style={{ color: tokens.colors.text.tertiary }} className="hidden sm:inline">•</span>
                 <div className="flex items-center gap-2">
-                  <CheckCircle style={{ width: 'clamp(14px, 3vw, 16px)', height: 'clamp(14px, 3vw, 16px)' }} className="text-green-500" />
+                  <CheckCircle style={{ width: 'clamp(14px, 3vw, 16px)', height: 'clamp(14px, 3vw, 16px)', color: tokens.colors.accent.lime }} />
                   <span>14-day free trial</span>
                 </div>
-                <span className="hidden sm:inline">•</span>
+                <span style={{ color: tokens.colors.text.tertiary }} className="hidden sm:inline">•</span>
                 <div className="flex items-center gap-2">
-                  <CheckCircle style={{ width: 'clamp(14px, 3vw, 16px)', height: 'clamp(14px, 3vw, 16px)' }} className="text-green-500" />
+                  <CheckCircle style={{ width: 'clamp(14px, 3vw, 16px)', height: 'clamp(14px, 3vw, 16px)', color: tokens.colors.accent.lime }} />
                   <span>Cancel anytime</span>
                 </div>
               </div>
@@ -482,75 +616,23 @@ const Landing = () => {
                 transform: `translateY(${scrollY * 0.1}px)`
               }}
             >
-              <div style={{
-                background: 'linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%)',
-                borderRadius: '24px',
-                padding: '60px',
-                boxShadow: '0 24px 60px rgba(0, 0, 0, 0.1)',
-                border: '1px solid rgba(0, 0, 0, 0.05)'
-              }}>
+              <div style={{ backgroundColor: tokens.colors.background.layer2, border: `1px solid ${tokens.colors.border.default}`, borderRadius: tokens.radius.xl }} className="p-8 shadow-2xl">
                 {/* Mock Dashboard Preview */}
-                <div className="bg-white rounded-2xl shadow-xl p-6">
+                <div style={{ backgroundColor: tokens.colors.background.app, border: `1px solid ${tokens.colors.border.default}`, borderRadius: tokens.radius.lg }} className="p-6">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-3 h-3 rounded-full bg-red-400" />
-                    <div className="w-3 h-3 rounded-full bg-yellow-400" />
-                    <div className="w-3 h-3 rounded-full bg-green-400" />
+                    <div className="w-3 h-3 rounded-full bg-red-400/50" />
+                    <div className="w-3 h-3 rounded-full bg-yellow-400/50" />
+                    <div style={{ backgroundColor: tokens.colors.accent.lime }} className="w-3 h-3 rounded-full" />
                   </div>
                   <div className="grid grid-cols-3 gap-4 mb-6">
-                    <div className="h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl" />
-                    <div className="h-24 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-xl" />
-                    <div className="h-24 bg-gradient-to-br from-green-100 to-emerald-100 rounded-xl" />
+                    <div style={{ height: '96px', backgroundColor: tokens.colors.accent.lime + '1A', border: `1px solid ${tokens.colors.accent.lime}33`, borderRadius: tokens.radius.lg }} />
+                    <div style={{ height: '96px', backgroundColor: tokens.colors.accent.lime + '1A', border: `1px solid ${tokens.colors.accent.lime}33`, borderRadius: tokens.radius.lg }} />
+                    <div style={{ height: '96px', backgroundColor: tokens.colors.accent.lime + '1A', border: `1px solid ${tokens.colors.accent.lime}33`, borderRadius: tokens.radius.lg }} />
                   </div>
                   <div className="space-y-3">
-                    <div className="h-4 bg-gray-200 rounded-lg w-3/4" />
-                    <div className="h-4 bg-gray-200 rounded-lg w-1/2" />
-                    <div className="h-4 bg-gray-200 rounded-lg w-2/3" />
-                  </div>
-                </div>
-
-                {/* Floating Social Icons */}
-                <div className="floating-element absolute" style={{ top: '20px', left: '-40px' }}>
-                  <div style={{
-                    width: '64px',
-                    height: '64px',
-                    background: 'linear-gradient(135deg, #7FDBCB 0%, #5FC9B9 100%)',
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 8px 24px rgba(127, 219, 203, 0.4)'
-                  }}>
-                    <Twitter className="w-8 h-8 text-white" />
-                  </div>
-                </div>
-
-                <div className="floating-element absolute" style={{ top: '60px', right: '-40px', animationDelay: '0.5s' }}>
-                  <div style={{
-                    width: '64px',
-                    height: '64px',
-                    background: 'linear-gradient(135deg, #FF6B9D 0%, #E85585 100%)',
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 8px 24px rgba(255, 107, 157, 0.4)'
-                  }}>
-                    <Instagram className="w-8 h-8 text-white" />
-                  </div>
-                </div>
-
-                <div className="floating-element absolute" style={{ bottom: '40px', left: '-30px', animationDelay: '1s' }}>
-                  <div style={{
-                    width: '64px',
-                    height: '64px',
-                    background: 'linear-gradient(135deg, #FFC857 0%, #FFB83D 100%)',
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 8px 24px rgba(255, 200, 87, 0.4)'
-                  }}>
-                    <Youtube className="w-8 h-8 text-white" />
+                    <div style={{ height: '16px', backgroundColor: tokens.colors.background.input, borderRadius: tokens.radius.md, width: '75%' }} />
+                    <div style={{ height: '16px', backgroundColor: tokens.colors.background.input, borderRadius: tokens.radius.md, width: '50%' }} />
+                    <div style={{ height: '16px', backgroundColor: tokens.colors.background.input, borderRadius: tokens.radius.md, width: '66%' }} />
                   </div>
                 </div>
               </div>
@@ -563,16 +645,16 @@ const Landing = () => {
               {stats.map((stat, idx) => (
                 <div key={idx} className="text-center stagger-item">
                   <div style={{
+                    fontFamily: tokens.typography.fontFamily.serif,
+                    fontStyle: 'italic',
+                    color: tokens.colors.accent.lime,
                     fontSize: 'clamp(32px, 8vw, 48px)',
-                    fontWeight: 900,
-                    background: 'linear-gradient(135deg, #000000 0%, #333333 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
+                    fontWeight: 400,
                     marginBottom: 'clamp(4px, 1vw, 8px)'
                   }}>
                     {stat.number}
                   </div>
-                  <div className="text-gray-600 font-semibold" style={{ fontSize: 'clamp(12px, 3vw, 14px)' }}>
+                  <div style={{ color: tokens.colors.text.secondary, fontWeight: 500, fontSize: 'clamp(12px, 3vw, 14px)' }}>
                     {stat.label}
                   </div>
                 </div>
@@ -583,16 +665,19 @@ const Landing = () => {
           {/* Features Section - Ultra Responsive */}
           <section style={{ padding: 'clamp(48px, 10vw, 80px) clamp(16px, 4vw, 24px)' }}>
             <div className="text-center fade-in-scroll" style={{ marginBottom: 'clamp(48px, 10vw, 64px)' }}>
-              <h2 className="font-black" style={{ 
+              <h2 style={{ 
+                fontFamily: tokens.typography.fontFamily.serif,
+                fontStyle: 'italic',
+                color: tokens.colors.text.primary,
                 fontSize: 'clamp(32px, 7vw, 56px)',
                 marginBottom: 'clamp(12px, 3vw, 16px)',
                 letterSpacing: 'clamp(-1px, -0.3vw, -1.5px)',
-                color: '#000000'
+                fontWeight: 400
               }}>
                 Everything You Need to Succeed
               </h2>
-              <p className="text-gray-600 max-w-2xl mx-auto" style={{ fontSize: 'clamp(16px, 4vw, 20px)' }}>
-                Powerful features designed to streamline your social media workflow
+              <p style={{ color: tokens.colors.text.secondary, maxWidth: '672px', margin: '0 auto', fontSize: 'clamp(16px, 4vw, 20px)' }}>
+                Powerful features designed to streamline your LinkedIn content workflow
               </p>
             </div>
 
@@ -600,35 +685,40 @@ const Landing = () => {
               {features.map((feature, idx) => (
                 <div 
                   key={idx}
-                  className="group rounded-3xl transition-all duration-300 hover:scale-105 active:scale-100 stagger-item hover-lift"
+                  className="group rounded-2xl transition-all duration-300 hover:scale-105 active:scale-100 stagger-item"
                   style={{
                     padding: 'clamp(24px, 5vw, 32px)',
-                    background: '#F8F9FA',
-                    border: '2px solid transparent',
+                    background: tokens.colors.background.layer2,
+                    border: `1px solid ${tokens.colors.border.default}`,
                     cursor: 'pointer'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = feature.color;
-                    e.currentTarget.style.boxShadow = `0 20px 40px ${feature.color}20`;
+                    e.currentTarget.style.borderColor = tokens.colors.accent.lime + '4D';
+                    e.currentTarget.style.boxShadow = `0 20px 40px ${tokens.colors.accent.lime}1A`;
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'transparent';
+                    e.currentTarget.style.borderColor = tokens.colors.border.default;
                     e.currentTarget.style.boxShadow = 'none';
                   }}
                 >
                   <div 
-                    className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 transition-transform group-hover:scale-110"
-                    style={{ 
-                      backgroundColor: feature.color,
-                      color: '#FFFFFF'
+                    style={{
+                      width: '64px',
+                      height: '64px',
+                      borderRadius: tokens.radius.xl,
+                      backgroundColor: tokens.colors.accent.lime + '1A',
+                      border: `1px solid ${tokens.colors.accent.lime}33`
                     }}
+                    className="flex items-center justify-center mb-6 transition-transform group-hover:scale-110"
                   >
-                    {feature.icon}
+                    <div style={{ color: tokens.colors.accent.lime }}>
+                      {feature.icon}
+                    </div>
                   </div>
-                  <h3 className="text-xl font-bold mb-3 text-gray-900">
+                  <h3 style={{ fontSize: '20px', fontWeight: 500, marginBottom: '12px', color: tokens.colors.text.primary }}>
                     {feature.title}
                   </h3>
-                  <p className="text-gray-600 leading-relaxed">
+                  <p style={{ color: tokens.colors.text.secondary, lineHeight: 1.6 }}>
                     {feature.description}
                   </p>
                 </div>
@@ -637,15 +727,20 @@ const Landing = () => {
           </section>
 
           {/* Testimonials Section */}
-          <section className="py-20 px-4" style={{ background: 'linear-gradient(180deg, #FFFFFF 0%, #F8F9FA 100%)' }}>
+          <section className="py-20 px-4">
             <div className="text-center mb-16 fade-in-scroll">
-              <h2 className="text-4xl md:text-5xl font-black mb-4" style={{ 
+              <h2 style={{ 
+                fontSize: 'clamp(32px, 5vw, 48px)',
+                fontFamily: tokens.typography.fontFamily.serif,
+                fontStyle: 'italic',
+                marginBottom: '16px',
+                color: tokens.colors.text.primary,
                 letterSpacing: '-1.5px',
-                color: '#000000'
+                fontWeight: 400
               }}>
                 Loved by Marketing Teams
               </h2>
-              <p className="text-xl text-gray-600">
+              <p style={{ fontSize: '20px', color: tokens.colors.text.secondary }}>
                 See what our customers have to say
               </p>
             </div>
@@ -654,28 +749,45 @@ const Landing = () => {
               {testimonials.map((testimonial, idx) => (
                 <div 
                   key={idx}
-                  className="bg-white p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-shadow border border-gray-100 scale-in hover-lift"
+                  style={{
+                    backgroundColor: tokens.colors.background.layer2,
+                    border: `1px solid ${tokens.colors.border.default}`,
+                    padding: '32px',
+                    borderRadius: tokens.radius.xl
+                  }}
+                  className="transition-all scale-in hover-lift"
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = tokens.colors.accent.lime + '4D';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = tokens.colors.border.default;
+                  }}
                 >
                   <div className="flex gap-1 mb-4">
                     {[...Array(testimonial.rating)].map((_, i) => (
-                      <Star key={i} className="w-5 h-5 fill-yellow-400 text-yellow-400" />
+                      <Star key={i} style={{ width: '20px', height: '20px', fill: tokens.colors.accent.lime, color: tokens.colors.accent.lime }} />
                     ))}
                   </div>
-                  <p className="text-gray-700 mb-6 leading-relaxed">
+                  <p style={{ color: tokens.colors.text.primary, marginBottom: '24px', lineHeight: 1.6 }}>
                     "{testimonial.text}"
                   </p>
                   <div className="flex items-center gap-4">
                     <div 
-                      className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-white"
-                      style={{ 
-                        background: 'linear-gradient(135deg, #7FDBCB 0%, #FF6B9D 100%)'
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        backgroundColor: tokens.colors.accent.lime,
+                        color: tokens.colors.text.inverse,
+                        fontWeight: 700
                       }}
+                      className="flex items-center justify-center"
                     >
                       {testimonial.image}
                     </div>
                     <div>
-                      <div className="font-bold text-gray-900">{testimonial.name}</div>
-                      <div className="text-sm text-gray-600">
+                      <div style={{ fontWeight: 500, color: tokens.colors.text.primary }}>{testimonial.name}</div>
+                      <div style={{ fontSize: '14px', color: tokens.colors.text.secondary }}>
                         {testimonial.role} at {testimonial.company}
                       </div>
                     </div>
@@ -686,11 +798,7 @@ const Landing = () => {
           </section>
 
           {/* CTA Section */}
-          <section className="mt-20 py-20 px-8 text-center relative overflow-hidden" style={{ 
-            background: 'linear-gradient(135deg, #000000 0%, #1a1a1a 100%)', 
-            borderRadius: '48px',
-            position: 'relative'
-          }}>
+          <section style={{ marginTop: '80px', padding: '80px 32px', backgroundColor: tokens.colors.background.layer2, border: `1px solid ${tokens.colors.border.default}`, borderRadius: tokens.radius.xl }} className="text-center relative overflow-hidden">
             {/* Decorative gradient orbs */}
             <div style={{
               position: 'absolute',
@@ -698,7 +806,7 @@ const Landing = () => {
               left: '-10%',
               width: '400px',
               height: '400px',
-              background: 'radial-gradient(circle, rgba(127, 219, 203, 0.3) 0%, transparent 70%)',
+              background: 'radial-gradient(circle, rgba(136, 217, 231, 0.2) 0%, transparent 70%)',
               borderRadius: '50%',
               filter: 'blur(60px)'
             }} />
@@ -708,91 +816,105 @@ const Landing = () => {
               right: '-10%',
               width: '400px',
               height: '400px',
-              background: 'radial-gradient(circle, rgba(255, 107, 157, 0.3) 0%, transparent 70%)',
+              background: 'radial-gradient(circle, rgba(136, 217, 231, 0.15) 0%, transparent 70%)',
               borderRadius: '50%',
               filter: 'blur(60px)'
             }} />
 
             <div className="relative z-10 px-4 fade-in-scroll">
-              <h2 className="font-black text-white mb-6" style={{ 
+              <h2 style={{ 
+                fontFamily: tokens.typography.fontFamily.serif,
+                fontStyle: 'italic',
+                color: tokens.colors.text.primary,
+                marginBottom: '24px',
                 fontSize: 'clamp(28px, 7vw, 56px)',
                 letterSpacing: 'clamp(-1px, -0.3vw, -2px)',
-                lineHeight: 1.2
+                lineHeight: 1.2,
+                fontWeight: 400
               }}>
-                Ready to Transform Your Social Media?
+                Ready to Transform Your LinkedIn?
               </h2>
-              <p className="text-gray-300 mx-auto" style={{ 
+              <p style={{ 
+                color: tokens.colors.text.secondary,
+                margin: '0 auto',
                 fontSize: 'clamp(16px, 4vw, 20px)',
                 maxWidth: '700px', 
                 marginBottom: 'clamp(32px, 8vw, 48px)',
                 lineHeight: 1.6
               }}>
-                Join thousands of businesses that trust SocialFlow to manage their social media presence. Start your free trial today—no credit card required.
+                Join thousands of professionals that trust LinkedIn Pilot to manage their LinkedIn presence. Start your free trial today—no credit card required.
               </p>
               <button
                 onClick={() => navigate('/signup')}
-                className="inline-flex items-center justify-center gap-2 hover:scale-105 active:scale-100 transition-transform mx-auto"
                 style={{
-                  background: 'linear-gradient(135deg, #7FDBCB 0%, #5FC9B9 100%)',
-                  color: '#000000',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  borderRadius: tokens.radius.full,
+                  padding: '16px 32px',
+                  backgroundColor: tokens.colors.accent.lime,
+                  color: tokens.colors.text.inverse,
+                  fontWeight: 500,
                   fontSize: 'clamp(16px, 3.5vw, 18px)',
-                  fontWeight: 700,
-                  padding: 'clamp(16px, 4vw, 20px) clamp(32px, 8vw, 56px)',
-                  borderRadius: '50px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  boxShadow: '0 12px 32px rgba(127, 219, 203, 0.4)',
                   minHeight: '56px',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  boxShadow: `0 0 30px ${tokens.colors.accent.lime}66`
                 }}
+                className="transition-all active:scale-95"
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.lime}
               >
                 <span>Start Free Trial</span> <ArrowRight style={{ width: 'clamp(18px, 4vw, 20px)', height: 'clamp(18px, 4vw, 20px)' }} />
               </button>
-              <div className="text-gray-400 flex flex-wrap items-center justify-center gap-2" style={{ 
+              <div style={{ 
+                color: tokens.colors.text.tertiary,
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
                 marginTop: 'clamp(20px, 4vw, 24px)',
                 fontSize: 'clamp(12px, 3vw, 14px)'
               }}>
                 <span>✨ 14-day free trial</span>
-                <span className="hidden sm:inline">•</span>
+                <span style={{ color: tokens.colors.text.tertiary + '33' }} className="hidden sm:inline">•</span>
                 <span>No credit card required</span>
-                <span className="hidden sm:inline">•</span>
+                <span style={{ color: tokens.colors.text.tertiary + '33' }} className="hidden sm:inline">•</span>
                 <span>Cancel anytime</span>
               </div>
             </div>
           </section>
 
           {/* Footer */}
-          <footer className="mt-20 py-12 text-center border-t border-gray-200">
+          <footer style={{ marginTop: '80px', padding: '48px 0', borderTop: `1px solid ${tokens.colors.border.default}` }} className="text-center">
             <div className="mb-6">
-              <div style={{ 
-                fontSize: '28px', 
-                fontWeight: 900, 
-                color: '#000000', 
-                letterSpacing: '-1px',
-                marginBottom: '16px'
-              }}>
-                SocialFlow
+                <div className="flex items-center justify-center gap-3 mb-4">
+                <div style={{ width: '32px', height: '32px', backgroundColor: tokens.colors.accent.lime, borderRadius: tokens.radius.lg }} className="flex items-center justify-center overflow-hidden">
+                  <img src="/pilot.gif" alt="LinkedIn Pilot" className="w-full h-full object-contain" />
+                </div>
+                <span style={{ fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary, fontSize: '20px' }}>LinkedIn Pilot</span>
               </div>
-              <div className="flex items-center justify-center gap-6 text-gray-600">
-                <button onClick={() => navigate('/about')} className="hover:text-black transition-colors">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '24px', color: tokens.colors.text.secondary }}>
+                <button onClick={() => navigate('/about')} style={{ color: tokens.colors.text.secondary }} className="transition-colors" onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary} onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}>
                   About
                 </button>
-                <button onClick={() => navigate('/pricing')} className="hover:text-black transition-colors">
+                <button onClick={() => navigate('/pricing')} style={{ color: tokens.colors.text.secondary }} className="transition-colors" onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary} onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}>
                   Pricing
                 </button>
-                <button onClick={() => navigate('/contact')} className="hover:text-black transition-colors">
+                <button onClick={() => navigate('/contact')} style={{ color: tokens.colors.text.secondary }} className="transition-colors" onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary} onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}>
                   Contact
                 </button>
-                <button onClick={() => navigate('/privacy')} className="hover:text-black transition-colors">
+                <button onClick={() => navigate('/privacy')} style={{ color: tokens.colors.text.secondary }} className="transition-colors" onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary} onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}>
                   Privacy
                 </button>
               </div>
             </div>
-            <p style={{ color: '#666666', fontSize: '14px' }}>
-              © 2025 SocialFlow. All rights reserved.
+            <p style={{ color: tokens.colors.text.tertiary, fontSize: '14px' }}>
+              © 2025 LinkedIn Pilot. All rights reserved.
             </p>
           </footer>
-        </div>
+        </main>
         </div>
       </div>
 

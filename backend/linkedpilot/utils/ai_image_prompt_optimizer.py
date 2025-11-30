@@ -5,12 +5,15 @@ No hardcoded metaphors - every image prompt is custom-tailored
 """
 
 import httpx
-from typing import Optional
+from typing import Optional, List
 
 async def generate_optimized_image_prompt(
     post_content: str,
     ai_api_key: str,
-    ai_model: str = "gpt-4-o"
+    ai_model: str = "gpt-4-o",
+    brand_colors: Optional[List[str]] = None,
+    brand_fonts: Optional[List[str]] = None,
+    campaign_context: Optional[str] = None
 ) -> dict:
     """
     Use AI to analyze post and create a unique, optimized image prompt
@@ -68,21 +71,34 @@ OUTPUT FORMAT (JSON):
   "reasoning": "Why this specific visual works for this post"
 }"""
 
+    # Build brand context string
+    brand_context = ""
+    if brand_colors:
+        brand_context += f"\nBRAND COLORS: {', '.join(brand_colors[:5])} - Incorporate these colors naturally into the image palette where appropriate."
+    if brand_fonts:
+        brand_context += f"\nBRAND TYPOGRAPHY STYLE: {', '.join(brand_fonts[:3])} - Match the visual aesthetic of these font styles (modern, classic, bold, etc.)"
+    if campaign_context:
+        brand_context += f"\nCAMPAIGN CONTEXT: {campaign_context} - Ensure the visual aligns with this campaign's messaging and tone."
+    
     user_prompt = f"""Analyze this LinkedIn post and create the perfect visual:
 
 POST CONTENT:
 {post_content}
+{brand_context}
 
 CRITICAL: Stay ON-TOPIC and RELEVANT!
 - If this post mentions specific professions (soldiers, doctors, teachers, etc.) -> Show THAT profession in action
 - If it's about specific industries (construction, healthcare, military) -> Show THAT industry realistically
 - If it's generic business concepts (growth, teamwork, success) -> Then you can use creative metaphors
+- If brand colors are provided, incorporate them naturally into the scene (clothing, lighting, environment)
+- Ensure visual variety - each image should be UNIQUE and different from previous generations
 
 Create hyper-realistic imagery that is:
 1. DIRECTLY RELEVANT to the post's topic
 2. PHOTOGRAPHIC and documentary-style (NOT abstract or symbolic unless the topic is abstract)
 3. Shows REAL people, REAL situations, AUTHENTIC contexts
 4. Makes someone STOP scrolling because it's compelling and ON-POINT
+5. Incorporates brand colors naturally if provided (don't force them, but use them where they fit organically)
 
 Respond ONLY with valid JSON matching the format specified."""
 

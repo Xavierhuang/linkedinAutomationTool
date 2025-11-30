@@ -65,7 +65,7 @@ class Campaign(BaseModel):
     include_images: bool = True  # Whether to generate images with posts
     use_ai_images: bool = True  # Prefer AI-generated images by default; stock is optional
     image_style: Optional[str] = "professional"  # Style for image generation
-    image_model: Optional[str] = "google/gemini-2.5-flash-image"  # Default AI image model
+    image_model: Optional[str] = "google/gemini-3-pro-image-preview"  # Default AI image model (Gemini 3 Pro Image Preview)
     
     # LinkedIn Publishing Settings
     profile_type: Optional[str] = "personal"  # personal or company

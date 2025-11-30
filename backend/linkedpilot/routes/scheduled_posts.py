@@ -49,12 +49,54 @@ async def list_scheduled_posts(
     
     # Add date range filter
     if range_start and range_end:
+        # Log the query for debugging
+        print(f"[SCHEDULED POSTS] Querying posts for org_id={org_id}")
+        print(f"  Date range: {range_start} to {range_end}")
+        
+        # Normalize date strings to ensure proper comparison
+        # MongoDB can compare ISO strings directly, but ensure they're in consistent format
         query["publish_time"] = {
             "$gte": range_start,
             "$lte": range_end
         }
+    else:
+        print(f"[SCHEDULED POSTS] Querying ALL posts for org_id={org_id} (no date range)")
     
     posts = await db.scheduled_posts.find(query, {"_id": 0}).to_list(length=500)  # EXCLUDE _id
+    
+    print(f"[SCHEDULED POSTS] Found {len(posts)} posts matching query")
+    if posts:
+        for i, post in enumerate(posts[:5], 1):  # Show first 5
+            print(f"  Post {i}: id={post.get('id')}, publish_time={post.get('publish_time')}, status={post.get('status')}")
+    elif range_start and range_end:
+        # If no posts found with date range, check if posts exist outside range
+        query_without_range = {"org_id": org_id}
+        if not include_cancelled:
+            query_without_range["status"] = {"$nin": [PostStatus.CANCELLED.value, "deleted"]}
+        all_posts = await db.scheduled_posts.find(query_without_range, {"_id": 0}).to_list(length=20)
+        if all_posts:
+            print(f"[SCHEDULED POSTS] WARNING: Found {len(all_posts)} posts without date filter, but 0 with date filter!")
+            print(f"  Date range might be too narrow. Posts outside range:")
+            for post in all_posts[:5]:
+                post_time = post.get('publish_time', 'N/A')
+                print(f"    - {post.get('id')}: publish_time={post_time}, status={post.get('status')}")
+            
+            # Extend the range to include recent posts (within last 30 days)
+            from datetime import datetime, timedelta
+            try:
+                # Parse the range_end and extend it
+                range_end_dt = datetime.fromisoformat(range_end.replace('Z', '+00:00'))
+                extended_end = (range_end_dt + timedelta(days=14)).isoformat()
+                
+                print(f"[SCHEDULED POSTS] Extending date range to include more posts: {range_start} to {extended_end}")
+                query["publish_time"] = {
+                    "$gte": range_start,
+                    "$lte": extended_end
+                }
+                posts = await db.scheduled_posts.find(query, {"_id": 0}).to_list(length=500)
+                print(f"[SCHEDULED POSTS] After extending range: Found {len(posts)} posts")
+            except Exception as e:
+                print(f"[SCHEDULED POSTS] Error extending date range: {e}")
     
     # Get draft data for each post
     for post in posts:

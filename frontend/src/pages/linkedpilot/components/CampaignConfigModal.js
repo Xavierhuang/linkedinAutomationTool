@@ -3,12 +3,41 @@ import { X, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { useAuth } from '@/contexts/AuthContext';
+import { useThemeTokens } from '@/hooks/useThemeTokens';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) => {
     const { user } = useAuth();
+    const tokens = useThemeTokens();
     const [linkedinAuthors, setLinkedinAuthors] = useState(null);
+    
+    // Helper to get input styles
+    const getInputStyle = () => ({
+        width: '100%',
+        padding: '8px 12px',
+        backgroundColor: tokens.colors.background.input,
+        border: `1px solid ${tokens.colors.border.default}`,
+        borderRadius: tokens.radius.lg,
+        color: tokens.colors.text.primary,
+        fontFamily: tokens.typography.fontFamily.sans,
+        fontSize: '16px'
+    });
+    
+    // Helper to get label style
+    const getLabelStyle = () => ({
+        color: tokens.colors.text.primary,
+        fontFamily: tokens.typography.fontFamily.sans,
+        fontSize: '14px',
+        fontWeight: 500
+    });
+    
+    // Helper to get small text style
+    const getSmallTextStyle = () => ({
+        color: tokens.colors.text.secondary,
+        fontFamily: tokens.typography.fontFamily.sans,
+        fontSize: '12px'
+    });
     const [selectedAuthor, setSelectedAuthor] = useState(null);
     const [formData, setFormData] = useState({
         name: '',
@@ -227,26 +256,40 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-0 md:p-4">
-            <style>{`
-                .campaign-modal input,
-                .campaign-modal textarea,
-                .campaign-modal select {
-                    color: #1A1A1A !important;
-                    background-color: #FFFFFF !important;
-                }
-                .campaign-modal input::placeholder,
-                .campaign-modal textarea::placeholder {
-                    color: #9CA3AF !important;
-                }
-            `}</style>
-            <div className="campaign-modal bg-white rounded-none md:rounded-lg shadow-xl w-full md:max-w-3xl h-full md:h-auto md:max-h-[90vh] overflow-hidden flex flex-col">
+        <div 
+            className="fixed inset-0 flex items-center justify-center z-50 p-0 md:p-4"
+            style={{ backgroundColor: tokens.isDark ? 'rgba(0, 0, 0, 0.7)' : 'rgba(0, 0, 0, 0.5)' }}
+        >
+            <div 
+                className="rounded-none md:rounded-lg w-full md:max-w-3xl h-full md:h-auto md:max-h-[90vh] overflow-hidden flex flex-col"
+                style={{
+                    backgroundColor: tokens.colors.background.layer2,
+                    border: `1px solid ${tokens.colors.border.default}`,
+                    borderRadius: tokens.radius.lg,
+                    boxShadow: tokens.shadow.floating
+                }}
+            >
                 {/* Header - Responsive */}
-                <div className="px-4 md:px-6 py-3 md:py-4 border-b border-gray-200 flex items-center justify-between">
-                    <h2 className="text-lg md:text-xl font-bold text-gray-900">
+                <div 
+                    className="px-4 md:px-6 py-3 md:py-4 flex items-center justify-between"
+                    style={{ borderBottom: `1px solid ${tokens.colors.border.default}` }}
+                >
+                    <h2 
+                        className="text-lg md:text-xl font-semibold"
+                        style={{ 
+                            color: tokens.colors.text.primary,
+                            fontFamily: tokens.typography.fontFamily.sans
+                        }}
+                    >
                         {initialData ? 'Edit Campaign' : 'Create New Campaign'}
                     </h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+                    <button 
+                        onClick={onClose} 
+                        style={{ color: tokens.colors.text.secondary }}
+                        className="hover:opacity-70 transition-opacity"
+                        onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+                        onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
+                    >
                         <X className="w-5 h-5" />
                     </button>
                 </div>
@@ -256,7 +299,13 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                     <div className="px-4 md:px-6 py-4 space-y-4 md:space-y-6">
                         {/* Basic Info */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label 
+                                className="block text-sm font-medium mb-2"
+                                style={{ 
+                                    color: tokens.colors.text.primary,
+                                    fontFamily: tokens.typography.fontFamily.sans
+                                }}
+                            >
                                 Campaign Name *
                             </label>
                             <input
@@ -264,28 +313,71 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                 required
                                 value={formData.name}
                                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 placeholder="Q1 Thought Leadership Campaign"
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    backgroundColor: tokens.colors.background.input,
+                                    border: `1px solid ${tokens.colors.border.default}`,
+                                    borderRadius: tokens.radius.lg,
+                                    color: tokens.colors.text.primary,
+                                    fontFamily: tokens.typography.fontFamily.sans,
+                                    fontSize: '16px'
+                                }}
+                                className="focus:outline-none transition-all"
+                                onFocus={(e) => {
+                                    e.target.style.borderColor = tokens.colors.accent.lime;
+                                    e.target.style.boxShadow = `0 0 0 2px ${tokens.colors.accent.lime}20`;
+                                }}
+                                onBlur={(e) => {
+                                    e.target.style.borderColor = tokens.colors.border.default;
+                                    e.target.style.boxShadow = 'none';
+                                }}
                             />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label 
+                                className="block text-sm font-medium mb-2"
+                                style={{ 
+                                    color: tokens.colors.text.primary,
+                                    fontFamily: tokens.typography.fontFamily.sans
+                                }}
+                            >
                                 Description
                             </label>
                             <textarea
                                 value={formData.description}
                                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 rows="3"
                                 placeholder="Describe the campaign goals and strategy..."
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    backgroundColor: tokens.colors.background.input,
+                                    border: `1px solid ${tokens.colors.border.default}`,
+                                    borderRadius: tokens.radius.lg,
+                                    color: tokens.colors.text.primary,
+                                    fontFamily: tokens.typography.fontFamily.sans,
+                                    fontSize: '16px',
+                                    resize: 'vertical'
+                                }}
+                                className="focus:outline-none transition-all"
+                                onFocus={(e) => {
+                                    e.target.style.borderColor = tokens.colors.accent.lime;
+                                    e.target.style.boxShadow = `0 0 0 2px ${tokens.colors.accent.lime}20`;
+                                }}
+                                onBlur={(e) => {
+                                    e.target.style.borderColor = tokens.colors.border.default;
+                                    e.target.style.boxShadow = 'none';
+                                }}
                             />
                         </div>
 
                         {/* Profile Type Selector */}
                         {linkedinAuthors && (
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                <label className="block text-sm font-medium text-foreground mb-2">
                                     Publish As *
                                 </label>
                                 <select
@@ -310,7 +402,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                             }
                                         }
                                     }}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    className="w-full px-3 py-2 bg-input border border-border text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                                     required
                                 >
                                     <option value={`personal:${linkedinAuthors.personal.id}`}>
@@ -326,7 +418,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                         </optgroup>
                                     )}
                                 </select>
-                                <p className="text-xs text-gray-500 mt-2">
+                                <p className="text-xs text-muted-foreground mt-2">
                                     Choose where posts from this campaign will be published
                                 </p>
                             </div>
@@ -334,7 +426,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
 
                         {/* Content Pillars */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label className="block text-sm font-medium text-foreground mb-2">
                                 Content Pillars
                             </label>
                             {formData.content_pillars.map((pillar, index) => (
@@ -343,14 +435,14 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                         type="text"
                                         value={pillar}
                                         onChange={(e) => updateArrayItem('content_pillars', index, e.target.value)}
-                                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        className="flex-1 px-3 py-2 bg-input border border-border text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors placeholder:text-muted-foreground"
                                         placeholder="e.g., Leadership Tips, Industry Trends"
                                     />
                                     {formData.content_pillars.length > 1 && (
                                         <Button
                                             type="button"
                                             onClick={() => removeArrayItem('content_pillars', index)}
-                                            className="bg-red-100 hover:bg-red-200 text-red-800"
+                                            className="bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </Button>
@@ -360,7 +452,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                             <Button
                                 type="button"
                                 onClick={() => addArrayItem('content_pillars')}
-                                className="bg-gray-100 hover:bg-gray-200 text-gray-900 text-sm"
+                                className="bg-muted hover:bg-accent text-foreground border border-border text-sm"
                             >
                                 <Plus className="w-4 h-4 mr-1" />
                                 Add Pillar
@@ -369,25 +461,25 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
 
                         {/* Target Audience */}
                         <div className="space-y-4">
-                            <h3 className="text-sm font-medium text-gray-700">Target Audience</h3>
+                            <h3 className="text-sm font-medium text-foreground">Target Audience</h3>
 
                             {/* Job Titles */}
                             <div>
-                                <label className="block text-xs text-gray-600 mb-2">Job Titles</label>
+                                <label className="block text-xs text-muted-foreground mb-2">Job Titles</label>
                                 {formData.target_audience.job_titles.map((title, index) => (
                                     <div key={index} className="flex gap-2 mb-2">
                                         <input
                                             type="text"
                                             value={title}
                                             onChange={(e) => updateArrayItem('target_audience', index, e.target.value, 'job_titles')}
-                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                            className="flex-1 px-3 py-2 bg-input border border-border text-foreground rounded-lg text-sm focus:ring-2 focus:ring-primary focus:border-primary transition-colors placeholder:text-muted-foreground"
                                             placeholder="e.g., CEO, Marketing Director"
                                         />
                                         {formData.target_audience.job_titles.length > 1 && (
                                             <Button
                                                 type="button"
                                                 onClick={() => removeArrayItem('target_audience', index, 'job_titles')}
-                                                className="bg-red-100 hover:bg-red-200 text-red-800"
+                                                className="bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
@@ -397,7 +489,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                 <Button
                                     type="button"
                                     onClick={() => addArrayItem('target_audience', 'job_titles')}
-                                    className="bg-gray-100 hover:bg-gray-200 text-gray-900 text-xs"
+                                    className="bg-muted hover:bg-accent text-foreground border border-border text-xs"
                                 >
                                     <Plus className="w-3 h-3 mr-1" />
                                     Add Title
@@ -406,21 +498,21 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
 
                             {/* Industries */}
                             <div>
-                                <label className="block text-xs text-gray-600 mb-2">Industries</label>
+                                <label className="block text-xs text-muted-foreground mb-2">Industries</label>
                                 {formData.target_audience.industries.map((industry, index) => (
                                     <div key={index} className="flex gap-2 mb-2">
                                         <input
                                             type="text"
                                             value={industry}
                                             onChange={(e) => updateArrayItem('target_audience', index, e.target.value, 'industries')}
-                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                            className="flex-1 px-3 py-2 bg-input border border-border text-foreground rounded-lg text-sm focus:ring-2 focus:ring-primary focus:border-primary transition-colors placeholder:text-muted-foreground"
                                             placeholder="e.g., Technology, SaaS"
                                         />
                                         {formData.target_audience.industries.length > 1 && (
                                             <Button
                                                 type="button"
                                                 onClick={() => removeArrayItem('target_audience', index, 'industries')}
-                                                className="bg-red-100 hover:bg-red-200 text-red-800"
+                                                className="bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
@@ -430,7 +522,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                 <Button
                                     type="button"
                                     onClick={() => addArrayItem('target_audience', 'industries')}
-                                    className="bg-gray-100 hover:bg-gray-200 text-gray-900 text-xs"
+                                    className="bg-muted hover:bg-accent text-foreground border border-border text-xs"
                                 >
                                     <Plus className="w-3 h-3 mr-1" />
                                     Add Industry
@@ -439,21 +531,21 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
 
                             {/* Interests */}
                             <div>
-                                <label className="block text-xs text-gray-600 mb-2">Interests</label>
+                                <label className="block text-xs text-muted-foreground mb-2">Interests</label>
                                 {formData.target_audience.interests.map((interest, index) => (
                                     <div key={index} className="flex gap-2 mb-2">
                                         <input
                                             type="text"
                                             value={interest}
                                             onChange={(e) => updateArrayItem('target_audience', index, e.target.value, 'interests')}
-                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                            className="flex-1 px-3 py-2 bg-input border border-border text-foreground rounded-lg text-sm focus:ring-2 focus:ring-primary focus:border-primary transition-colors placeholder:text-muted-foreground"
                                             placeholder="e.g., Leadership, Innovation"
                                         />
                                         {formData.target_audience.interests.length > 1 && (
                                             <Button
                                                 type="button"
                                                 onClick={() => removeArrayItem('target_audience', index, 'interests')}
-                                                className="bg-red-100 hover:bg-red-200 text-red-800"
+                                                className="bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
@@ -463,7 +555,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                 <Button
                                     type="button"
                                     onClick={() => addArrayItem('target_audience', 'interests')}
-                                    className="bg-gray-100 hover:bg-gray-200 text-gray-900 text-xs"
+                                    className="bg-muted hover:bg-accent text-foreground border border-border text-xs"
                                 >
                                     <Plus className="w-3 h-3 mr-1" />
                                     Add Interest
@@ -474,7 +566,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                         {/* Posting Schedule */}
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                <label className="block text-sm font-medium text-foreground mb-2">
                                     Automation Frequency
                                 </label>
                                 <select
@@ -483,7 +575,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                         ...formData,
                                         posting_schedule: { ...formData.posting_schedule, frequency: e.target.value }
                                     })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    className="w-full px-3 py-2 bg-input border border-border text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                                 >
                                     <option value="every_5_min">Every 5 Minutes (Testing)</option>
                                     <option value="every_15_min">Every 15 Minutes (Testing)</option>
@@ -496,14 +588,14 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                     <option value="weekly">Weekly</option>
                                     <option value="bi_weekly">Bi-Weekly</option>
                                 </select>
-                                <p className="text-xs text-gray-500 mt-1">
+                                <p className="text-xs text-muted-foreground mt-1">
                                     How often the campaign generates new content
                                 </p>
                             </div>
 
                             {/* Time Slots */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                <label className="block text-sm font-medium text-foreground mb-2">
                                     Posting Time Slots
                                 </label>
                                 {formData.posting_schedule.time_slots.map((time, index) => (
@@ -519,7 +611,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                                     posting_schedule: { ...formData.posting_schedule, time_slots: newTimeSlots }
                                                 });
                                             }}
-                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                            className="flex-1 px-3 py-2 bg-input border border-border text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                                         />
                                         {formData.posting_schedule.time_slots.length > 1 && (
                                             <Button
@@ -531,7 +623,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                                         posting_schedule: { ...formData.posting_schedule, time_slots: newTimeSlots }
                                                     });
                                                 }}
-                                                className="bg-red-100 hover:bg-red-200 text-red-800"
+                                                className="bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
@@ -549,12 +641,12 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                             }
                                         });
                                     }}
-                                    className="bg-gray-100 hover:bg-gray-200 text-gray-900 text-sm"
+                                    className="bg-muted hover:bg-accent text-foreground border border-border text-sm"
                                 >
                                     <Plus className="w-4 h-4 mr-1" />
                                     Add Time Slot
                                 </Button>
-                                <p className="text-xs text-gray-500 mt-2">
+                                <p className="text-xs text-muted-foreground mt-2">
                                     Preferred times for posting (e.g., 9:00 AM, 2:00 PM)
                                 </p>
                             </div>
@@ -562,13 +654,13 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
 
                         {/* Tone & Voice */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label className="block text-sm font-medium text-foreground mb-2">
                                 Tone & Voice
                             </label>
                             <select
                                 value={formData.tone_voice}
                                 onChange={(e) => setFormData({ ...formData, tone_voice: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-3 py-2 bg-input border border-border text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                             >
                                 <option value="professional">Professional</option>
                                 <option value="casual">Casual</option>
@@ -578,18 +670,18 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                         </div>
 
                         {/* AI Model Selection */}
-                        <div className="space-y-4 bg-blue-50 p-4 rounded-lg border border-blue-200">
-                            <h3 className="text-sm font-semibold text-gray-900">AI Model Selection</h3>
+                        <div className="space-y-4 bg-primary/10 dark:bg-primary/5 p-4 rounded-lg border border-primary/20">
+                            <h3 className="text-sm font-semibold text-foreground">AI Model Selection</h3>
                             
                             {/* Text Generation Model */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                <label className="block text-sm font-medium text-foreground mb-2">
                                     Text Generation Model
                                 </label>
                                 <select
                                     value={formData.text_model || 'openai/gpt-4o-mini'}
                                     onChange={(e) => setFormData({ ...formData, text_model: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    className="w-full px-3 py-2 bg-input border border-border text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                                 >
                                     <optgroup label="OpenAI">
                                         <option value="openai/gpt-4o">GPT-4o (Best Quality)</option>
@@ -612,7 +704,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                         <option value="meta-llama/llama-3.1-70b-instruct">Llama 3.1 70B</option>
                                     </optgroup>
                                 </select>
-                                <p className="text-xs text-gray-500 mt-1">
+                                <p className="text-xs text-muted-foreground mt-1">
                                     Model used for generating post content
                                 </p>
                             </div>
@@ -626,15 +718,15 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                     id="include_images"
                                     checked={formData.include_images}
                                     onChange={(e) => setFormData({ ...formData, include_images: e.target.checked })}
-                                    className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                                    className="w-4 h-4 text-primary rounded focus:ring-2 focus:ring-primary accent-primary"
                                 />
-                                <label htmlFor="include_images" className="text-sm font-medium text-gray-700">
+                                <label htmlFor="include_images" className="text-sm font-medium text-foreground">
                                     Generate images with posts
                                 </label>
                             </div>
 
                             {formData.include_images && (
-                                <div className="space-y-3 pl-4 border-l-2 border-blue-200">
+                                <div className="space-y-3 pl-4 border-l-2 border-primary/20">
                                     {/* Use AI Images Toggle */}
                                     <div className="flex items-center gap-2">
                                         <input
@@ -642,24 +734,24 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                             id="use_ai_images"
                                             checked={formData.use_ai_images}
                                             onChange={(e) => setFormData({ ...formData, use_ai_images: e.target.checked })}
-                                            className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                                            className="w-4 h-4 text-primary rounded focus:ring-2 focus:ring-primary accent-primary"
                                         />
-                                        <label htmlFor="use_ai_images" className="text-sm font-medium text-gray-700">
+                                        <label htmlFor="use_ai_images" className="text-sm font-medium text-foreground">
                                             Use AI Image Generation
                                         </label>
                                     </div>
-                                    <p className="text-xs text-gray-500 ml-6">
+                                    <p className="text-xs text-muted-foreground ml-6">
                                         {formData.use_ai_images 
                                             ? 'AI will generate custom images (requires API credits)'
                                             : 'Using free stock photos from Unsplash/Pexels'}
                                     </p>
 
                                     <div>
-                                        <label className="block text-sm text-gray-600 mb-2">Image Style</label>
+                                        <label className="block text-sm text-muted-foreground mb-2">Image Style</label>
                                         <select
                                             value={formData.image_style}
                                             onChange={(e) => setFormData({ ...formData, image_style: e.target.value })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                            className="w-full px-3 py-2 bg-input border border-border text-foreground rounded-lg text-sm focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                                         >
                                             <option value="professional">Professional</option>
                                             <option value="modern">Modern</option>
@@ -671,13 +763,13 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                     {/* AI Image Model - Only show if AI is enabled */}
                                     {formData.use_ai_images && (
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            <label className="block text-sm font-medium text-foreground mb-2">
                                                 AI Image Generation Model
                                             </label>
                                             <select
                                                 value={formData.image_model || 'google/gemini-2.5-flash-image'}
                                                 onChange={(e) => setFormData({ ...formData, image_model: e.target.value })}
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                                className="w-full px-3 py-2 bg-input border border-border text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                                             >
                                                 <optgroup label="Google">
                                                     <option value="google/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Fast & Affordable - Recommended)</option>
@@ -686,7 +778,7 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                                     <option value="openrouter/seedream">SeeDream via OpenRouter (High Quality)</option>
                                                 </optgroup>
                                             </select>
-                                            <p className="text-xs text-gray-500 mt-1">
+                                            <p className="text-xs text-muted-foreground mt-1">
                                                 Premium models - requires API credits
                                             </p>
                                         </div>
@@ -702,22 +794,22 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                 id="auto_post"
                                 checked={formData.auto_post}
                                 onChange={(e) => setFormData({ ...formData, auto_post: e.target.checked })}
-                                className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                                className="w-4 h-4 text-primary rounded focus:ring-2 focus:ring-primary accent-primary"
                             />
-                            <label htmlFor="auto_post" className="text-sm font-medium text-gray-700">
+                            <label htmlFor="auto_post" className="text-sm font-medium text-foreground">
                                 Auto-post without review
                             </label>
                         </div>
 
                         {/* Status */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label className="block text-sm font-medium text-foreground mb-2">
                                 Status
                             </label>
                             <select
                                 value={formData.status}
                                 onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-3 py-2 bg-input border border-border text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                             >
                                 <option value="draft">Draft</option>
                                 <option value="active">Active</option>
@@ -727,17 +819,44 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                     </div>
 
                     {/* Footer - Responsive */}
-                    <div className="px-4 md:px-6 py-3 md:py-4 border-t border-gray-200 flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3">
+                    <div 
+                        className="px-4 md:px-6 py-3 md:py-4 flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3"
+                        style={{ borderTop: `1px solid ${tokens.colors.border.default}` }}
+                    >
                         <Button
                             type="button"
                             onClick={onClose}
-                            className="bg-gray-100 hover:bg-gray-200 text-gray-900 w-full sm:w-auto"
+                            style={{
+                                backgroundColor: tokens.colors.background.input,
+                                border: `1px solid ${tokens.colors.border.default}`,
+                                borderRadius: tokens.radius.full,
+                                color: tokens.colors.text.primary,
+                                fontFamily: tokens.typography.fontFamily.sans,
+                                fontSize: '16px',
+                                fontWeight: 500,
+                                padding: '10px 24px',
+                                width: '100%'
+                            }}
+                            className="sm:w-auto hover:opacity-80 transition-opacity"
                         >
                             Cancel
                         </Button>
                         <Button
                             type="submit"
-                            className="bg-gray-900 hover:bg-gray-800 text-white w-full sm:w-auto"
+                            style={{
+                                backgroundColor: tokens.colors.accent.lime,
+                                borderRadius: tokens.radius.full,
+                                color: tokens.colors.text.inverse,
+                                fontFamily: tokens.typography.fontFamily.sans,
+                                fontSize: '16px',
+                                fontWeight: 600,
+                                padding: '10px 24px',
+                                width: '100%',
+                                boxShadow: tokens.shadow.subtle
+                            }}
+                            className="sm:w-auto hover:opacity-90 transition-opacity"
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.lime}
                         >
                             {initialData ? 'Update Campaign' : 'Create Campaign'}
                         </Button>

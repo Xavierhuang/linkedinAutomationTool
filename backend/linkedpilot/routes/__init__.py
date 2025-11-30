@@ -6,6 +6,7 @@ from .posts import router as post_router
 from .comments import router as comment_router
 from .linkedin_auth import router as linkedin_auth_router
 from .settings import router as settings_router
+from .brand_assistant import router as brand_router
 
 __all__ = [
     'org_router',
@@ -15,5 +16,6 @@ __all__ = [
     'post_router',
     'comment_router',
     'linkedin_auth_router',
-    'settings_router'
+    'settings_router',
+    'brand_router'
 ]

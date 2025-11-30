@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
-import { X, Crown } from 'lucide-react';
+import { X, Crown, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import PaymentForm from './PaymentForm';
 
@@ -25,15 +25,48 @@ const getStripePromise = async () => {
   return null;
 };
 
+const DEFAULT_THEME = {
+  background: '#1A1A1A',
+  foreground: '#FFFFFF',
+  primary: '#88D9E7',
+  border: '#2A2A2A',
+  muted: 'rgba(255,255,255,0.08)',
+  destructive: '#EF4444'
+};
+
+const getCssColor = (variableName) => {
+  if (typeof window === 'undefined') return null;
+  const styles = getComputedStyle(document.documentElement);
+  const value = styles.getPropertyValue(variableName);
+  return value ? `hsl(${value.trim()})` : null;
+};
+
 const PaymentElementCheckout = ({ isOpen, onClose, user, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [stripePromise, setStripePromise] = useState(null);
   const [clientSecret, setClientSecret] = useState('');
+  const [theme, setTheme] = useState(DEFAULT_THEME);
 
   useEffect(() => {
     if (isOpen) {
       console.log('🟢 [PaymentElementCheckout] Modal opened, initializing...');
+      if (typeof window !== 'undefined') {
+        const background = getCssColor('--card') || DEFAULT_THEME.background;
+        const foreground = getCssColor('--foreground') || DEFAULT_THEME.foreground;
+        const primary = getCssColor('--primary') || DEFAULT_THEME.primary;
+        const border = getCssColor('--border') || DEFAULT_THEME.border;
+        const muted = getCssColor('--muted') || DEFAULT_THEME.muted;
+        const destructive = getCssColor('--destructive') || DEFAULT_THEME.destructive;
+        setTheme({
+          background,
+          foreground,
+          primary,
+          border,
+          muted,
+          destructive
+        });
+      }
       initializePayment();
     } else {
       console.log('🔴 [PaymentElementCheckout] Modal closed, cleaning up...');
@@ -97,42 +130,46 @@ const PaymentElementCheckout = ({ isOpen, onClose, user, onSuccess }) => {
 
   if (!isOpen) return null;
 
+  const prefersDark = typeof window !== 'undefined'
+    ? document.documentElement.classList.contains('dark')
+    : true;
+
   const options = {
     clientSecret,
     appearance: {
-      theme: 'stripe',
+      theme: prefersDark ? 'night' : 'stripe',
       variables: {
-        colorPrimary: '#2563eb',
-        colorBackground: '#ffffff',
-        colorText: '#1f2937',
-        colorDanger: '#ef4444',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
+        colorPrimary: theme.primary,
+        colorBackground: theme.background,
+        colorText: theme.foreground,
+        colorDanger: theme.destructive,
+        fontFamily: '"Inter", sans-serif',
         spacingUnit: '4px',
-        borderRadius: '8px',
+        borderRadius: '12px',
       },
     },
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-100 p-2 rounded-lg">
-              <Crown className="w-6 h-6 text-blue-600" />
+        <div className="sticky top-0 bg-card border-b border-border px-6 py-6 flex items-center justify-between z-10">
+          <div className="flex items-center gap-4">
+            <div className="bg-primary/10 p-3 rounded-xl border border-primary/20">
+              <Crown className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Upgrade to Pro</h2>
-              <p className="text-sm text-gray-600">$30/month</p>
+              <h2 className="text-xl font-serif italic text-foreground">Upgrade to Pro</h2>
+              <p className="text-sm text-muted-foreground font-light">$30/month • Cancel anytime</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors p-2 hover:bg-muted rounded-full"
             aria-label="Close"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -140,45 +177,40 @@ const PaymentElementCheckout = ({ isOpen, onClose, user, onSuccess }) => {
         <div className="p-6">
           {loading ? (
             <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-              <p className="text-gray-600">Loading payment form...</p>
+              <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto mb-4" />
+              <p className="text-muted-foreground text-sm">Initializing secure checkout...</p>
             </div>
           ) : error ? (
             <div className="text-center py-8">
-              <div className="bg-red-50 text-red-600 p-4 rounded-lg mb-4">
+              <div className="bg-destructive/10 border border-destructive/20 text-destructive p-4 rounded-xl mb-6 text-sm">
                 {error}
               </div>
-              <button
-                onClick={initializePayment}
-                className="text-blue-600 hover:text-blue-700 font-semibold"
-              >
-                Try Again
-              </button>
-              <button
-                onClick={onClose}
-                className="ml-4 text-gray-600 hover:text-gray-700"
-              >
-                Close
-              </button>
-            </div>
-          ) : clientSecret && stripePromise ? (
-            <div>
-              <Elements stripe={stripePromise} options={options}>
-                <PaymentForm 
-                  onSuccess={handlePaymentSuccess}
-                  onError={handlePaymentError}
-                />
-              </Elements>
-
-              <div className="mt-4 pt-4 border-t border-gray-200">
-                <p className="text-xs text-gray-500 text-center">
-                  Secure payment powered by <span className="font-semibold">Stripe</span>
-                </p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={initializePayment}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2 rounded-full text-sm font-medium transition-colors"
+                >
+                  Try Again
+                </button>
+                <button
+                  onClick={onClose}
+                  className="bg-muted hover:bg-muted/80 text-foreground px-6 py-2 rounded-full text-sm font-medium transition-colors border border-border"
+                >
+                  Close
+                </button>
               </div>
             </div>
+          ) : clientSecret && stripePromise ? (
+            <Elements stripe={stripePromise} options={options}>
+              <PaymentForm 
+                onSuccess={handlePaymentSuccess}
+                onError={handlePaymentError}
+              />
+            </Elements>
           ) : (
-            <div className="text-center py-8 text-gray-600">
-              Initializing...
+            <div className="text-center py-12 text-muted-foreground">
+              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 opacity-50" />
+              <p>Preparing checkout...</p>
             </div>
           )}
         </div>

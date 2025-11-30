@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Plus, Building2, Linkedin, Globe, Trash2, Edit, FileText } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Building2, Linkedin, Globe, Trash2, Edit, FileText, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,12 +12,12 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 const Organizations = ({ onOrgSelect }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMaterialsModal, setShowMaterialsModal] = useState(false);
   const [editingOrg, setEditingOrg] = useState(null);
-  const [linkedInConnected, setLinkedInConnected] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     website: '',
@@ -27,7 +28,6 @@ const Organizations = ({ onOrgSelect }) => {
   useEffect(() => {
     if (user) {
       fetchOrganizations();
-      fetchLinkedInStatus();
     }
   }, [user]);
 
@@ -42,16 +42,6 @@ const Organizations = ({ onOrgSelect }) => {
     }
   };
 
-  const fetchLinkedInStatus = async () => {
-    try {
-      const response = await axios.get(`${BACKEND_URL}/api/settings/linkedin-status?user_id=${user.id}`);
-      setLinkedInConnected(response.data.linkedin_connected);
-    } catch (error) {
-      console.error('Error fetching LinkedIn status:', error);
-      setLinkedInConnected(false);
-    }
-  };
-
   const handleCreateOrg = async (e) => {
     e.preventDefault();
     try {
@@ -59,11 +49,11 @@ const Organizations = ({ onOrgSelect }) => {
         ...formData,
         created_by: user.id
       });
-      
+
       setOrganizations([...organizations, response.data]);
       setShowCreateModal(false);
       setFormData({ name: '', website: '', brand_tone: 'Professional and engaging', target_audience: 'Business professionals' });
-      
+
       // Auto-select the new organization
       if (onOrgSelect) {
         onOrgSelect(response.data.id);
@@ -85,41 +75,50 @@ const Organizations = ({ onOrgSelect }) => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-accent"></div>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col bg-gray-50">
-      {/* Header - Responsive */}
-      <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 md:py-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+    <div className="h-full flex flex-col bg-background text-foreground">
+      {/* Header */}
+      <div className="bg-background border-b border-border px-8 py-4">
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Organizations</h1>
-            <p className="text-xs md:text-sm text-gray-600 mt-1">Manage your LinkedIn organization pages</p>
+            <h1 className="text-3xl font-serif italic text-foreground mb-2">Organizations</h1>
+            <p className="text-sm text-muted-foreground font-light">Manage your LinkedIn organization pages</p>
           </div>
-          <Button
-            onClick={() => setShowCreateModal(true)}
-            className="w-full sm:w-auto bg-gray-900 hover:bg-gray-800 text-white flex items-center justify-center gap-2 text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            Create Organization
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={() => navigate('/onboarding')}
+              className="bg-accent text-accent-foreground hover:bg-accent/90 font-medium rounded-full px-6 border-none flex items-center gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              Start New Onboarding
+            </Button>
+            <Button
+              onClick={() => setShowCreateModal(true)}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium rounded-full px-6 border-none flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Create Organization
+            </Button>
+          </div>
         </div>
-        
+
         {/* Materials Feature Banner */}
         {organizations.length > 0 && (
-          <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                <FileText className="w-5 h-5 text-white" />
+          <div className="bg-gradient-to-r from-secondary to-layer-1 border border-border rounded-2xl p-6 shadow-xl">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center flex-shrink-0 border border-accent/20">
+                <FileText className="w-6 h-6 text-accent" />
               </div>
               <div className="flex-1">
-                <h3 className="text-sm font-semibold text-blue-900 mb-1">
+                <h3 className="text-lg font-medium text-foreground mb-2">
                   🚀 AI-Powered Campaign Generation
                 </h3>
-                <p className="text-xs text-blue-800">
+                <p className="text-sm text-muted-foreground font-light leading-relaxed">
                   Upload your company materials (website, PDFs, images) and let AI analyze your brand to generate complete LinkedIn campaigns in minutes. Click the <strong>"Materials"</strong> button on any organization to get started.
                 </p>
               </div>
@@ -128,88 +127,88 @@ const Organizations = ({ onOrgSelect }) => {
         )}
       </div>
 
-      {/* Content - Responsive Padding */}
-      <div className="flex-1 overflow-auto p-4 md:p-8">
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-8">
         {organizations.length === 0 ? (
-          <div className="text-center py-20">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Building2 className="w-8 h-8 text-gray-400" />
+          <div className="text-center py-20 bg-card rounded-3xl border border-border border-dashed animate-in fade-in duration-500">
+            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+              <Building2 className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">No Organizations Yet</h3>
-            <p className="text-gray-600 mb-6 max-w-md mx-auto">
+            <h3 className="text-xl font-medium text-foreground mb-2">No Organizations Yet</h3>
+            <p className="text-muted-foreground mb-8 max-w-md mx-auto font-light">
               Create your first organization to start managing your LinkedIn content and scheduling posts.
             </p>
             <Button
               onClick={() => setShowCreateModal(true)}
-              className="bg-gray-900 hover:bg-gray-800 text-white"
+              className="bg-primary/10 hover:bg-primary/20 text-primary rounded-full px-6 border border-primary/20"
             >
               <Plus className="w-4 h-4 mr-2" />
               Create Your First Organization
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 max-w-7xl">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-7xl animate-in fade-in duration-500">
             {organizations.map((org) => (
               <div
                 key={org.id}
-                className="bg-white rounded-lg border border-gray-200 p-4 md:p-6 hover:shadow-lg transition-shadow cursor-pointer"
+                className="bg-card border border-border rounded-2xl p-6 hover:border-primary/50 transition-all cursor-pointer group hover:shadow-2xl hover:-translate-y-1"
                 onClick={() => handleSelectOrg(org.id)}
               >
                 <div className="flex items-start justify-between mb-4">
-                  <div className="w-12 h-12 bg-gray-900 rounded-lg flex items-center justify-center">
-                    <Building2 className="w-6 h-6 text-white" />
+                  <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center border border-border">
+                    <Building2 className="w-6 h-6 text-foreground" />
                   </div>
-                  <div className="flex gap-2">
-                    <button 
-                      className="p-2 hover:bg-gray-100 rounded" 
-                      onClick={(e) => { 
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      className="p-2 hover:bg-accent/50 rounded-lg text-primary"
+                      onClick={(e) => {
                         e.stopPropagation();
                         setEditingOrg(org);
                         setShowMaterialsModal(true);
                       }}
                       title="Manage Materials"
                     >
-                      <FileText className="w-4 h-4 text-blue-600" />
+                      <FileText className="w-4 h-4" />
                     </button>
-                    <button className="p-2 hover:bg-gray-100 rounded" onClick={(e) => { e.stopPropagation(); }}>
-                      <Edit className="w-4 h-4 text-gray-600" />
+                    <button className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); }}>
+                      <Edit className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
-                <h3 className="text-lg font-bold text-gray-900 mb-2">{org.name}</h3>
-                
+                <h3 className="text-xl font-serif italic text-foreground mb-2">{org.name}</h3>
+
                 {org.website && (
-                  <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
                     <Globe className="w-4 h-4" />
                     <span className="truncate">{org.website}</span>
                   </div>
                 )}
 
-                <div className="pt-3 border-t border-gray-100">
+                <div className="pt-4 border-t border-border mb-6">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">LinkedIn</span>
-                    {linkedInConnected ? (
-                      <span className="flex items-center gap-1 text-green-600">
-                        <div className="w-2 h-2 bg-green-600 rounded-full"></div>
+                    <span className="text-muted-foreground">LinkedIn</span>
+                    {org.linkedin_access_token ? (
+                      <span className="flex items-center gap-1.5 text-primary font-medium bg-primary/10 px-2 py-0.5 rounded border border-primary/20 text-xs">
+                        <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
                         Connected
                       </span>
                     ) : (
-                      <span className="text-gray-400">Not connected</span>
+                      <span className="text-muted-foreground/60 text-xs">Not connected</span>
                     )}
                   </div>
                 </div>
 
-                <div className="flex gap-2 mt-4">
+                <div className="flex gap-3">
                   <Button
                     onClick={(e) => {
                       e.stopPropagation();
                       setEditingOrg(org);
                       setShowMaterialsModal(true);
                     }}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2"
+                    className="flex-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 h-9 text-xs font-medium rounded-lg"
                   >
-                    <FileText className="w-4 h-4" />
+                    <FileText className="w-3.5 h-3.5 mr-2" />
                     Materials
                   </Button>
                   <Button
@@ -217,7 +216,7 @@ const Organizations = ({ onOrgSelect }) => {
                       e.stopPropagation();
                       handleSelectOrg(org.id);
                     }}
-                    className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
+                    className="flex-1 bg-muted hover:bg-accent/50 text-foreground border border-border h-9 text-xs font-medium rounded-lg"
                   >
                     Select
                   </Button>
@@ -245,65 +244,65 @@ const Organizations = ({ onOrgSelect }) => {
         />
       )}
 
-      {/* Create Modal - Responsive */}
+      {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-0 md:p-4">
-          <div className="bg-white rounded-none md:rounded-lg w-full md:max-w-md h-full md:h-auto overflow-y-auto p-4 md:p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Create Organization</h2>
-            
-            <form onSubmit={handleCreateOrg} className="space-y-4">
+        <div className="fixed inset-0 bg-background/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-2xl max-w-md w-full p-8 shadow-2xl">
+            <h2 className="text-2xl font-serif italic text-foreground mb-6">Create Organization</h2>
+
+            <form onSubmit={handleCreateOrg} className="space-y-5">
               <div>
-                <Label className="text-gray-700 mb-2 block text-sm font-medium">Organization Name *</Label>
+                <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Organization Name *</Label>
                 <Input
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="e.g., TechCorp Inc."
-                  className="border-gray-300 bg-white text-gray-900"
+                  className="bg-input border border-border text-foreground placeholder:text-muted-foreground focus:border-primary/50 h-11 rounded-xl"
                   required
                 />
               </div>
 
               <div>
-                <Label className="text-gray-700 mb-2 block text-sm font-medium">Website</Label>
+                <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Website</Label>
                 <Input
                   value={formData.website}
                   onChange={(e) => setFormData({ ...formData, website: e.target.value })}
                   placeholder="https://yourcompany.com"
-                  className="border-gray-300 bg-white text-gray-900"
+                  className="bg-input border border-border text-foreground placeholder:text-muted-foreground focus:border-primary/50 h-11 rounded-xl"
                 />
               </div>
 
               <div>
-                <Label className="text-gray-700 mb-2 block text-sm font-medium">Brand Tone</Label>
+                <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Brand Tone</Label>
                 <Input
                   value={formData.brand_tone}
                   onChange={(e) => setFormData({ ...formData, brand_tone: e.target.value })}
                   placeholder="Professional and engaging"
-                  className="border-gray-300 bg-white text-gray-900"
+                  className="bg-input border border-border text-foreground placeholder:text-muted-foreground focus:border-primary/50 h-11 rounded-xl"
                 />
               </div>
 
               <div>
-                <Label className="text-gray-700 mb-2 block text-sm font-medium">Target Audience</Label>
+                <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Target Audience</Label>
                 <Input
                   value={formData.target_audience}
                   onChange={(e) => setFormData({ ...formData, target_audience: e.target.value })}
                   placeholder="Business professionals"
-                  className="border-gray-300 bg-white text-gray-900"
+                  className="bg-input border border-border text-foreground placeholder:text-muted-foreground focus:border-primary/50 h-11 rounded-xl"
                 />
               </div>
 
-              <div className="flex gap-3 pt-4">
+              <div className="flex gap-3 pt-6">
                 <Button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-900"
+                  className="flex-1 bg-muted hover:bg-accent/50 text-foreground border border-border h-11 rounded-xl"
                 >
                   Cancel
                 </Button>
                 <Button
                   type="submit"
-                  className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
+                  className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-11 rounded-xl border-none"
                 >
                   Create
                 </Button>

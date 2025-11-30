@@ -17,7 +17,13 @@ const Signup = () => {
 
   React.useEffect(() => {
     if (user) {
-      navigate('/dashboard');
+      // New users should always go to onboarding first
+      // Only redirect to dashboard if they've somehow completed onboarding (shouldn't happen for new signups)
+      if (user.onboarding_completed) {
+        navigate('/dashboard');
+      } else {
+        navigate('/onboarding');
+      }
     }
   }, [user, navigate]);
 
@@ -47,7 +53,8 @@ const Signup = () => {
     const result = await signup(formData.email, formData.password, formData.full_name);
     
     if (result.success) {
-      navigate('/dashboard');
+      // New signups should always go to onboarding
+      navigate('/onboarding');
     } else {
       setError(result.error);
     }
@@ -56,16 +63,7 @@ const Signup = () => {
   };
 
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #000428 0%, #001645 50%, #00142E 100%)',
-      padding: '24px',
-      position: 'relative',
-      overflow: 'hidden'
-    }}>
+    <div className="min-h-screen bg-background flex items-center justify-center p-6 relative overflow-hidden">
       {/* Background Effects */}
       <div className="floating-bg" style={{
         position: 'absolute',
@@ -116,27 +114,10 @@ const Signup = () => {
       </svg>
 
       {/* Main Container */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        maxWidth: '1000px',
-        width: '100%',
-        backgroundColor: '#FFFFFF',
-        borderRadius: '24px',
-        overflow: 'hidden',
-        boxShadow: '0 24px 64px rgba(0, 0, 0, 0.3)',
-        position: 'relative',
-        zIndex: 1
-      }} className="auth-container">
+      <div className="grid md:grid-cols-2 max-w-5xl w-full bg-card rounded-2xl shadow-2xl overflow-hidden relative z-10">
         
         {/* Auth Card - Left Side */}
-        <div style={{
-          padding: '64px 48px',
-          backgroundColor: '#FFFFFF',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center'
-        }}>
+        <div className="p-8 md:p-12 flex flex-col justify-center bg-card">
           {/* Header */}
           <div style={{ marginBottom: '32px' }}>
             <h1 style={{

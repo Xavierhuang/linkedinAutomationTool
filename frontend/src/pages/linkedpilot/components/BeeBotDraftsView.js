@@ -1,20 +1,39 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   Send, Copy, Check, Download, ArrowLeft, Plus, MoreVertical, 
-  FileText, Image as ImageIcon, Calendar, Trash2, Menu, X, Paperclip, ChevronUp, History, Edit, Linkedin, AlertCircle
+  FileText, Image as ImageIcon, Calendar, Trash2, Menu, X, Paperclip, ChevronUp, History, Edit, Linkedin, AlertCircle, User, Building2, Bot
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import axios from 'axios';
-import TextOverlayModal from './TextOverlayModal';
+import TextOverlayModal from './TextOverlayModalKonva';
+import { useThemeTokens } from '@/hooks/useThemeTokens';
+
+import { FloatingChatInput } from './conversation/FloatingChatInput';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectGroup,
+  SelectLabel
+} from "@/components/ui/select";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 const BeeBotDraftsView = ({ orgId }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
+  const tokens = useThemeTokens();
+  
+  // Safety check - ensure tokens is always defined
+  if (!tokens) {
+    return null; // Or return a loading state
+  }
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -22,6 +41,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       timestamp: new Date()
     }
   ]);
+  const [hasProcessedInitialMessage, setHasProcessedInitialMessage] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
@@ -30,7 +50,7 @@ const BeeBotDraftsView = ({ orgId }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false); // Start with drafts closed
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [selectedPost, setSelectedPost] = useState(null);
-  const [generateWithImage, setGenerateWithImage] = useState(false);
+  const [generateWithImage, setGenerateWithImage] = useState(true);
   const [uploadedImage, setUploadedImage] = useState(null);
   const [imageModel, setImageModel] = useState('gemini-stock');
   const [showUploadMenu, setShowUploadMenu] = useState(false);
@@ -54,10 +74,18 @@ const BeeBotDraftsView = ({ orgId }) => {
       const scrollHeight = textareaRef.current.scrollHeight;
       const maxHeight = 200; // Max height in pixels (about 8-9 lines)
       const newHeight = Math.min(scrollHeight, maxHeight);
-      textareaRef.current.style.height = `${newHeight}px`;
+      textareaRef.current.style.height = `${newHeight} px`;
       textareaRef.current.style.overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden';
     }
   }, [inputMessage]);
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [messages]);
+
   // Text overlay editing
   const [showTextOverlayModal, setShowTextOverlayModal] = useState(false);
   const [selectedImageForEdit, setSelectedImageForEdit] = useState(null);
@@ -93,6 +121,37 @@ const BeeBotDraftsView = ({ orgId }) => {
     }
   }, [orgId, user]);
 
+  // Handle initial message from CreateView
+  useEffect(() => {
+    if (location.state?.initialMessage && location.state?.startNewConversation && !hasProcessedInitialMessage && orgId && user) {
+      const initialText = location.state.initialMessage;
+      
+      // Mark as processed to prevent re-processing
+      setHasProcessedInitialMessage(true);
+      
+      // Clear location state to prevent re-processing on re-renders
+      navigate(location.pathname, { replace: true, state: {} });
+      
+      // Reset messages to start a new conversation
+      const initialMessages = [
+        {
+          role: 'assistant',
+          content: 'Hi! I\'m your AI content assistant. Tell me what kind of LinkedIn post you\'d like to create.',
+          timestamp: new Date()
+        }
+      ];
+      
+      setMessages(initialMessages);
+      
+      // Automatically send the initial message after state is updated
+      // Use setTimeout to ensure messages state is updated first
+      setTimeout(() => {
+        // Process the message using the helper function (it will add the user message)
+        handleSendMessageWithText(initialText);
+      }, 150);
+    }
+  }, [location.state, orgId, user, hasProcessedInitialMessage, navigate]);
+
   const checkLinkedInConnection = async () => {
     try {
       const response = await axios.get(`${BACKEND_URL}/api/settings/linkedin-status?user_id=${user.id}`);
@@ -121,7 +180,7 @@ const BeeBotDraftsView = ({ orgId }) => {
         const popup = window.open(
           authUrl,
           'LinkedIn Authorization',
-          `width=${width},height=${height},left=${left},top=${top},toolbar=no,location=no,status=no,menubar=no,scrollbars=yes,resizable=yes`
+          `width = ${width}, height = ${height}, left = ${left}, top = ${top}, toolbar = no, location = no, status = no, menubar = no, scrollbars = yes, resizable = yes`
         );
 
         // Listen for callback message
@@ -138,7 +197,7 @@ const BeeBotDraftsView = ({ orgId }) => {
                 await fetchLinkedInAuthors();
               }
               setLinkedinConnecting(false);
-              alert('✅ LinkedIn connected successfully!');
+              alert('LinkedIn connected successfully!');
             }, 500);
           } else if (event.data.type === 'linkedin-oauth-error') {
             console.log('[LinkedIn OAuth] Error message received:', event.data.error);
@@ -151,12 +210,12 @@ const BeeBotDraftsView = ({ orgId }) => {
               // Only show error if still not connected
               const status = await axios.get(`${BACKEND_URL}/api/settings/linkedin-status?user_id=${user.id}`);
               if (!status.data.linkedin_connected) {
-                alert('❌ LinkedIn connection failed. Please try again.');
+                alert('LinkedIn connection failed. Please try again.');
               } else {
                 if (orgId) {
                   await fetchLinkedInAuthors();
                 }
-                alert('✅ LinkedIn connected successfully!');
+                alert('LinkedIn connected successfully!');
               }
             }, 1000);
           }
@@ -239,29 +298,35 @@ const BeeBotDraftsView = ({ orgId }) => {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim() || loading) return;
+  const handleSendMessageWithText = async (messageText) => {
+    if (!messageText || !messageText.trim() || loading) return;
 
-    const userMessage = {
-      role: 'user',
-      content: inputMessage,
-      timestamp: new Date()
-    };
+    const currentInput = messageText.trim();
+    
+    // Use functional update to get the latest messages state and process
+    let messagesToUse;
+    setMessages(prev => {
+      const userMessage = {
+        role: 'user',
+        content: currentInput,
+        timestamp: new Date()
+      };
+      messagesToUse = [...prev, userMessage];
+      return messagesToUse;
+    });
 
-    setMessages(prev => [...prev, userMessage]);
-    const currentInput = inputMessage;
-    setInputMessage('');
-    // Reset textarea height after sending
+    // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
     setLoading(true);
 
     try {
-      if (currentInput.toLowerCase().includes('carousel') || currentInput.toLowerCase().includes('slide deck') || currentInput.toLowerCase().includes('multiple images')) {
+      // Check for carousel command
+      if (currentInput.toLowerCase().includes('carousel') || currentInput.toLowerCase().includes('slide deck')) {
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: '🎠 Generating carousel with 5 slides... This will take 2-3 minutes (generating content + 5 images).',
+          content: 'Generating carousel with 5 slides... This will take 2-3 minutes.',
           timestamp: new Date(),
           isLoading: true
         }]);
@@ -274,8 +339,7 @@ const BeeBotDraftsView = ({ orgId }) => {
           created_by: user.id
         });
 
-        // Build caption with all slides
-        const fullContent = `${carouselResponse.data.caption}\n\n📸 ${carouselResponse.data.slides.length} Slides:\n${carouselResponse.data.slides.map((s, i) => `\n${i+1}. ${s.title}\n   ${s.content}`).join('\n')}`;
+        const fullContent = `${carouselResponse.data.caption} \n\n${carouselResponse.data.slides.length} Slides: \n${carouselResponse.data.slides.map((s, i) => `\n${i + 1}. ${s.title}\n   ${s.content}`).join('\n')} `;
         
         setMessages(prev => prev.slice(0, -1).concat({
           role: 'assistant',
@@ -290,127 +354,69 @@ const BeeBotDraftsView = ({ orgId }) => {
           },
           carouselData: carouselResponse.data
         }));
-      } else if (generateWithImage) {
-        // Generate BOTH optimized text AND image together with animated progress
-        const waitTime = imageModel === 'ai_horde' ? '1-5 minutes' : '30-60 seconds';
-        
-        // Add loading message with cycling text animation
-        const loadingSteps = [
-          'Crafting your post content...',
-          'Analyzing your topic...',
-          'Finding perfect stock photo...',
-          'Finalizing your content...'
-        ];
-        
-        let currentStep = 0;
+      } else {
+        // Add typing indicator
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: loadingSteps[0],
+          content: '',
           timestamp: new Date(),
-          isLoading: true,
-          isGeneratingImage: true,
-          loadingStep: 0,
-          loadingSteps: loadingSteps
+          isLoading: true
         }]);
-        
-        // Cycle through loading messages
-        const loadingInterval = setInterval(() => {
-          currentStep = (currentStep + 1) % loadingSteps.length;
-          setMessages(prev => {
-            const updated = [...prev];
-            const lastIndex = updated.length - 1;
-            if (lastIndex >= 0 && updated[lastIndex].isLoading) {
-              updated[lastIndex] = {
-                ...updated[lastIndex],
-                content: loadingSteps[currentStep],
-                loadingStep: currentStep
-              };
-            }
-            return updated;
-          });
-        }, 2500); // Change text every 2.5 seconds
 
-        try {
-          // Step 1: Generate optimized text content
-          const textResponse = await axios.post(`${BACKEND_URL}/api/drafts/generate`, {
-            org_id: orgId,
-            topic: currentInput,
-            tone: 'professional',
-            type: 'text',
-            created_by: user.id
-          });
-
-          // Step 2: Generate image with Gemini → Stock fallback system
-          const imageResponse = await axios.post(`${BACKEND_URL}/api/drafts/generate-image`, {
-                prompt: textResponse.data.content,
-                style: 'professional',
-                user_id: user.id,
-            org_id: orgId,
-            model: imageModel
-          });
-
-          // WebSocket handles all progress updates automatically
-          // Step 3: Combine text + image in one message
-          setMessages(prev => prev.slice(0, -1).concat({
-            role: 'assistant',
-            content: textResponse.data.content,
-            timestamp: new Date(),
-            image: imageResponse.data.url,
-            imageData: imageResponse.data,
-            hashtags: textResponse.data.hashtags,
-            isPost: true,
-            textPrompt: textResponse.data.generation_prompt,  // Store for editing
-            imagePrompt: imageResponse.data.prompt,  // Store image prompt
-            postData: {
-              content: textResponse.data.content,
-              hashtags: textResponse.data.hashtags,
-              image: imageResponse.data.url
-            }
-          }));
-
-          // Reset the toggle after successful generation
-          setGenerateWithImage(false);
-          clearInterval(loadingInterval); // Stop the loading animation
-        } catch (error) {
-          clearInterval(loadingInterval); // Stop the loading animation on error
-          setMessages(prev => prev.slice(0, -1).concat({
-            role: 'assistant',
-            content: `Failed to generate post with image: ${error.response?.data?.detail || error.message}. Try selecting a different model or add your API key in Settings.`,
-            timestamp: new Date(),
-            isError: true
-          }));
-          setGenerateWithImage(false);
-        }
-      } else {
-        const response = await axios.post(`${BACKEND_URL}/api/drafts/generate`, {
+        // Use conversational chat endpoint with the updated messages
+        const response = await axios.post(`${BACKEND_URL}/api/drafts/chat`, {
+          messages: messagesToUse.map(m => ({ role: m.role, content: m.content })),
           org_id: orgId,
-          topic: currentInput,
-          tone: 'professional',
-          type: 'text',
-          created_by: user.id
+          user_id: user.id,
+          generate_with_image: generateWithImage  // Pass image generation flag
         });
 
-        setMessages(prev => [...prev, {
+        const data = response.data;
+
+        // Remove loading indicator and add response
+        if (data.type === 'question') {
+        setMessages(prev => prev.slice(0, -1).concat({
           role: 'assistant',
-          content: response.data.content,
-          timestamp: new Date(),
-          hashtags: response.data.hashtags,
-          isPost: true,
-          postData: response.data,
-          textPrompt: response.data.generation_prompt  // Store for editing
-        }]);
+            content: data.content,
+            timestamp: new Date()
+          }));
+        } else if (data.type === 'draft') {
+          // Extract hashtags if present in content
+          const hashtagMatch = data.content.match(/#\w+/g);
+          const hashtags = hashtagMatch || [];
+
+          setMessages(prev => prev.slice(0, -1).concat({
+            role: 'assistant',
+            content: data.content,
+            timestamp: new Date(),
+            isPost: true,
+            hashtags: hashtags,
+            image: data.image_url || null,  // Include generated image if available
+            postData: {
+              content: data.content,
+              hashtags: hashtags,
+              image: data.image_url || null
+            }
+          }));
+        }
       }
     } catch (error) {
       console.error('Error:', error);
-      setMessages(prev => [...prev, {
+      setMessages(prev => prev.slice(0, -1).concat({
         role: 'assistant',
         content: 'Sorry, I encountered an error. Please try again.',
         timestamp: new Date(),
         isError: true
-      }]);
+      }));
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || loading) return;
+    await handleSendMessageWithText(inputMessage);
+    setInputMessage('');
   };
 
   const handleKeyPress = (e) => {
@@ -439,7 +445,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       setUploadedImage(response.data.url);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `Image uploaded successfully: ${response.data.filename}`,
+        content: `Image uploaded successfully: ${response.data.filename} `,
         timestamp: new Date(),
         image: response.data.url
       }]);
@@ -447,7 +453,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       console.error('Image upload failed:', error);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `Failed to upload image: ${error.response?.data?.detail || error.message}`,
+        content: `Failed to upload image: ${error.response?.data?.detail || error.message} `,
         timestamp: new Date(),
         isError: true
       }]);
@@ -495,7 +501,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       }
       
       const draftData = {
-        id: `draft_${Date.now()}`,
+        id: `draft_${Date.now()} `,
         org_id: orgId,
         author_id: user.id,
         mode: mode,
@@ -513,7 +519,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '✅ Draft saved successfully!',
+        content: 'Draft saved successfully!',
         timestamp: new Date()
       }]);
       
@@ -522,7 +528,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       console.error('Error saving draft:', error);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '❌ Failed to save draft.',
+        content: 'Failed to save draft.',
         timestamp: new Date(),
         isError: true
       }]);
@@ -550,7 +556,7 @@ const BeeBotDraftsView = ({ orgId }) => {
     try {
       // Step 1: Save as draft first
       const draftData = {
-        id: `draft_${Date.now()}`,
+        id: `draft_${Date.now()} `,
         org_id: orgId,
         author_id: user.id,
         mode: selectedPost.image ? 'image' : 'text',
@@ -575,7 +581,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       const scheduledDateTime = `${scheduleData.scheduled_for}T${scheduleData.scheduled_time}:00`;
       
       const schedulePostData = {
-        id: `scheduled_${Date.now()}`,
+        id: `scheduled_${Date.now()} `,
         draft_id: draftId,
         org_id: orgId,
         publish_time: scheduledDateTime,
@@ -590,14 +596,14 @@ const BeeBotDraftsView = ({ orgId }) => {
       
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '✅ Post scheduled successfully! Check the Calendar view.',
+        content: 'Post scheduled successfully! Check the Calendar view.',
         timestamp: new Date()
       }]);
     } catch (error) {
       console.error('Error scheduling post:', error);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '❌ Failed to schedule post. Error: ' + (error.response?.data?.detail || error.message),
+        content: 'Failed to schedule post. Error: ' + (error.response?.data?.detail || error.message),
         timestamp: new Date()
       }]);
     }
@@ -625,7 +631,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       // Step 1: Save as draft first
       console.log('Step 1: Creating draft...');
       const draftData = {
-        id: `draft_${Date.now()}`,
+        id: `draft_${Date.now()} `,
         org_id: orgId,
         author_id: user.id,
         mode: image ? 'image' : 'text',
@@ -651,7 +657,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       // Step 2: Create a scheduled post for immediate publishing
       console.log('Step 2: Creating scheduled post...');
       const schedulePostData = {
-        id: `scheduled_${Date.now()}`,
+        id: `scheduled_${Date.now()} `,
         draft_id: draftId,
         org_id: orgId,
         publish_time: new Date().toISOString(),
@@ -672,7 +678,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '✅ Post published to LinkedIn successfully!',
+        content: 'Post published to LinkedIn successfully!',
         timestamp: new Date()
       }]);
     } catch (error) {
@@ -680,7 +686,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       console.error('Error details:', error.response?.data);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '❌ Failed to post to LinkedIn. ' + (error.response?.data?.detail || 'Please make sure your LinkedIn account is connected in Settings.'),
+        content: 'Failed to post to LinkedIn. ' + (error.response?.data?.detail || 'Please make sure your LinkedIn account is connected in Settings.'),
         timestamp: new Date()
       }]);
     }
@@ -741,28 +747,20 @@ const BeeBotDraftsView = ({ orgId }) => {
 
   if (!orgId) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#F8F9FA' }}>
-        <div className="text-center max-w-md p-8">
-          <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" 
-               style={{ background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)' }}>
-            <FileText className="w-8 h-8 text-white" />
+      <div className="h-full flex items-center justify-center bg-background">
+        <div className="text-center max-w-md p-8 bg-card rounded-2xl border border-border">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-primary/10 text-primary">
+            <FileText className="w-8 h-8" />
           </div>
-          <h3 className="text-xl font-semibold mb-2" style={{ color: '#1A1A1A', fontFamily: 'Inter, sans-serif' }}>
+          <h3 className="text-xl font-serif italic text-foreground mb-2">
             No Organization Selected
           </h3>
-          <p className="mb-6" style={{ color: '#6B7280', fontSize: '14px' }}>
+          <p className="mb-6 text-muted-foreground text-sm">
             Please select an organization to start creating posts.
           </p>
           <Button 
             onClick={() => window.location.href = '/dashboard/organizations'}
-            style={{ 
-              backgroundColor: '#6366F1',
-              color: '#FFFFFF',
-              borderRadius: '8px',
-              padding: '10px 20px',
-              fontFamily: 'Inter, sans-serif',
-              fontWeight: 500
-            }}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full"
           >
             Go to Organizations
           </Button>
@@ -771,17 +769,21 @@ const BeeBotDraftsView = ({ orgId }) => {
     );
   }
 
+  const cardBg = 'hsl(var(--card))';
+  const cardBorderColor = 'hsl(var(--border))';
+  const cardText = 'hsl(var(--foreground))';
+
   return (
-    <div className="h-full flex flex-col md:flex-row relative" style={{ backgroundColor: '#FFFFFF', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+    <div className="h-full flex flex-col md:flex-row relative bg-background text-foreground font-sans">
       {/* Overlay - show when drafts sidebar is open on mobile or desktop */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40"
+          className="fixed inset-0 bg-background/80 z-40"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Drafts Sidebar - Bottom sheet on mobile, off-canvas left sidebar on desktop */}
+      {/* Drafts Sidebar */}
       <div 
         className={`
           ${sidebarOpen ? 'translate-y-0 md:translate-y-0 md:translate-x-0' : 'translate-y-full md:translate-y-0 md:-translate-x-full'}
@@ -789,40 +791,38 @@ const BeeBotDraftsView = ({ orgId }) => {
           fixed
           bottom-0 md:bottom-0 md:top-0 left-0 md:left-0 right-0 md:right-auto
           z-50
-          border-t md:border-t-0 md:border-r
+          border-t md:border-t-0 md:border-r border-border
           flex flex-col
           rounded-t-3xl md:rounded-none
           h-[80vh] md:h-full
           w-full md:w-96
+          bg-card
         `}
-        style={{ 
-          borderColor: '#E5E7EB',
-          backgroundColor: '#FAFAFA',
-          overflow: 'hidden',
-          boxShadow: sidebarOpen ? '0 -4px 20px rgba(0, 0, 0, 0.1)' : 'none'
-        }}
       >
         {/* Mobile Bottom Sheet Handle */}
         <div className="md:hidden flex justify-center pt-3 pb-2">
           <div 
-            className="w-12 h-1 rounded-full bg-gray-300 cursor-pointer"
+            style={{ backgroundColor: tokens.colors.text.tertiary + '33' }}
+            className="w-12 h-1 rounded-full cursor-pointer"
             onClick={() => setSidebarOpen(false)}
           />
         </div>
 
         {/* Sidebar Header */}
-        <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: '#E5E7EB' }}>
+        <div style={{ borderBottom: `1px solid ${tokens.colors.border.default}` }} className="p-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <History className="w-5 h-5" style={{ color: '#6366F1' }} />
-            <h2 className="font-semibold" style={{ color: '#1A1A1A', fontSize: '16px' }}>Saved Drafts</h2>
+            <History style={{ color: tokens.colors.accent.lime }} className="w-5 h-5" />
+            <h2 style={{ color: tokens.colors.text.primary, fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic' }} className="text-lg">Saved Drafts</h2>
             {savedDrafts.length > 0 && (
-              <span 
-                className="text-xs font-bold px-2 py-0.5 rounded-full"
-              style={{
-                  backgroundColor: '#EEF2FF',
-                  color: '#6366F1'
-                }}
-              >
+              <span style={{ 
+                fontSize: '12px', 
+                fontWeight: 700, 
+                padding: '2px 8px', 
+                borderRadius: tokens.radius.full, 
+                backgroundColor: tokens.colors.accent.lime + '1A', 
+                color: tokens.colors.accent.lime, 
+                border: `1px solid ${tokens.colors.accent.lime}33`
+              }}>
                 {savedDrafts.length}
               </span>
             )}
@@ -838,37 +838,45 @@ const BeeBotDraftsView = ({ orgId }) => {
               }]);
                 setSidebarOpen(false);
             }}
-            style={{
-              width: '32px',
-              height: '32px',
-              padding: 0,
-              borderRadius: '8px',
-              background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: 'none'
-            }}
+              style={{ 
+                width: '32px', 
+                height: '32px', 
+                padding: 0, 
+                borderRadius: tokens.radius.full, 
+                backgroundColor: tokens.colors.accent.lime, 
+                color: tokens.colors.text.inverse,
+                border: 'none'
+              }}
+              className="flex items-center justify-center"
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.lime}
               title="New Draft"
           >
-            <Plus className="w-4 h-4 text-white" />
+              <Plus className="w-4 h-4" />
           </Button>
             <Button
               onClick={() => setSidebarOpen(false)}
-              style={{
-                width: '32px',
-                height: '32px',
-                padding: 0,
-                border: '1px solid #E5E7EB',
-                borderRadius: '8px',
-                backgroundColor: '#FFFFFF',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
+            style={{ 
+              width: '32px', 
+              height: '32px', 
+              padding: 0, 
+              backgroundColor: tokens.colors.background.input, 
+              border: `1px solid ${tokens.colors.border.default}`,
+              borderRadius: tokens.radius.full,
+              color: tokens.colors.text.secondary
+            }}
+              className="flex items-center justify-center"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = tokens.colors.background.layer1;
+                e.currentTarget.style.color = tokens.colors.text.primary;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = tokens.colors.background.input;
+                e.currentTarget.style.color = tokens.colors.text.secondary;
               }}
               title="Close"
             >
-              <X className="w-4 h-4" style={{ color: '#6B7280' }} />
+              <X className="w-4 h-4" />
             </Button>
           </div>
         </div>
@@ -876,10 +884,10 @@ const BeeBotDraftsView = ({ orgId }) => {
         {/* Drafts List */}
         <div className="flex-1 overflow-y-auto p-3">
           {savedDrafts.length === 0 ? (
-            <div className="text-center py-12">
-              <FileText className="w-12 h-12 mx-auto mb-3" style={{ color: '#D1D5DB' }} />
-              <p style={{ color: '#9CA3AF', fontSize: '14px' }}>No drafts yet</p>
-              <p style={{ color: '#D1D5DB', fontSize: '12px', marginTop: '4px' }}>Create your first draft</p>
+            <div className="text-center py-12 text-muted-foreground">
+              <FileText className="w-12 h-12 mx-auto mb-3 text-muted-foreground/40" />
+              <p className="text-sm">No drafts yet</p>
+              <p className="text-xs mt-1">Create your first draft</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -887,21 +895,21 @@ const BeeBotDraftsView = ({ orgId }) => {
                 <div
                   key={draft.id}
                   onClick={() => handleLoadDraft(draft)}
-                  className="p-3 rounded-lg cursor-pointer transition-all group"
-                  style={{
-                    backgroundColor: selectedDraft?.id === draft.id ? '#F3F4F6' : '#FFFFFF',
-                    border: '1px solid',
-                    borderColor: selectedDraft?.id === draft.id ? '#E5E7EB' : '#E5E7EB'
-                  }}
+                  className={`
+                    p-3 rounded-xl cursor-pointer transition-all group border
+                    ${selectedDraft?.id === draft.id
+                      ? 'bg-primary/5 border-primary/30'
+                      : 'bg-muted border-border hover:bg-muted/70 hover:border-primary/30'}
+                  `}
                 >
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-2">
                       {draft.mode === 'image' ? (
-                        <ImageIcon className="w-4 h-4" style={{ color: '#6366F1' }} />
+                        <ImageIcon style={{ color: tokens.colors.accent.lime }} className="w-4 h-4" />
                       ) : (
-                        <FileText className="w-4 h-4" style={{ color: '#6B7280' }} />
+                        <FileText style={{ color: tokens.colors.text.secondary }} className="w-4 h-4" />
                       )}
-                      <span style={{ fontSize: '12px', color: '#9CA3AF' }}>
+                      <span className="text-xs text-muted-foreground">
                         {new Date(draft.created_at).toLocaleDateString()}
                       </span>
                     </div>
@@ -910,19 +918,12 @@ const BeeBotDraftsView = ({ orgId }) => {
                         e.stopPropagation();
                         handleDeleteDraft(draft.id);
                       }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-destructive"
                     >
-                      <Trash2 className="w-4 h-4" style={{ color: '#EF4444' }} />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
-                  <p 
-                    className="line-clamp-2"
-                    style={{ 
-                      fontSize: '14px',
-                      color: '#1A1A1A',
-                      lineHeight: '1.5'
-                    }}
-                  >
+                  <p className="line-clamp-2 text-sm text-foreground leading-relaxed font-light">
                     {draft.content.body}
                   </p>
                   {draft.content.hashtags && draft.content.hashtags.length > 0 && (
@@ -930,19 +931,13 @@ const BeeBotDraftsView = ({ orgId }) => {
                       {draft.content.hashtags.slice(0, 2).map((tag, idx) => (
                         <span 
                           key={idx}
-                          style={{
-                            fontSize: '11px',
-                            color: '#6366F1',
-                            backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                            padding: '2px 6px',
-                            borderRadius: '4px'
-                          }}
+                          className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20"
                         >
                           {tag}
                         </span>
                       ))}
                       {draft.content.hashtags.length > 2 && (
-                        <span style={{ fontSize: '11px', color: '#9CA3AF' }}>
+                        <span className="text-[10px] text-muted-foreground">
                           +{draft.content.hashtags.length - 2}
                         </span>
                       )}
@@ -956,627 +951,368 @@ const BeeBotDraftsView = ({ orgId }) => {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col relative overflow-hidden" style={{ minHeight: 0, position: 'relative' }}>
-        {/* Mobile Header with Drafts Button */}
-        <div className="md:hidden flex items-center justify-between p-3 border-b bg-white z-30" style={{ borderColor: '#E5E7EB' }}>
-          <h1 className="font-semibold text-base" style={{ color: '#1A1A1A' }}>
-            BeeBot Assistant
-          </h1>
+      <div className="flex-1 flex flex-col relative overflow-hidden bg-card">
+        {/* View Drafts Button - Top Right */}
+        <div className="absolute top-4 right-4 z-40">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all"
-                style={{
-              backgroundColor: sidebarOpen ? '#6366F1' : '#FFFFFF',
-              border: '1px solid',
-              borderColor: sidebarOpen ? '#6366F1' : '#E5E7EB',
-              color: sidebarOpen ? '#FFFFFF' : '#6B7280'
-            }}
+            className={`
+              flex items-center gap-2 px-3 py-1.5 rounded-full transition-all border text-sm font-medium shadow-lg
+              ${sidebarOpen
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-card text-muted-foreground border-border hover:bg-muted hover:text-foreground'}
+            `}
           >
             <History className="w-4 h-4" />
-            <span className="text-sm font-medium">Drafts</span>
+            <span>{sidebarOpen ? 'Hide' : 'View'} Drafts</span>
             {savedDrafts.length > 0 && (
-              <span 
-                className="text-xs font-bold px-1.5 py-0.5 rounded-full"
-                style={{
-                  backgroundColor: sidebarOpen ? '#FFFFFF' : '#6366F1',
-                  color: sidebarOpen ? '#6366F1' : '#FFFFFF'
-                }}
-              >
+              <span className={`text-[10px] font-bold px-1.5 rounded-full ${sidebarOpen ? 'bg-primary/20 text-primary-foreground' : 'bg-primary/10 text-primary'}`}>
                 {savedDrafts.length}
               </span>
             )}
           </button>
         </div>
-        {/* Header - Hidden on mobile (we have mobile header above) */}
-        <div className="hidden md:flex border-b px-4 lg:px-6 py-4 items-center justify-between" style={{ borderColor: '#E5E7EB' }}>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center"
-                 style={{ background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)' }}>
-              <span className="text-white font-semibold" style={{ fontSize: '14px' }}>AI</span>
-            </div>
-            <div>
-              <h2 className="font-semibold" style={{ color: '#1A1A1A', fontSize: '15px' }}>
-                AI Content Assistant
-              </h2>
-              <p style={{ color: '#9CA3AF', fontSize: '12px' }}>Powered by GPT-4o</p>
-            </div>
-          </div>
-          
-          {/* View Drafts Button */}
-          <Button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all hover:shadow-md"
-            style={{
-              backgroundColor: sidebarOpen ? '#6366F1' : '#FFFFFF',
-              border: '1px solid',
-              borderColor: sidebarOpen ? '#6366F1' : '#E5E7EB',
-              color: sidebarOpen ? '#FFFFFF' : '#1A1A1A'
-            }}
-          >
-            <History className="w-4 h-4" />
-            <span className="text-sm font-medium">View Drafts</span>
-            {savedDrafts.length > 0 && (
-              <span 
-                className="text-xs font-bold px-2 py-0.5 rounded-full"
-                style={{ 
-                  backgroundColor: sidebarOpen ? '#FFFFFF' : '#6366F1',
-                  color: sidebarOpen ? '#6366F1' : '#FFFFFF'
-                }}
-              >
-                {savedDrafts.length}
-              </span>
-            )}
-          </Button>
-        </div>
 
         {/* LinkedIn Connection Alert */}
         {orgId && !linkedinConnected && (
-          <div className="mx-4 md:mx-6 mt-4 mb-2 p-4 rounded-lg border-2" style={{ 
-            backgroundColor: '#FEF3C7', 
-            borderColor: '#FCD34D' 
-          }}>
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 flex-shrink-0" style={{ color: '#D97706' }} />
+          <div 
+            className="mx-4 md:mx-6 mt-4 p-4 rounded-xl flex items-start gap-3"
+            style={{
+              backgroundColor: `${tokens.colors.accent.lime}1A`,
+              border: `1px solid ${tokens.colors.accent.lime}4D`,
+              borderRadius: tokens.radius.xl
+            }}
+          >
+            <AlertCircle 
+              className="w-5 h-5 flex-shrink-0 mt-0.5" 
+              style={{ color: tokens.colors.accent.lime }}
+            />
               <div className="flex-1">
-                <h3 className="font-semibold text-sm mb-1" style={{ color: '#92400E' }}>
-                  LinkedIn Not Connected
-                </h3>
-                <p className="text-xs mb-3" style={{ color: '#78350F' }}>
-                  Connect your LinkedIn account to publish posts directly from here. You can still create content, but you won't be able to post it until you connect LinkedIn.
+              <h3 
+                className="font-medium text-sm mb-1"
+                style={{ color: tokens.colors.text.primary }}
+              >
+                LinkedIn Not Connected
+              </h3>
+              <p 
+                className="text-xs mb-3 leading-relaxed"
+                style={{ color: tokens.colors.text.secondary }}
+              >
+                Connect your LinkedIn account to publish posts directly. You can create content now, but posting requires connection.
                 </p>
                 <Button
                   onClick={handleConnectLinkedIn}
                   disabled={linkedinConnecting}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="border-none h-8 text-xs px-3 rounded-lg"
                   style={{
-                    backgroundColor: linkedinConnecting ? '#9CA3AF' : '#2563EB',
-                    color: '#FFFFFF'
+                    backgroundColor: tokens.colors.accent.lime,
+                    color: tokens.colors.text.inverse
                   }}
-                  onMouseEnter={(e) => {
-                    if (!linkedinConnecting) {
-                      e.currentTarget.style.backgroundColor = '#1D4ED8';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!linkedinConnecting) {
-                      e.currentTarget.style.backgroundColor = '#2563EB';
-                    }
-                  }}
+                  onMouseEnter={(e) => !e.target.disabled && (e.target.style.backgroundColor = tokens.colors.accent.limeHover)}
+                  onMouseLeave={(e) => !e.target.disabled && (e.target.style.backgroundColor = tokens.colors.accent.lime)}
                 >
-                  <Linkedin className="w-4 h-4" />
-                  {linkedinConnecting ? 'Connecting...' : 'Connect LinkedIn Account'}
+                  <Linkedin className="w-3 h-3 mr-2" />
+                  {linkedinConnecting ? 'Connecting...' : 'Connect Account'}
                 </Button>
-              </div>
             </div>
           </div>
         )}
 
-        {/* LinkedIn Author Selector */}
-        {linkedinAuthors && (() => {
-          const isCompactState = messages.length === 1 && messages[0].role === 'assistant' && !loading && !messages[0].isPost && !messages[0].image && !messages[0].isLoading;
-          if (isCompactState) return null;
-          return (
-            <div className="px-6 py-3 border-b" style={{ borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>
-            <div className="flex items-center gap-3">
-              <label style={{ fontSize: '13px', fontWeight: '500', color: '#6B7280' }}>
-                Post as:
-              </label>
-              <select
-                value={selectedAuthor ? `${selectedAuthor.type}:${selectedAuthor.id}` : ''}
-                onChange={(e) => {
-                  if (!linkedinAuthors) return;
-                  const [type, id] = e.target.value.split(':');
-                  if (type === 'personal' && linkedinAuthors.personal) {
-                    setSelectedAuthor({
-                      id: linkedinAuthors.personal.id,
-                      name: linkedinAuthors.personal.name || 'Personal Profile',
-                      type: 'personal'
-                    });
-                  } else if (linkedinAuthors.organizations) {
-                    const org = linkedinAuthors.organizations.find(o => o.id === id);
-                    if (org) {
-                      setSelectedAuthor({
-                        id: org.id,
-                        name: org.name || org.localizedName || 'Organization',
-                        type: 'organization'
-                      });
-                    }
-                  }
-                }}
-                style={{
-                  fontSize: '13px',
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid #D1D5DB',
-                  backgroundColor: '#FFFFFF',
-                  color: '#1F2937',
-                  cursor: 'pointer',
-                  minWidth: '200px'
-                }}
-                disabled={!linkedinAuthors}
-              >
-                {linkedinAuthors && linkedinAuthors.personal && (
-                  <option value={`personal:${linkedinAuthors.personal.id}`}>
-                    👤 {linkedinAuthors.personal.name || 'Personal Profile'} (Personal)
-                  </option>
-                )}
-                {linkedinAuthors && linkedinAuthors.organizations?.length > 0 && (
-                  <optgroup label="Companies">
-                    {linkedinAuthors.organizations.map(org => (
-                      <option key={org.id} value={`organization:${org.id}`}>
-                        🏢 {org.name || org.localizedName || 'Organization'}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-              <span style={{ fontSize: '12px', color: '#9CA3AF' }}>
-                {selectedAuthor?.type === 'organization' ? 'Posting to company page' : 'Posting to personal profile'}
-              </span>
-            </div>
-          </div>
-          );
-        })()}
+        {/* Chat Messages */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 min-h-0">
+          {messages.map((message, index) => (
+            <div key={index} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {/* Avatar - Assistant */}
+              {message.role === 'assistant' && (
+                <div 
+                  className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center shadow-lg"
+                  style={{ backgroundColor: tokens.colors.accent.lime }}
+                >
+                  <Bot style={{ color: tokens.colors.text.inverse }} className="w-4 h-4" />
+                </div>
+              )}
 
-        {/* Messages - Responsive Padding */}
-        <div className={`flex-1 overflow-y-auto ${messages.length === 1 && messages[0].role === 'assistant' && !loading && !messages[0].isPost && !messages[0].image && !messages[0].isLoading ? '' : 'p-3 md:p-6'}`} style={{ backgroundColor: '#FFFFFF', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          {/* Show compact welcome state when only initial message exists */}
-          {messages.length === 1 && messages[0].role === 'assistant' && !loading && !messages[0].isPost && !messages[0].image && !messages[0].isLoading ? (
-            <div className="flex-1 flex flex-col items-center justify-center w-full" style={{ paddingBottom: '200px' }}>
-              <p className="text-gray-600 text-center mb-6" style={{ fontSize: '16px', fontWeight: 400 }}>
-                Ready when you are.
-              </p>
-            </div>
-          ) : (
-            <div className="max-w-4xl mx-auto space-y-4 md:space-y-6 w-full">
-              {messages.map((message, index) => (
-              <div key={index}>
-                {message.role === 'user' ? (
-                  <div className="flex justify-end">
-                    <div 
-                      className="max-w-[90%] md:max-w-[80%] rounded-2xl px-3 md:px-4 py-2.5 md:py-3"
-                      style={{ backgroundColor: '#1A1A1A', color: '#FFFFFF' }}
-                    >
-                      <p style={{ fontSize: '14px', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>
-                        {message.content}
-                      </p>
+              <div
+                className="
+                  max-w-[85%] md:max-w-[70%] p-4 text-sm leading-relaxed relative bg-muted text-foreground border border-border
+                "
+                style={{
+                  backgroundColor: message.role === 'user' 
+                    ? tokens.colors.accent.lime 
+                    : cardBg,
+                  color: message.role === 'user' ? tokens.colors.text.inverse : cardText,
+                  borderRadius: tokens.radius.xl,
+                  boxShadow: tokens.shadow.subtle,
+                  border: message.role === 'user' ? 'none' : `1px solid ${cardBorderColor}`,
+                  position: 'relative'
+                }}
+              >
+                {/* Tail pointer for assistant messages - pointing left toward avatar */}
+                {message.role === 'assistant' && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '-6px',
+                      left: '20px',
+                      width: '12px',
+                      height: '12px',
+                      backgroundColor: cardBg,
+                      transform: 'rotate(45deg)'
+                    }}
+                  />
+                )}
+                {/* Tail pointer for user messages - pointing right */}
+                {message.role === 'user' && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '-6px',
+                      right: '16px',
+                      width: 0,
+                      height: 0,
+                      borderStyle: 'solid',
+                      borderWidth: '0 0 12px 12px',
+                      borderColor: `transparent transparent ${tokens.colors.accent.lime} transparent`,
+                      transform: 'rotate(-45deg)'
+                    }}
+                  />
+                )}
+                {/* Loading State */}
+                {message.isLoading ? (
+                  <div className="flex items-center gap-1.5 px-1">
+                    <div className="flex items-end gap-1">
+                      <div 
+                        className="w-2 h-2 rounded-full bg-foreground/70"
+                        style={{
+                          animation: 'bounce 0.8s ease-in-out infinite',
+                          animationDelay: '0s'
+                        }}
+                      />
+                      <div 
+                        className="w-2 h-2 rounded-full bg-foreground/70"
+                        style={{
+                          animation: 'bounce 0.8s ease-in-out infinite',
+                          animationDelay: '0.15s'
+                        }}
+                      />
+                      <div 
+                        className="w-2 h-2 rounded-full bg-foreground/70"
+                        style={{
+                          animation: 'bounce 0.8s ease-in-out infinite',
+                          animationDelay: '0.3s'
+                        }}
+                      />
                     </div>
                   </div>
-                ) : (
-                  <div className="flex justify-start" style={{ position: 'relative' }}>
-                    <div className="max-w-[95%] md:max-w-[90%]">
-                      <div 
-                        className="rounded-2xl px-3 md:px-4 py-2.5 md:py-3"
-                        style={{
-                          backgroundColor: message.isError ? '#FEF2F2' : '#F8F9FA',
-                          border: '1px solid',
-                          borderColor: message.isError ? '#FECACA' : '#E5E7EB'
-                        }}
-                      >
-                        {message.isLoading && message.isGeneratingImage ? (
-                          <div className="space-y-4" style={{ minWidth: '320px' }}>
-                            {/* Animated loading text */}
-                            <div 
-                              key={message.loadingStep || 0}
-                              className="text-center"
-                              style={{
-                                animation: 'fadeInOut 2.5s ease-in-out',
-                                fontSize: '15px',
-                                fontWeight: '600',
-                                color: '#6366F1',
-                                letterSpacing: '0.3px'
-                              }}
-                            >
-                              {message.content}
-                            </div>
-                            
-                            {/* Modern animated progress bar */}
-                            <div className="w-full h-2 rounded-full overflow-hidden relative" style={{ backgroundColor: '#E5E7EB' }}>
-                              <div 
-                                className="h-full rounded-full absolute inset-0"
-                                style={{ 
-                                  background: 'linear-gradient(90deg, #6366F1 0%, #8B5CF6 50%, #6366F1 100%)',
-                                  backgroundSize: '200% 100%',
-                                  animation: 'shimmer 2s linear infinite'
-                                }}
-                              ></div>
-                            </div>
-                            <style>{`
-                              @keyframes shimmer {
-                                0% { background-position: 200% 0; }
-                                100% { background-position: -200% 0; }
-                              }
-                              @keyframes fadeInOut {
-                                0% { opacity: 0; transform: translateY(5px); }
-                                20% { opacity: 1; transform: translateY(0); }
-                                80% { opacity: 1; transform: translateY(0); }
-                                100% { opacity: 0; transform: translateY(-5px); }
-                              }
-                            `}</style>
-                          </div>
-                        ) : message.isLoading ? (
-                          <div className="flex items-center gap-2">
-                            <div 
-                              className="animate-spin rounded-full h-4 w-4 border-2 border-t-transparent"
-                              style={{ borderColor: '#6366F1' }}
-                            ></div>
-                            <p style={{ fontSize: '14px', color: '#6B7280' }}>{message.content}</p>
-                          </div>
                         ) : (
                           <>
-                            <MessageContent content={message.content} isPost={message.isPost} />
+                    {/* Text Content */}
+                    <div className="whitespace-pre-wrap font-light">{message.content}</div>
                             
+                    {/* Image Attachment */}
                             {message.image && (
-                              <div className="mt-3">
+                      <div className="mt-4 rounded-xl overflow-hidden border border-border group relative">
                                 <img 
                                   src={message.image} 
                                   alt="Generated" 
+                          className="w-full h-auto object-cover"
+                        />
+                        <button
                                   onClick={() => {
                                     setSelectedImageForEdit(message.image);
                                     setSelectedMessageForTextOverlay(message);
                                     setShowTextOverlayModal(true);
                                   }}
-                                  onError={(e) => {
-                                    // Handle expired or broken image URLs gracefully
-                                    e.target.style.display = 'none';
-                                    const parent = e.target.parentElement;
-                                    if (parent && !parent.querySelector('.image-error-placeholder')) {
-                                      const placeholder = document.createElement('div');
-                                      placeholder.className = 'image-error-placeholder';
-                                      placeholder.style.cssText = 'padding: 20px; text-align: center; color: #9CA3AF; background: #F3F4F6; border-radius: 8px; font-size: 14px;';
-                                      placeholder.textContent = 'Image unavailable (expired link)';
-                                      parent.appendChild(placeholder);
-                                    }
-                                  }}
-                                  data-has-overlays={message.textOverlays?.length > 0 || imageOverlays[message.image]?.length > 0 ? 'true' : 'false'}
-                                  className="w-full rounded-lg cursor-pointer"
-                                  style={{ border: '1px solid #E5E7EB' }}
-                                />
+                          className="absolute bottom-3 right-3 bg-background/70 hover:bg-background px-3 py-1.5 rounded-lg text-xs font-medium transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2 border border-border"
+                        >
+                          <Edit className="w-3 h-3" /> Edit Image
+                        </button>
                               </div>
                             )}
                             
-                            {message.hashtags && message.hashtags.length > 0 && (
-                              <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: '1px solid #F3F4F6' }}>
-                                {message.hashtags.map((tag, idx) => (
-                                  <span key={idx} style={{ fontSize: '14px', color: '#6366F1' }}>
-                                    {tag}
-                                  </span>
+                    {/* Hashtags */}
+                    {message.hashtags?.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
+                        {message.hashtags.map((tag, i) => (
+                          <span key={i} style={{ color: tokens.colors.accent.lime, fontSize: '12px' }}>#{tag.replace(/^#/, '')}</span>
                                 ))}
                               </div>
                             )}
 
-                            {(message.isPost || message.image) && (
-                              <>
-                                {/* Floating Edit Icon */}
-                                <button
-                                  onClick={() => {
-                                    setSelectedMessageForEdit(message);
-                                    setPromptEditState({
-                                      textPrompt: message.textPrompt || '',
-                                      imagePrompt: message.imagePrompt || ''
-                                    });
-                                    setShowPromptEditPanel(true);
-                                  }}
-                                  style={{
-                                    position: 'absolute',
-                                    top: '8px',
-                                    right: '8px',
-                                    width: '32px',
-                                    height: '32px',
-                                    borderRadius: '50%',
-                                    backgroundColor: '#6366F1',
-                                    border: 'none',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)',
-                                    transition: 'all 0.2s ease'
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#4F46E5';
-                                    e.currentTarget.style.transform = 'scale(1.1)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#6366F1';
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                  }}
-                                  title="Edit Prompts"
-                                >
-                                  <Edit style={{ width: '16px', height: '16px', color: '#FFFFFF' }} />
-                                </button>
-                                
-                              <div 
-                                className="flex flex-wrap gap-2 mt-4 pt-3" 
-                                style={{ borderTop: '1px solid #F3F4F6' }}
-                              >
+                    {/* Actions (Assistant Only - Post Generated) */}
+                    {message.role === 'assistant' && !message.isError && message.isPost && (
+                      <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
                                 <Button
+                          size="sm"
+                          variant="ghost"
                                   onClick={() => handleCopy(message.content, index)}
-                                  style={{
-                                    flex: '1 1 calc(50% - 4px)',
-                                    minWidth: '120px',
-                                    backgroundColor: '#F3F4F6',
-                                    color: '#1A1A1A',
-                                    fontSize: '13px',
-                                    height: '36px',
-                                    borderRadius: '8px',
-                                    fontWeight: 500,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: '0 8px'
-                                  }}
-                                >
-                                  {copiedIndex === index ? (
-                                    <>
-                                      <Check className="w-3 h-3 mr-1" />
-                                      <span className="hidden sm:inline">Copied</span>
-                                      <span className="sm:hidden">✓</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="w-3 h-3 mr-1" />
-                                      <span>Copy</span>
-                                    </>
-                                  )}
+                          className="h-8 text-xs hover:bg-muted text-muted-foreground hover:text-foreground"
+                        >
+                          {copiedIndex === index ? <Check className="w-3 h-3 mr-1" /> : <Copy className="w-3 h-3 mr-1" />}
+                          Copy
                                 </Button>
                                 <Button
+                          size="sm"
+                          variant="ghost"
                                   onClick={() => handleSaveDraft(
                                     message.postData || { content: message.content }, 
                                     message.image,
-                                    message.textOverlays || imageOverlays[message.image] || []
-                                  )}
-                                  style={{
-                                    flex: '1 1 calc(50% - 4px)',
-                                    minWidth: '120px',
-                                    backgroundColor: '#6366F1',
-                                    color: '#FFFFFF',
-                                    fontSize: '13px',
-                                    height: '36px',
-                                    borderRadius: '8px',
-                                    fontWeight: 500,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: '0 8px'
-                                  }}
-                                >
-                                  <Download className="w-3 h-3 mr-1" />
-                                  <span className="hidden sm:inline">Save Draft</span>
-                                  <span className="sm:hidden">Save</span>
+                            message.textOverlays
+                          )}
+                          className="h-8 text-xs hover:bg-muted text-muted-foreground hover:text-foreground"
+                        >
+                          <Download className="w-3 h-3 mr-1" /> Save Draft
                                 </Button>
                                 <Button
+                          size="sm"
+                          variant="ghost"
                                   onClick={() => handleScheduleClick(
                                     message.postData || { content: message.content }, 
                                     message.image,
-                                    message.textOverlays || imageOverlays[message.image] || []
-                                  )}
-                                  style={{
-                                    flex: '1 1 calc(50% - 4px)',
-                                    minWidth: '120px',
-                                    backgroundColor: '#10B981',
-                                    color: '#FFFFFF',
-                                    fontSize: '13px',
-                                    height: '36px',
-                                    borderRadius: '8px',
-                                    fontWeight: 500,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: '0 8px'
-                                  }}
-                                >
-                                  <Calendar className="w-3 h-3 mr-1" />
-                                  <span>Schedule</span>
+                            message.textOverlays
+                          )}
+                          className="h-8 text-xs hover:bg-muted text-muted-foreground hover:text-foreground"
+                        >
+                          <Calendar className="w-3 h-3 mr-1" /> Schedule
                                 </Button>
                                 <Button
+                          size="sm"
                                   onClick={() => handlePostNowClick(
                                     message.postData || { content: message.content }, 
                                     message.image,
-                                    message.textOverlays || imageOverlays[message.image] || []
-                                  )}
-                                  style={{
-                                    flex: '1 1 calc(50% - 4px)',
-                                    minWidth: '120px',
-                                    backgroundColor: '#0A66C2',
-                                    color: '#FFFFFF',
-                                    fontSize: '13px',
-                                    height: '36px',
-                                    borderRadius: '8px',
-                                    fontWeight: 500,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: '0 8px'
-                                  }}
-                                >
-                                  <Send className="w-3 h-3 mr-1" />
-                                  <span className="hidden sm:inline">Post Now</span>
-                                  <span className="sm:hidden">Post</span>
+                            message.textOverlays
+                          )}
+                          className="h-8 text-xs border-none ml-auto"
+                          style={{
+                            backgroundColor: tokens.colors.accent.lime,
+                            color: tokens.colors.text.inverse
+                          }}
+                          onMouseEnter={(e) => e.target.style.backgroundColor = tokens.colors.accent.limeHover}
+                          onMouseLeave={(e) => e.target.style.backgroundColor = tokens.colors.accent.lime}
+                        >
+                          <Send className="w-3 h-3 mr-1" /> Post Now
                                 </Button>
                               </div>
-                              </>
                             )}
                           </>
                         )}
                       </div>
-                      <p style={{ fontSize: '11px', color: '#9CA3AF', marginTop: '4px', paddingLeft: '8px' }}>
-                        {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
+
+              {/* Avatar - User */}
+              {message.role === 'user' && (
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-[#88D9E7] to-[#5AB9D1] flex items-center justify-center shadow-lg">
+                  <User className="w-4 h-4 text-black" />
                   </div>
                 )}
               </div>
             ))}
-            
-            {loading && !messages[messages.length - 1]?.isLoading && (
-              <div className="flex justify-start">
-                <div 
-                  className="rounded-2xl px-4 py-3"
-                  style={{ backgroundColor: '#F8F9FA', border: '1px solid #E5E7EB' }}
-                >
-                  <div className="flex items-center gap-2">
-                    <div 
-                      className="animate-spin rounded-full h-4 w-4 border-2 border-t-transparent"
-                      style={{ borderColor: '#6366F1' }}
-                    ></div>
-                    <p style={{ fontSize: '14px', color: '#6B7280' }}>Thinking...</p>
-                  </div>
-                </div>
-              </div>
-            )}
-            
             <div ref={messagesEndRef} />
-          </div>
-          )}
+            {/* Spacer to ensure page is always scrollable */}
+            <div className="h-[200px]" />
         </div>
 
-        {/* Input with Model Selection & Upload Icons - Responsive */}
-        {(() => {
-          const isCompactState = messages.length === 1 && messages[0].role === 'assistant' && !loading && !messages[0].isPost && !messages[0].image && !messages[0].isLoading;
-          return (
-            <div className={`${isCompactState ? 'absolute bottom-1/2 left-0 right-0 translate-y-1/2' : 'border-t'} p-3 md:p-4`} style={{ borderColor: '#E5E7EB', backgroundColor: isCompactState ? 'transparent' : '#FFFFFF', marginTop: isCompactState ? '60px' : '0' }}>
-              <div className={`${isCompactState ? 'max-w-2xl' : 'max-w-4xl'} mx-auto`}>
-                {/* Model Selection Dropdown - Hide in compact state */}
-                {!isCompactState && (
-                  <div className="mb-2 md:mb-3 flex items-center gap-2 flex-wrap">
-              <label className="text-xs font-semibold text-gray-600">Image Model:</label>
-              <select
-                value={imageModel}
-                onChange={(e) => setImageModel(e.target.value)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-900 cursor-pointer focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-              >
-                <option value="gemini-stock">Gemini 2.5 Flash → Stock (Default)</option>
-                <option value="google/gemini-2.5-flash-image">Gemini 2.5 Flash Only</option>
-                <option value="stock">Stock Photo Only (Free & Fast)</option>
-                <option value="ai_horde">AI Horde (Free, Slow)</option>
-              </select>
-              {imageModel === 'gemini-stock' && (
-                <span className="text-xs text-indigo-600 font-medium">Gemini 2.5 Flash first, Stock as fallback</span>
-              )}
-              {imageModel === 'google/gemini-2.5-flash-image' && (
-                <span className="text-xs text-indigo-600 font-medium">Gemini 2.5 Flash only</span>
-              )}
-              {imageModel === 'stock' && (
-                <span className="text-xs text-blue-600">Free stock photos</span>
-              )}
-              {imageModel === 'ai_horde' && (
-                <span className="text-xs text-gray-500">May take 30s-5min</span>
-              )}
+        {/* Floating Input Area */}
+        <FloatingChatInput
+          value={inputMessage}
+          setValue={setInputMessage}
+          onSubmit={handleSendMessage}
+          inputDisabled={loading}
+          placeholder="What do you want to post about?"
+        >
+          <div className="flex items-center justify-between gap-3">
+            {/* Left Side: Post As & Model */}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              {/* Author Selector */}
+              {linkedinAuthors && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Post as</span>
+                  <Select
+                    value={selectedAuthor ? `${selectedAuthor.type}:${selectedAuthor.id}` : ''}
+                    onValueChange={(value) => {
+                      if (!linkedinAuthors) return;
+                      const [type, id] = value.split(':');
+                      if (type === 'personal' && linkedinAuthors.personal) {
+                        setSelectedAuthor({
+                          id: linkedinAuthors.personal.id,
+                          name: linkedinAuthors.personal.name || 'Personal Profile',
+                          type: 'personal'
+                        });
+                      } else if (linkedinAuthors.organizations) {
+                        const org = linkedinAuthors.organizations.find(o => o.id === id);
+                        if (org) {
+                          setSelectedAuthor({
+                            id: org.id,
+                            name: org.name || org.localizedName || 'Organization',
+                            type: 'organization'
+                          });
+                        }
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-[180px] h-8 bg-input border border-border text-xs text-foreground focus:ring-0 focus:ring-offset-0">
+                      <SelectValue placeholder="Select author" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border border-border text-foreground">
+                      {linkedinAuthors.personal && (
+                        <SelectItem value={`personal:${linkedinAuthors.personal.id}`} className="text-xs focus:bg-muted focus:text-foreground cursor-pointer">
+                          {linkedinAuthors.personal.name || 'Personal Profile'}
+                        </SelectItem>
+                      )}
+                      {linkedinAuthors.organizations?.length > 0 && (
+                        <SelectGroup>
+                          <SelectLabel className="text-[10px] uppercase text-muted-foreground px-2 py-1">Companies</SelectLabel>
+                          {linkedinAuthors.organizations.map(org => (
+                            <SelectItem key={org.id} value={`organization:${org.id}`} className="text-xs focus:bg-muted focus:text-foreground cursor-pointer pl-4">
+                              {org.name || org.localizedName || 'Organization'}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
             
-            <div 
-              className={`flex gap-2 ${isCompactState ? 'p-3 md:p-4' : 'p-2 md:p-3'} rounded-xl md:rounded-2xl transition-all`}
-              style={{ 
-                backgroundColor: isCompactState ? '#FFFFFF' : '#F8F9FA',
-                border: '1px solid #E5E7EB',
-                alignItems: 'flex-end',
-                boxShadow: isCompactState ? '0 4px 6px -1px rgba(0, 0, 0, 0.1)' : 'none'
-              }}
+              {/* Divider */}
+              <div className="w-px h-4 bg-border shrink-0" />
+
+              {/* Model Selection */}
+              <div className="relative flex-1 min-w-0 max-w-[220px]">
+                <Select
+                  value={imageModel}
+                  onValueChange={setImageModel}
+                >
+                  <SelectTrigger className="w-full h-8 bg-transparent border-none text-xs text-muted-foreground hover:text-foreground focus:ring-0 focus:ring-offset-0 px-0 shadow-none justify-start gap-2">
+                    <SelectValue placeholder="Select Model" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border border-border text-foreground min-w-[220px]">
+                    <SelectItem value="gemini-stock" className="text-xs focus:bg-muted focus:text-foreground cursor-pointer">Gemini 2.5 Flash + Stock</SelectItem>
+                    <SelectItem value="google/gemini-2.5-flash-image" className="text-xs focus:bg-muted focus:text-foreground cursor-pointer">Gemini 2.5 Flash Only</SelectItem>
+                    <SelectItem value="stock" className="text-xs focus:bg-muted focus:text-foreground cursor-pointer">Stock Photos Only</SelectItem>
+                    <SelectItem value="ai_horde" className="text-xs focus:bg-muted focus:text-foreground cursor-pointer">AI Horde (Slow)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Right Side: Image Toggle */}
+                      <button
+              onClick={() => setGenerateWithImage(!generateWithImage)}
+              className={`
+                shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all border font-medium
+                ${generateWithImage
+                  ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_10px_rgba(136,217,231,0.2)]'
+                  : 'bg-muted text-muted-foreground border-border hover:text-foreground hover:bg-muted/80'}
+              `}
             >
-              <textarea
-                ref={textareaRef}
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!loading && inputMessage.trim()) {
-                      handleSendMessage();
-                    }
-                  }
-                }}
-                placeholder={isCompactState ? "What do you want to post on LinkedIn?" : "Message AI assistant..."}
-                disabled={loading}
-                rows={1}
-                style={{
-                  flex: 1,
-                  border: 'none',
-                  backgroundColor: 'transparent',
-                  color: '#1A1A1A',
-                  fontSize: '14px',
-                  outline: 'none',
-                  fontFamily: 'Inter, sans-serif',
-                  resize: 'none',
-                  overflow: 'hidden',
-                  minHeight: '24px',
-                  maxHeight: '200px',
-                  lineHeight: '1.5',
-                  padding: '6px 0',
-                  boxSizing: 'border-box'
-                }}
-              />
-              
-              {/* Upload & Generation Icons */}
-              <div className="flex items-center gap-2 relative">
-                {/* Paperclip - Upload Menu */}
-                <div className="relative">
-                  <button
-                    onClick={() => setShowUploadMenu(!showUploadMenu)}
-                    disabled={loading}
-                    className="p-2 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-                    title="Upload files"
-                  >
-                    <Paperclip className="w-5 h-5 text-gray-600" />
-                  </button>
-                  
-                  {/* Upload Dropdown Menu */}
-                  {showUploadMenu && (
-                    <div 
-                      className="absolute bottom-full mb-2 left-0 bg-white rounded-lg shadow-lg border"
-                      style={{ 
-                        borderColor: '#E5E7EB',
-                        minWidth: '160px',
-                        zIndex: 50
-                      }}
-                      onMouseLeave={() => setShowUploadMenu(false)}
-                    >
-                      <button
-                        onClick={() => {
-                          document.getElementById('image-upload').click();
-                          setShowUploadMenu(false);
-                        }}
-                        className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center gap-2 text-sm"
-                        style={{ color: '#1A1A1A' }}
-                      >
-                        <ImageIcon className="w-4 h-4" />
-                        Upload Image
-                      </button>
-                      <button
-                        onClick={() => {
-                          document.getElementById('pdf-upload').click();
-                          setShowUploadMenu(false);
-                        }}
-                        className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center gap-2 text-sm border-t"
-                        style={{ color: '#1A1A1A', borderColor: '#E5E7EB' }}
-                      >
-                        <FileText className="w-4 h-4" />
-                        Upload PDF
+              <ImageIcon className="w-3.5 h-3.5" />
+              {generateWithImage ? 'Image On' : 'Add Image'}
                       </button>
                     </div>
-                  )}
+        </FloatingChatInput>
+      </div>
                   
+      {/* Hidden Inputs */}
                   <input
                     id="image-upload"
                     type="file"
@@ -1591,372 +1327,151 @@ const BeeBotDraftsView = ({ orgId }) => {
                     className="hidden"
                     onChange={handlePdfUpload}
                   />
-                </div>
-                
-                {/* Generate Text + Image */}
-                <button
-                  onClick={() => setGenerateWithImage(!generateWithImage)}
-                  disabled={loading}
-                  className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
-                    generateWithImage 
-                      ? 'bg-blue-100 text-blue-600' 
-                      : 'hover:bg-gray-200 text-gray-600'
-                  }`}
-                  title={`Generate post ${generateWithImage ? 'WITH text + image' : 'text only'}`}
-                >
-                  <ImageIcon className="w-5 h-5" />
-                </button>
-              </div>
-              
-              {/* Send Button */}
-              <Button
-                onClick={handleSendMessage}
-                disabled={loading || !inputMessage.trim()}
-                style={{
-                  background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
-                  color: '#FFFFFF',
-                  padding: '8px 16px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  minWidth: '40px',
-                  height: '40px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                <Send className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-            </div>
-          );
-        })()}
-      </div>
 
-      {/* Schedule Modal */}
-      {showScheduleModal && selectedPost && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '16px'
-        }}>
-          <div style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '12px',
-            maxWidth: '450px',
-            width: '100%',
-            padding: '24px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
-          }}>
-            <h2 style={{ 
-              fontSize: '20px', 
-              fontWeight: 'bold', 
-              marginBottom: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <Calendar style={{ width: '20px', height: '20px', color: '#10B981' }} />
-              Schedule Post
+      {/* Modals */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 bg-background/80 z-[60] flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <h2 className="text-xl font-serif italic text-foreground mb-6 flex items-center gap-3">
+              <Calendar className="w-5 h-5 text-primary" /> Schedule Post
             </h2>
             
-            <div style={{
-              marginBottom: '24px',
-              padding: '16px',
-              backgroundColor: '#F9FAFB',
-              borderRadius: '8px',
-              border: '1px solid #E5E7EB'
-            }}>
-              <p style={{ fontSize: '14px', fontWeight: '500', marginBottom: '8px' }}>Post Preview:</p>
-              {selectedPost.image && (
-                <img 
-                  src={selectedPost.image} 
-                  alt="Preview" 
-                  style={{ width: '100%', height: '96px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }}
-                />
-              )}
-              <p style={{ 
-                fontSize: '14px', 
-                color: '#6B7280', 
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                display: '-webkit-box',
-                WebkitLineClamp: 3,
-                WebkitBoxOrient: 'vertical'
-              }}>
-                {selectedPost.postData.content}
-              </p>
-            </div>
-
-            <div style={{ marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="space-y-4 mb-8">
               <div>
-                <label style={{ fontSize: '14px', fontWeight: '500', marginBottom: '8px', display: 'block' }}>
-                  Select Date
-                </label>
+                <label className="block text-xs font-medium text-muted-foreground mb-2">Date</label>
                 <input
                   type="date"
                   value={scheduleData.scheduled_for}
                   onChange={(e) => setScheduleData({ ...scheduleData, scheduled_for: e.target.value })}
                   min={new Date().toISOString().split('T')[0]}
-                  style={{
-                    width: '100%',
-                    height: '36px',
-                    borderRadius: '6px',
-                    border: '1px solid #D1D5DB',
-                    padding: '0 12px',
-                    fontSize: '14px',
-                    color: '#1A1A1A',
-                    backgroundColor: '#FFFFFF'
-                  }}
+                  className="w-full bg-input border border-border rounded-lg px-4 py-2.5 text-foreground outline-none focus:border-primary text-sm"
                 />
               </div>
-
               <div>
-                <label style={{ fontSize: '14px', fontWeight: '500', marginBottom: '8px', display: 'block' }}>
-                  Select Time
-                </label>
+                <label className="block text-xs font-medium text-muted-foreground mb-2">Time</label>
                 <input
                   type="time"
                   value={scheduleData.scheduled_time}
                   onChange={(e) => setScheduleData({ ...scheduleData, scheduled_time: e.target.value })}
-                  style={{
-                    width: '100%',
-                    height: '36px',
-                    borderRadius: '6px',
-                    border: '1px solid #D1D5DB',
-                    padding: '0 12px',
-                    fontSize: '14px',
-                    color: '#1A1A1A',
-                    backgroundColor: '#FFFFFF'
-                  }}
+                  className="w-full bg-input border border-border rounded-lg px-4 py-2.5 text-foreground outline-none focus:border-primary text-sm"
                 />
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '12px' }}>
+            <div className="flex gap-3">
               <Button
-                onClick={() => {
-                  setShowScheduleModal(false);
-                  setSelectedPost(null);
-                }}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#E5E7EB',
-                  color: '#1F2937',
-                  height: '40px',
-                  borderRadius: '8px',
-                  fontWeight: 500
-                }}
+                onClick={() => setShowScheduleModal(false)}
+                className="flex-1 bg-muted hover:bg-muted/80 text-foreground border border-border h-10 rounded-lg"
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleConfirmSchedule}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#10B981',
-                  color: '#FFFFFF',
-                  height: '40px',
-                  borderRadius: '8px',
-                  fontWeight: 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px'
-                }}
+                className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground h-10 rounded-lg font-medium"
               >
-                <Calendar style={{ width: '16px', height: '16px' }} />
-                Confirm
+                Confirm Schedule
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Preview/Edit Modal */}
       {showPreviewModal && previewData && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '16px'
-        }}>
-          <div style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '12px',
-            maxWidth: '600px',
-            width: '100%',
-            maxHeight: '90vh',
-            overflow: 'auto',
-            padding: '24px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#1F2937' }}>
-                Preview & Edit Post
-              </h2>
+        <div className="fixed inset-0 bg-background/80 z-[60] flex items-center justify-center p-4">
+          <div style={{ backgroundColor: tokens.colors.background.layer2, border: `1px solid ${tokens.colors.border.default}`, borderRadius: tokens.radius.xl }} className="w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+            <div style={{ borderBottom: `1px solid ${tokens.colors.border.default}` }} className="p-6 flex justify-between items-center">
+              <h2 style={{ fontSize: '20px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary }}>Preview Post</h2>
               <button
-                onClick={() => {
-                  setShowPreviewModal(false);
-                  setPreviewData(null);
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '4px'
-                }}
+                onClick={() => setShowPreviewModal(false)}
+                style={{ color: tokens.colors.text.tertiary }}
+                className="transition-colors"
+                onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+                onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.tertiary}
               >
-                <X style={{ width: '24px', height: '24px', color: '#6B7280' }} />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* Author info */}
             {selectedAuthor && (
-              <div style={{
-                padding: '12px 16px',
-                backgroundColor: '#F9FAFB',
-                borderRadius: '8px',
-                marginBottom: '16px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <span style={{ fontSize: '14px', color: '#6B7280' }}>Posting as:</span>
-                <span style={{ fontSize: '14px', fontWeight: '600', color: '#1F2937' }}>
-                  {selectedAuthor && selectedAuthor.type === 'organization' ? '🏢' : '👤'} {selectedAuthor?.name || 'Personal Profile'}
-                </span>
+                <div className="flex items-center gap-3 mb-6">
+                  <div style={{ width: '40px', height: '40px', backgroundColor: tokens.colors.background.input, borderRadius: '50%' }} className="flex items-center justify-center">
+                    {selectedAuthor.type === 'organization' ? <Building2 style={{ color: tokens.colors.text.secondary }} className="w-5 h-5" /> : <User style={{ color: tokens.colors.text.secondary }} className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <p style={{ fontSize: '14px', fontWeight: 500, color: tokens.colors.text.primary }}>{selectedAuthor.name}</p>
+                    <p style={{ fontSize: '12px', color: tokens.colors.text.tertiary }}>Posting Now</p>
+                  </div>
               </div>
             )}
 
+              {/* Content */}
+              <p style={{ color: tokens.colors.text.primary, fontSize: '14px', lineHeight: 1.6, fontWeight: 300 }} className="leading-relaxed whitespace-pre-wrap mb-4">
+                {previewData.postData.content}
+              </p>
+
+              {/* Hashtags */}
+              {previewData.postData.hashtags?.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-6">
+                  {previewData.postData.hashtags.map((tag, i) => (
+                    <span key={i} style={{ color: tokens.colors.accent.lime, fontSize: '12px' }}>#{tag.replace(/^#/, '')}</span>
+                  ))}
+                </div>
+              )}
+
+              {/* Image */}
             {previewData.image && (
-              <div style={{ marginBottom: '20px' }}>
+                <div className="rounded-xl overflow-hidden border border-border bg-muted">
                 <img 
                   src={previewData.image} 
-                  alt="Post image" 
-                  style={{
-                    width: '100%',
-                    borderRadius: '8px',
-                    border: '1px solid #E5E7EB',
-                    maxHeight: '300px',
-                    objectFit: 'cover'
-                  }}
+                    alt="Post"
+                    className="w-full h-auto max-h-[400px] object-contain mx-auto"
                 />
               </div>
             )}
-
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '8px', display: 'block' }}>
-                Post Content:
-              </label>
-              <textarea
-                value={previewData.postData.content}
-                onChange={(e) => setPreviewData({
-                  ...previewData,
-                  postData: {
-                    ...previewData.postData,
-                    content: e.target.value
-                  }
-                })}
-                style={{
-                  width: '100%',
-                  minHeight: '150px',
-                  padding: '12px',
-                  fontSize: '14px',
-                  lineHeight: '1.6',
-                  border: '1px solid #D1D5DB',
-                  borderRadius: '8px',
-                  resize: 'vertical',
-                  fontFamily: 'inherit',
-                  color: '#1F2937'
-                }}
-              />
             </div>
 
-            {previewData.postData.hashtags && previewData.postData.hashtags.length > 0 && (
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '8px', display: 'block' }}>
-                  Hashtags:
-                </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {previewData.postData.hashtags.map((tag, idx) => (
-                    <span key={idx} style={{
-                      fontSize: '13px',
-                      padding: '4px 12px',
-                      backgroundColor: '#EEF2FF',
-                      color: '#4F46E5',
-                      borderRadius: '12px',
-                      fontWeight: '500'
-                    }}>
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+            <div style={{ padding: '24px', borderTop: `1px solid ${tokens.colors.border.default}`, backgroundColor: tokens.colors.background.layer1 }} className="flex gap-3 rounded-b-2xl">
               <Button
-                onClick={() => {
-                  setShowPreviewModal(false);
-                  setPreviewData(null);
-                }}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#E5E7EB',
-                  color: '#1F2937',
+                onClick={() => setShowPreviewModal(false)}
+                style={{ 
+                  flex: 1, 
+                  backgroundColor: tokens.colors.background.input, 
+                  color: tokens.colors.text.primary,
+                  border: `1px solid ${tokens.colors.border.default}`,
                   height: '40px',
-                  borderRadius: '8px',
-                  fontWeight: 500
+                  borderRadius: tokens.radius.lg
                 }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.background.layer2}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.background.input}
               >
-                Cancel
+                Edit
               </Button>
               <Button
                 onClick={() => {
+                  handlePostNow(previewData.postData, previewData.image, previewData.textOverlays);
                   setShowPreviewModal(false);
-                  if (previewData.action === 'post_now') {
-                    handlePostNow(previewData.postData, previewData.image, previewData.textOverlays || []);
-                  }
-                  setPreviewData(null);
                 }}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#0A66C2',
-                  color: '#FFFFFF',
+                style={{ 
+                  flex: 1, 
+                  backgroundColor: tokens.colors.accent.lime, 
+                  color: tokens.colors.text.inverse,
+                  border: 'none',
                   height: '40px',
-                  borderRadius: '8px',
-                  fontWeight: 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px'
+                  borderRadius: tokens.radius.lg,
+                  fontWeight: 500
                 }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.lime}
               >
-                <Send style={{ width: '16px', height: '16px' }} />
-                Post to LinkedIn
+                <Linkedin className="w-4 h-4 mr-2" /> Post to LinkedIn
               </Button>
             </div>
           </div>
         </div>
       )}
       
-      {/* Text Overlay Editing Modal */}
       <TextOverlayModal
         isOpen={showTextOverlayModal}
         onClose={() => setShowTextOverlayModal(false)}
@@ -1967,244 +1482,25 @@ const BeeBotDraftsView = ({ orgId }) => {
           const oldImageUrl = selectedImageForEdit;
           setSelectedImageForEdit(newImageUrl);
           
-          // Update messages to include overlay data and new image URL
           setMessages(prev => prev.map(msg => {
             if (msg.image === oldImageUrl) {
               return {
                 ...msg, 
                 image: newImageUrl,
-                textOverlays: elements || [] // Store overlay data with message
+                textOverlays: elements || []
               };
             }
             return msg;
           }));
           
-          // Store overlay data for new image, remove old key
           setImageOverlays(prev => {
-            const newOverlays = {...prev};
+            const newOverlays = { ...prev };
             delete newOverlays[oldImageUrl];
             newOverlays[newImageUrl] = elements || [];
             return newOverlays;
           });
-          
-          console.log('[TEXT_OVERLAY] Saved overlays:', elements);
-          console.log('[TEXT_OVERLAY] Overlay count:', elements?.length || 0);
         }}
       />
-      
-      {/* Prompt Editing Side Panel */}
-      {showPromptEditPanel && (
-        <div style={{
-          position: 'fixed',
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: '450px',
-          backgroundColor: '#FFFFFF',
-          borderLeft: '1px solid #E5E7EB',
-          boxShadow: '-4px 0 12px rgba(0, 0, 0, 0.1)',
-          zIndex: 9998,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden'
-        }}>
-          {/* Header */}
-          <div style={{
-            padding: '20px',
-            borderBottom: '1px solid #E5E7EB',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            backgroundColor: '#F9FAFB'
-          }}>
-            <h2 style={{
-              fontSize: '18px',
-              fontWeight: 700,
-              color: '#1A1A1A',
-              margin: 0
-            }}>
-              Edit Prompts
-            </h2>
-            <button
-              onClick={() => setShowPromptEditPanel(false)}
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                border: 'none',
-                backgroundColor: '#F3F4F6',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
-            >
-              <X style={{ width: '18px', height: '18px', color: '#6B7280' }} />
-            </button>
-          </div>
-
-          {/* Content */}
-          <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
-            {/* Text Prompt */}
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: '#1A1A1A',
-                marginBottom: '8px'
-              }}>
-                Text Generation Prompt
-              </label>
-              <textarea
-                value={promptEditState.textPrompt}
-                onChange={(e) => setPromptEditState({...promptEditState, textPrompt: e.target.value})}
-                placeholder="Enter prompt for text generation..."
-                style={{
-                  width: '100%',
-                  minHeight: '120px',
-                  padding: '12px',
-                  fontSize: '14px',
-                  color: '#1A1A1A',
-                  border: '1px solid #D1D5DB',
-                  borderRadius: '8px',
-                  resize: 'vertical',
-                  outline: 'none',
-                  fontFamily: 'monospace',
-                  lineHeight: '1.6'
-                }}
-              />
-            </div>
-
-            {/* Image Prompt */}
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: '#1A1A1A',
-                marginBottom: '8px'
-              }}>
-                Image Generation Prompt
-              </label>
-              <textarea
-                value={promptEditState.imagePrompt}
-                onChange={(e) => setPromptEditState({...promptEditState, imagePrompt: e.target.value})}
-                placeholder="Enter prompt for image generation..."
-                style={{
-                  width: '100%',
-                  minHeight: '120px',
-                  padding: '12px',
-                  fontSize: '14px',
-                  color: '#1A1A1A',
-                  border: '1px solid #D1D5DB',
-                  borderRadius: '8px',
-                  resize: 'vertical',
-                  outline: 'none',
-                  fontFamily: 'monospace',
-                  lineHeight: '1.6'
-                }}
-              />
-            </div>
-
-            {/* Info */}
-            <div style={{
-              padding: '16px',
-              backgroundColor: '#EEF2FF',
-              borderRadius: '8px',
-              marginBottom: '24px'
-            }}>
-              <p style={{
-                fontSize: '13px',
-                color: '#4338CA',
-                lineHeight: '1.6',
-                margin: 0
-              }}>
-                💡 <strong>Tip:</strong> Edit the prompts to fine-tune AI content generation. Changes will be saved to prompt history.
-              </p>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div style={{
-            padding: '20px',
-            borderTop: '1px solid #E5E7EB',
-            backgroundColor: '#F9FAFB',
-            display: 'flex',
-            gap: '12px'
-          }}>
-            <button
-              onClick={() => setShowPromptEditPanel(false)}
-              style={{
-                flex: 1,
-                padding: '12px',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: '#6B7280',
-                backgroundColor: '#FFFFFF',
-                border: '1px solid #D1D5DB',
-                borderRadius: '8px',
-                cursor: 'pointer'
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={async () => {
-                // TODO: Implement save and regenerate logic
-                alert('Prompt editing saved! Regenerating content...');
-                setShowPromptEditPanel(false);
-              }}
-              style={{
-                flex: 1,
-                padding: '12px',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: '#FFFFFF',
-                backgroundColor: '#6366F1',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer'
-              }}
-            >
-              Save & Regenerate
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const MessageContent = ({ content, isPost }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const shouldTruncate = content.length > 500;
-  const displayContent = shouldTruncate && !isExpanded 
-    ? content.slice(0, 500) + '...' 
-    : content;
-
-  return (
-    <div>
-      <p style={{ fontSize: '14px', color: '#1A1A1A', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>
-        {displayContent}
-      </p>
-      {shouldTruncate && (
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          style={{
-            fontSize: '14px',
-            color: '#1A1A1A',
-            fontWeight: 600,
-            marginTop: '8px',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            textDecoration: 'underline'
-          }}
-        >
-          {isExpanded ? 'Read less' : 'Read more'}
-        </button>
-      )}
     </div>
   );
 };

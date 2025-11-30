@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Zap } from 'lucide-react';
@@ -10,10 +10,19 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const justLoggedIn = useRef(false);
 
-  React.useEffect(() => {
-    if (user) {
-      navigate('/dashboard');
+  // Only redirect if user just logged in (not on initial page load)
+  useEffect(() => {
+    if (justLoggedIn.current && user) {
+      // User just logged in, redirect based on onboarding status
+      setLoading(false); // Stop loading spinner
+      if (user.onboarding_completed) {
+        navigate('/dashboard');
+      } else {
+        navigate('/onboarding');
+      }
+      justLoggedIn.current = false; // Reset flag
     }
   }, [user, navigate]);
 
@@ -25,354 +34,148 @@ const Login = () => {
     const result = await login(email, password);
     
     if (result.success) {
-      navigate('/dashboard');
+      // Set flag to indicate user just logged in
+      justLoggedIn.current = true;
+      // useEffect will handle the redirect once user state is updated
     } else {
       setError(result.error);
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #000428 0%, #001645 50%, #00142E 100%)',
-      padding: '24px',
-      position: 'relative',
-      overflow: 'hidden'
-    }}>
-      {/* Background Effects */}
-      <div className="floating-bg" style={{
-        position: 'absolute',
-        top: '-10%',
-        left: '-5%',
-        width: '400px',
-        height: '400px',
-        background: 'linear-gradient(135deg, rgba(127, 219, 203, 0.15), rgba(91, 196, 179, 0.1))',
-        filter: 'blur(60px)',
-        borderRadius: '50%'
-      }}></div>
-      
-      <div className="floating-bg" style={{
-        position: 'absolute',
-        bottom: '-10%',
-        right: '-5%',
-        width: '500px',
-        height: '500px',
-        background: 'linear-gradient(135deg, rgba(127, 219, 203, 0.1), rgba(168, 230, 217, 0.15))',
-        filter: 'blur(80px)',
-        borderRadius: '50%',
-        animationDirection: 'reverse'
-      }}></div>
-
-      {/* Abstract curved lines */}
-      <svg style={{
-        position: 'absolute',
-        top: '10%',
-        left: '5%',
-        width: '200px',
-        height: '200px',
-        opacity: 0.6
-      }}>
-        <path d="M20,100 Q60,20 100,100 T180,100" stroke="#7FDBCB" strokeWidth="2" fill="none" 
-          style={{ filter: 'drop-shadow(0 0 8px rgba(127, 219, 203, 0.6))' }} />
-      </svg>
-
-      <svg style={{
-        position: 'absolute',
-        bottom: '10%',
-        right: '5%',
-        width: '250px',
-        height: '250px',
-        opacity: 0.4
-      }}>
-        <path d="M30,125 Q90,40 150,125 T250,125" stroke="#A8E6D9" strokeWidth="2" fill="none" 
-          style={{ filter: 'drop-shadow(0 0 10px rgba(168, 230, 217, 0.5))' }} />
-      </svg>
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Background gradient effects */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+        <div className="absolute top-[-10%] left-[-5%] w-[400px] h-[400px] bg-primary/10 rounded-full blur-[60px] animate-pulse"></div>
+        <div className="absolute bottom-[-10%] right-[-5%] w-[500px] h-[500px] bg-primary/5 rounded-full blur-[80px] animate-pulse" style={{ animationDelay: '1s' }}></div>
+      </div>
 
       {/* Main Container */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        maxWidth: '1000px',
-        width: '100%',
-        backgroundColor: '#FFFFFF',
-        borderRadius: '24px',
-        overflow: 'hidden',
-        boxShadow: '0 24px 64px rgba(0, 0, 0, 0.3)',
-        position: 'relative',
-        zIndex: 1
-      }} className="auth-container">
-        
-        {/* Auth Card - Left Side */}
-        <div style={{
-          padding: '64px 48px',
-          backgroundColor: '#FFFFFF',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center'
-        }}>
-          {/* Header */}
-          <div style={{ marginBottom: '32px' }}>
-            <h1 style={{
-              fontSize: '32px',
-              fontWeight: 700,
-              color: '#1A1A1A',
-              marginBottom: '8px',
-              letterSpacing: '-0.5px'
-            }}>
-              Log in
-            </h1>
-            <p style={{
-              fontSize: '14px',
-              color: '#4A4A4A',
-              lineHeight: 1.6,
-              marginBottom: '4px'
-            }}>
-              Welcome back! Enter your details to access your account.
-            </p>
-          </div>
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '24px'
-          }}>
-            {error && (
-              <div data-testid="login-error" style={{
-                padding: '12px 16px',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: '8px',
-                color: '#DC2626',
-                fontSize: '14px'
-              }}>
-                {error}
+      <div className="max-w-5xl w-full relative z-10 animate-in fade-in duration-500">
+        <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+          <div className="grid md:grid-cols-2">
+            {/* Left Side - Login Form */}
+            <div className="p-8 md:p-12 flex flex-col justify-center">
+              {/* Header */}
+              <div className="mb-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center overflow-hidden">
+                    <img src="/pilot.gif" alt="LinkedIn Pilot" className="w-full h-full object-contain" />
+                  </div>
+                  <span className="text-foreground text-lg font-serif italic">LinkedIn Pilot</span>
+                </div>
+                <h1 className="text-4xl font-serif italic text-foreground mb-3">
+                  Log in
+                </h1>
+                <p className="text-muted-foreground font-light text-sm">
+                  Welcome back! Enter your details to access your account.
+                </p>
               </div>
-            )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label htmlFor="email" style={{
-                fontSize: '13px',
-                fontWeight: 500,
-                color: '#1A1A1A',
-                marginBottom: '4px'
-              }}>
-                Email address
-              </label>
-              <input
-                id="email"
-                data-testid="login-email-input"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email"
-                required
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  fontSize: '14px',
-                  color: '#1A1A1A',
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid #E5E5E5',
-                  borderRadius: '8px',
-                  outline: 'none',
-                  transition: 'all 0.2s ease'
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = '#7FDBCB';
-                  e.target.style.boxShadow = '0 0 0 3px rgba(127, 219, 203, 0.1)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = '#E5E5E5';
-                  e.target.style.boxShadow = 'none';
-                }}
-              />
-            </div>
+              {/* Form */}
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {error && (
+                  <div 
+                    data-testid="login-error"
+                    className="bg-destructive/10 border border-destructive/30 rounded-lg p-4 text-destructive text-sm animate-in fade-in duration-300"
+                  >
+                    {error}
+                  </div>
+                )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label htmlFor="password" style={{
-                fontSize: '13px',
-                fontWeight: 500,
-                color: '#1A1A1A',
-                marginBottom: '4px'
-              }}>
-                Password
-              </label>
-              <input
-                id="password"
-                data-testid="login-password-input"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                required
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  fontSize: '14px',
-                  color: '#1A1A1A',
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid #E5E5E5',
-                  borderRadius: '8px',
-                  outline: 'none',
-                  transition: 'all 0.2s ease'
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = '#7FDBCB';
-                  e.target.style.boxShadow = '0 0 0 3px rgba(127, 219, 203, 0.1)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = '#E5E5E5';
-                  e.target.style.boxShadow = 'none';
-                }}
-              />
-            </div>
+                <div className="space-y-2">
+                  <label 
+                    htmlFor="email" 
+                    className="block text-sm font-medium text-muted-foreground"
+                  >
+                    Email address
+                  </label>
+                  <input
+                    id="email"
+                    data-testid="login-email-input"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter your email"
+                    required
+                    className="w-full px-4 py-3 bg-input border border-border text-foreground placeholder:text-muted-foreground rounded-lg focus:ring-2 focus:ring-ring focus:border-transparent outline-none transition"
+                  />
+                </div>
 
-            <button
-              data-testid="login-submit-btn"
-              type="submit"
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '14px 24px',
-                fontSize: '15px',
-                fontWeight: 600,
-                color: '#FFFFFF',
-                background: 'linear-gradient(135deg, #7FDBCB 0%, #5BC4B3 100%)',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                transition: 'all 0.3s ease',
-                boxShadow: '0 4px 12px rgba(127, 219, 203, 0.3)',
-                opacity: loading ? 0.5 : 1
-              }}
-              onMouseEnter={(e) => {
-                if (!loading) {
-                  e.target.style.transform = 'translateY(-2px)';
-                  e.target.style.boxShadow = '0 6px 20px rgba(127, 219, 203, 0.4)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = '0 4px 12px rgba(127, 219, 203, 0.3)';
-              }}
-            >
-              {loading ? 'Logging in...' : 'Log In'}
-            </button>
+                <div className="space-y-2">
+                  <label 
+                    htmlFor="password" 
+                    className="block text-sm font-medium text-muted-foreground"
+                  >
+                    Password
+                  </label>
+                  <input
+                    id="password"
+                    data-testid="login-password-input"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    required
+                    className="w-full px-4 py-3 bg-input border border-border text-foreground placeholder:text-muted-foreground rounded-lg focus:ring-2 focus:ring-ring focus:border-transparent outline-none transition"
+                  />
+                </div>
 
-            <div style={{ textAlign: 'center', marginTop: '16px' }}>
-              <p style={{ fontSize: '14px', color: '#4A4A4A' }}>
-                Don't have an account?{' '}
-                <Link 
-                  to="/signup" 
-                  data-testid="login-signup-link"
-                  style={{
-                    color: '#7FDBCB',
-                    textDecoration: 'underline',
-                    fontWeight: 500
-                  }}
+                <button
+                  data-testid="login-submit-btn"
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Sign up here
-                </Link>
-              </p>
+                  {loading ? 'Logging in...' : 'Log In'}
+                </button>
+
+                <div className="text-center pt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Don't have an account?{' '}
+                    <Link 
+                      to="/signup" 
+                      data-testid="login-signup-link"
+                      className="text-primary hover:text-primary/80 underline font-medium transition"
+                    >
+                      Sign up here
+                    </Link>
+                  </p>
+                </div>
+              </form>
             </div>
-          </form>
-        </div>
 
-        {/* Brand Panel - Right Side */}
-        <div className="brand-panel" style={{
-          padding: '64px 48px',
-          background: 'linear-gradient(135deg, #000428 0%, #001645 100%)',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          position: 'relative',
-          overflow: 'hidden'
-        }}>
-          {/* Decorative glowing curve */}
-          <svg style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: '300px',
-            height: '300px',
-            opacity: 0.6
-          }} className="glow-animation">
-            <path d="M50,150 Q100,50 150,150 T250,150" stroke="#7FDBCB" strokeWidth="2" fill="none" />
-            <path d="M50,180 Q100,80 150,180 T250,180" stroke="#A8E6D9" strokeWidth="2" fill="none" />
-          </svg>
+            {/* Right Side - Brand Panel */}
+            <div className="bg-gradient-to-br from-card to-secondary border-l border-border p-8 md:p-12 flex flex-col justify-between relative overflow-hidden">
+              {/* Decorative elements */}
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] opacity-20">
+                <div className="w-full h-full border border-primary/30 rounded-full"></div>
+              </div>
 
-          {/* Logo */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            marginBottom: '48px',
-            position: 'relative',
-            zIndex: 1
-          }}>
-            <Zap className="w-8 h-8 text-white" />
-            <span style={{
-              fontSize: '20px',
-              fontWeight: 700,
-              color: '#FFFFFF'
-            }}>
-              SocialFlow
-            </span>
-          </div>
+              {/* Content */}
+              <div className="relative z-10">
+                <h2 className="text-3xl font-serif italic text-foreground mb-4 leading-tight">
+                  Transform Your Social Media Presence
+                </h2>
+                <p className="text-muted-foreground font-light leading-relaxed">
+                  Schedule posts, create stunning content, and analyze performance—all from one powerful platform.
+                </p>
+              </div>
 
-          {/* Content */}
-          <div style={{ position: 'relative', zIndex: 1 }}>
-            <h2 style={{
-              fontSize: '32px',
-              fontWeight: 700,
-              color: '#FFFFFF',
-              lineHeight: 1.3,
-              marginBottom: '16px',
-              letterSpacing: '-0.5px'
-            }}>
-              Transform Your Social Media Presence
-            </h2>
-            <p style={{
-              fontSize: '16px',
-              color: 'rgba(255, 255, 255, 0.8)',
-              lineHeight: 1.6
-            }}>
-              Schedule posts, create stunning content, and analyze performance—all from one powerful platform.
-            </p>
-          </div>
-
-          {/* Support */}
-          <div style={{
-            marginTop: 'auto',
-            paddingTop: '48px',
-            position: 'relative',
-            zIndex: 1
-          }}>
-            <p style={{
-              fontSize: '13px',
-              color: 'rgba(255, 255, 255, 0.7)',
-              marginBottom: '8px'
-            }}>
-              Need help?
-            </p>
-            <Link 
-              to="/" 
-              style={{
-                fontSize: '14px',
-                color: '#7FDBCB',
-                textDecoration: 'underline',
-                fontWeight: 500
-              }}
-            >
-              Contact support
-            </Link>
+              {/* Support */}
+              <div className="relative z-10 mt-auto pt-8">
+                <p className="text-sm text-muted-foreground/60 mb-2 font-light">
+                  Need help?
+                </p>
+                <Link 
+                  to="/" 
+                  className="text-sm text-primary hover:text-primary/80 underline font-medium transition"
+                >
+                  Contact support
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </div>

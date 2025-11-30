@@ -3,9 +3,10 @@ import {
   X, RotateCw, Bold, Italic, Underline, Strikethrough, 
   Type, Palette, Minus, Plus, Move, GripVertical,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  Layers, Eye, EyeOff, Trash2, Undo2, Redo2, Link as LinkIcon, Sparkles, Loader, ZoomIn, ZoomOut
+  Layers, Eye, EyeOff, Trash2, Undo2, Redo2, Link as LinkIcon, Sparkles, Loader, ZoomIn, ZoomOut, ChevronDown, ChevronUp, Check
 } from 'lucide-react';
 import axios from 'axios';
+import designTokens from '@/designTokens';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -18,6 +19,7 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
   const [loadingFonts, setLoadingFonts] = useState(false);
   const [loadingOverlay, setLoadingOverlay] = useState(false);
   const [loadingAiText, setLoadingAiText] = useState(false);
+  const [aiGenerationInfo, setAiGenerationInfo] = useState(null); // Track AI generation details
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showFontPicker, setShowFontPicker] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -39,6 +41,16 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
   const [zoomLevel, setZoomLevel] = useState(100);
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState(null); // Template selector
+  const [dragAnimationFrame, setDragAnimationFrame] = useState(null); // For optimized dragging
+  const [expandedSections, setExpandedSections] = useState({
+    image: true,
+    header: true,
+    description: false,
+    callToAction: false
+  });
+  const [history, setHistory] = useState([]); // History for undo/redo
+  const [historyIndex, setHistoryIndex] = useState(-1); // Current position in history
   const [defaultEditorSettings, setDefaultEditorSettings] = useState({
     font_size: 72,
     font_name: 'Poppins',
@@ -99,9 +111,15 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
         // Set counter to max ID + 1
         const maxId = Math.max(...initialElements.map(el => el.id || 0), 0);
         elementIdCounter.current = maxId + 1;
+        // Initialize history
+        setHistory([[...initialElements]]);
+        setHistoryIndex(0);
       } else {
         console.log('[TEXT_OVERLAY] No initial elements, starting fresh');
         setTextElements([]);
+        // Initialize history with empty array
+        setHistory([[]]);
+        setHistoryIndex(0);
       }
       setSelectedElementId(null);
       setIsEditingText(false);
@@ -134,9 +152,33 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
   };
 
   const updateSelectedElement = (updates) => {
-    setTextElements(prev => prev.map(el => 
+    setTextElements(prev => {
+      const updated = prev.map(el => 
       el.id === selectedElementId ? { ...el, ...updates } : el
-    ));
+      );
+      // Add to history
+      const newHistory = history.slice(0, historyIndex + 1);
+      newHistory.push([...updated]);
+      setHistory(newHistory);
+      setHistoryIndex(newHistory.length - 1);
+      return updated;
+    });
+  };
+
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      setHistoryIndex(newIndex);
+      setTextElements([...history[newIndex]]);
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < history.length - 1) {
+      const newIndex = historyIndex + 1;
+      setHistoryIndex(newIndex);
+      setTextElements([...history[newIndex]]);
+    }
   };
 
   const handleDoubleClick = (e) => {
@@ -255,15 +297,25 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
       return;
     }
     
+    // Optimize dragging with requestAnimationFrame
     if (isDragging && selectedElementId && previewContainerRef.current && previewImageSize.width > 0 && previewImageSize.height > 0) {
-      const rect = previewContainerRef.current.getBoundingClientRect();
-      const x = (e.clientX - rect.left - dragOffset.x) / rect.width;
-      const y = (e.clientY - rect.top - dragOffset.y) / rect.height;
+      // Cancel previous frame if exists
+      if (dragAnimationFrame) {
+        cancelAnimationFrame(dragAnimationFrame);
+      }
       
-      const pixelX = Math.round(x * previewImageSize.width);
-      const pixelY = Math.round(y * previewImageSize.height);
-      
-      updateSelectedElement({ position: [pixelX, pixelY] });
+      // Use requestAnimationFrame for smooth dragging
+      const frameId = requestAnimationFrame(() => {
+        const rect = previewContainerRef.current.getBoundingClientRect();
+        const x = (e.clientX - rect.left - dragOffset.x) / rect.width;
+        const y = (e.clientY - rect.top - dragOffset.y) / rect.height;
+        
+        const pixelX = Math.round(x * previewImageSize.width);
+        const pixelY = Math.round(y * previewImageSize.height);
+        
+        updateSelectedElement({ position: [pixelX, pixelY] });
+      });
+      setDragAnimationFrame(frameId);
     } else if (isResizing && selectedElementId && previewContainerRef.current && resizeDirection) {
       const element = textElements.find(el => el.id === selectedElementId);
       if (!element) return;
@@ -321,6 +373,11 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
   };
 
   const handleCanvasMouseUp = () => {
+    // Cancel any pending animation frames
+    if (dragAnimationFrame) {
+      cancelAnimationFrame(dragAnimationFrame);
+      setDragAnimationFrame(null);
+    }
     setIsDragging(false);
     setIsResizing(false);
     setIsRotating(false);
@@ -613,10 +670,20 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
         content: campaignData.content || '',
         hashtags: campaignData.hashtags || [],
         imagePrompt: campaignData.imagePrompt || '',
-        imageDescription: campaignData.imageData?.description || ''
+        imageDescription: campaignData.imageData?.description || '',
+        imageUrl: imageUrl,  // Send image URL for advanced system
+        preferred_template: selectedTemplate && selectedTemplate !== 'auto' ? selectedTemplate : null  // Send template preference
       });
       
       if (response.data.overlay_elements && response.data.overlay_elements.length > 0) {
+        // Store AI generation info for display
+        setAiGenerationInfo({
+          template: response.data.template_id || 'Auto-selected',
+          quality_score: response.data.quality_score || 'High',
+          elements_generated: response.data.overlay_elements.length,
+          timestamp: new Date()
+        });
+        
         // Convert percentage positions to pixel positions
         const convertedElements = response.data.overlay_elements.map((element, idx) => ({
           ...element,
@@ -625,7 +692,9 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
             Math.round((element.position[0] / 100) * previewImageSize.width),
             Math.round((element.position[1] / 100) * previewImageSize.height)
           ],
-          selected: idx === 0
+          selected: idx === 0,
+          ai_generated: true, // Mark as AI-generated
+          template_id: response.data.template_id
         }));
         
         setTextElements(prev => [...prev, ...convertedElements]);
@@ -661,104 +730,320 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
     <div style={{
       position: 'fixed',
       inset: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+      backdropFilter: 'blur(8px)',
       display: 'flex',
-      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
       zIndex: 9999,
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'
-    }}>
-      {/* Top Horizontal Toolbar */}
+      fontFamily: designTokens.typography.fontFamily.sans,
+      padding: '20px'
+    }}
+    onClick={onClose}
+    >
+      <div style={{
+        width: '95vw',
+        height: '90vh',
+        maxWidth: '1600px',
+        backgroundColor: designTokens.colors.background.layer2,
+        borderRadius: designTokens.radius.xl,
+        border: `1px solid ${designTokens.colors.border.default}`,
+        boxShadow: designTokens.shadow.floating,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden'
+      }}
+      onClick={(e) => e.stopPropagation()}
+      >
+        {/* Top Toolbar */}
+        <div style={{
+          height: '64px',
+          borderBottom: `1px solid ${designTokens.colors.border.default}`,
+          padding: '0 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          backgroundColor: designTokens.colors.background.layer1,
+          zIndex: 100
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <h2 style={{
+              color: designTokens.colors.text.primary,
+              fontSize: designTokens.typography.fontSize.lg,
+              fontWeight: designTokens.typography.fontWeight.semibold,
+              fontFamily: designTokens.typography.fontFamily.serif,
+              fontStyle: 'italic'
+            }}>
+              Edit Image
+            </h2>
+            {selectedElement && (
+              <>
+                <div style={{ width: '1px', height: '24px', backgroundColor: designTokens.colors.border.default }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    onClick={handleUndo}
+                    disabled={historyIndex <= 0}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: designTokens.radius.md,
+                      color: historyIndex <= 0 ? designTokens.colors.text.tertiary : designTokens.colors.text.secondary,
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer',
+                      fontSize: designTokens.typography.fontSize.sm,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (historyIndex > 0) {
+                        e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                        e.currentTarget.style.color = designTokens.colors.text.primary;
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (historyIndex > 0) {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.color = designTokens.colors.text.secondary;
+                      }
+                    }}
+                  >
+                    <Undo2 size={16} />
+                    <span>Undo</span>
+                  </button>
+                  <button
+                    onClick={handleRedo}
+                    disabled={historyIndex >= history.length - 1}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: designTokens.radius.md,
+                      color: historyIndex >= history.length - 1 ? designTokens.colors.text.tertiary : designTokens.colors.text.secondary,
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      cursor: historyIndex >= history.length - 1 ? 'not-allowed' : 'pointer',
+                      fontSize: designTokens.typography.fontSize.sm,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (historyIndex < history.length - 1) {
+                        e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                        e.currentTarget.style.color = designTokens.colors.text.primary;
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (historyIndex < history.length - 1) {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.color = designTokens.colors.text.secondary;
+                      }
+                    }}
+                  >
+                    <Redo2 size={16} />
+                    <span>Redo</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={onClose}
+              style={{
+                padding: '8px 16px',
+                borderRadius: designTokens.radius.full,
+                color: designTokens.colors.text.secondary,
+                backgroundColor: 'transparent',
+                border: 'none',
+                fontSize: designTokens.typography.fontSize.sm,
+                fontWeight: designTokens.typography.fontWeight.medium,
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                e.currentTarget.style.color = designTokens.colors.text.primary;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = designTokens.colors.text.secondary;
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleApply}
+              disabled={loadingOverlay}
+              style={{
+                padding: '8px 24px',
+                borderRadius: designTokens.radius.full,
+                color: designTokens.colors.text.inverse,
+                backgroundColor: designTokens.colors.accent.lime,
+                border: 'none',
+                fontSize: designTokens.typography.fontSize.sm,
+                fontWeight: designTokens.typography.fontWeight.semibold,
+                cursor: loadingOverlay ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: designTokens.shadow.subtle,
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                if (!loadingOverlay) {
+                  e.currentTarget.style.backgroundColor = designTokens.colors.accent.limeHover;
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!loadingOverlay) {
+                  e.currentTarget.style.backgroundColor = designTokens.colors.accent.lime;
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }
+              }}
+            >
+              {loadingOverlay ? <Loader size={16} className="animate-spin" /> : <Check size={16} />}
+              Save Image
+            </button>
+          </div>
+        </div>
+
+        {/* Main Content Area */}
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          {/* Left Canvas Area */}
+          <div style={{
+            flex: 1,
+            backgroundColor: designTokens.colors.background.app,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '32px',
+            position: 'relative',
+            overflow: 'auto'
+          }}>
+            {/* Floating Toolbar for Selected Element */}
       {selectedElement && (
         <div style={{
           position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          backgroundColor: '#FFFFFF',
-          borderBottom: '1px solid #E5E7EB',
-          padding: '8px 16px',
+                top: '16px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                backgroundColor: designTokens.colors.background.layer1,
+                border: `1px solid ${designTokens.colors.border.default}`,
+                borderRadius: designTokens.radius.lg,
+                padding: '8px',
           display: 'flex',
           alignItems: 'center',
-          gap: '4px',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          zIndex: 10000
+                gap: '4px',
+                boxShadow: designTokens.shadow.card,
+                zIndex: 1000
         }}>
           {/* Undo */}
           <button
+            onClick={handleUndo}
+            disabled={historyIndex <= 0}
             style={{
-              width: '32px',
-              height: '32px',
+              width: '28px',
+              height: '28px',
               padding: '0',
-              border: '1px solid #E5E7EB',
-              borderRadius: '6px',
-              cursor: 'pointer',
+              border: 'none',
+              borderRadius: designTokens.radius.sm,
+              cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: 'transparent',
-              transition: 'all 0.2s'
+              transition: 'all 0.15s ease',
+              color: historyIndex <= 0 ? designTokens.colors.text.tertiary : designTokens.colors.text.secondary
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            onMouseEnter={(e) => {
+              if (historyIndex > 0) {
+                e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                e.currentTarget.style.color = designTokens.colors.text.primary;
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (historyIndex > 0) {
+              e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = designTokens.colors.text.secondary;
+              }
+            }}
             title="Undo"
           >
-            <Undo2 size={16} color="#6B7280" />
+            <Undo2 size={14} />
           </button>
 
           {/* Redo */}
           <button
+            onClick={handleRedo}
+            disabled={historyIndex >= history.length - 1}
             style={{
-              width: '32px',
-              height: '32px',
+              width: '28px',
+              height: '28px',
               padding: '0',
-              border: '1px solid #E5E7EB',
-              borderRadius: '6px',
-              cursor: 'pointer',
+              border: 'none',
+              borderRadius: designTokens.radius.sm,
+              cursor: historyIndex >= history.length - 1 ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: 'transparent',
-              transition: 'all 0.2s'
+              transition: 'all 0.15s ease',
+              color: historyIndex >= history.length - 1 ? designTokens.colors.text.tertiary : designTokens.colors.text.secondary
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            onMouseEnter={(e) => {
+              if (historyIndex < history.length - 1) {
+                e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                e.currentTarget.style.color = designTokens.colors.text.primary;
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (historyIndex < history.length - 1) {
+              e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = designTokens.colors.text.secondary;
+              }
+            }}
             title="Redo"
           >
-            <Redo2 size={16} color="#6B7280" />
+            <Redo2 size={14} />
           </button>
 
-          <div style={{ width: '1px', height: '24px', backgroundColor: '#E5E7EB', margin: '0 4px' }} />
+          <div style={{ width: '1px', height: '20px', backgroundColor: designTokens.colors.border.default, margin: '0 6px' }} />
 
           {/* Delete */}
           <button
             onClick={handleDeleteElement}
             style={{
-              width: '32px',
-              height: '32px',
+              width: '28px',
+              height: '28px',
               padding: '0',
-              border: '1px solid #E5E7EB',
-              borderRadius: '6px',
+              border: 'none',
+              borderRadius: designTokens.radius.sm,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: 'transparent',
-              transition: 'all 0.2s'
+              transition: 'all 0.15s ease',
+              color: designTokens.colors.text.secondary
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#FEE2E2';
-              e.currentTarget.style.borderColor = '#EF4444';
+              e.currentTarget.style.backgroundColor = designTokens.colors.error + '20';
+              e.currentTarget.style.color = designTokens.colors.error;
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = 'transparent';
-              e.currentTarget.style.borderColor = '#E5E7EB';
+              e.currentTarget.style.color = designTokens.colors.text.secondary;
             }}
             title="Delete (Del)"
           >
-            <Trash2 size={16} color="#6B7280" />
+            <Trash2 size={14} />
           </button>
 
-          <div style={{ width: '1px', height: '24px', backgroundColor: '#E5E7EB', margin: '0 4px' }} />
+          <div style={{ width: '1px', height: '20px', backgroundColor: designTokens.colors.border.default, margin: '0 6px' }} />
 
           {/* Font Size */}
           <input
@@ -766,15 +1051,26 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
             value={selectedElement.font_size}
             onChange={(e) => updateSelectedElement({ font_size: parseInt(e.target.value) || 12 })}
             style={{
-              width: '48px',
-              height: '32px',
+              width: '52px',
+              height: '28px',
               padding: '4px 8px',
-              border: '1px solid #E5E7EB',
-              borderRadius: '6px',
-              fontSize: '13px',
+              border: `1px solid ${designTokens.colors.border.default}`,
+              borderRadius: designTokens.radius.sm,
+              fontSize: designTokens.typography.fontSize.xs,
               textAlign: 'center',
               outline: 'none',
-              fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'
+              fontFamily: designTokens.typography.fontFamily.sans,
+              backgroundColor: designTokens.colors.background.input,
+              color: designTokens.colors.text.primary,
+              transition: 'all 0.15s ease'
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = designTokens.colors.accent.lime;
+              e.currentTarget.style.boxShadow = `0 0 0 3px ${designTokens.colors.accent.lime}20`;
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = designTokens.colors.border.default;
+              e.currentTarget.style.boxShadow = 'none';
             }}
             title="Font size"
           />
@@ -784,17 +1080,26 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
             value={selectedElement.font_name}
             onChange={(e) => updateSelectedElement({ font_name: e.target.value })}
             style={{
-              height: '32px',
+              height: '28px',
               padding: '0 8px',
-              fontSize: '13px',
-              fontWeight: 500,
-              color: '#1A1A1A',
-              backgroundColor: '#FFFFFF',
-              border: '1px solid #E5E7EB',
-              borderRadius: '6px',
+              fontSize: designTokens.typography.fontSize.xs,
+              fontWeight: designTokens.typography.fontWeight.medium,
+              color: designTokens.colors.text.primary,
+              backgroundColor: designTokens.colors.background.input,
+              border: `1px solid ${designTokens.colors.border.default}`,
+              borderRadius: designTokens.radius.sm,
               cursor: 'pointer',
-              fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-              minWidth: '120px'
+              fontFamily: designTokens.typography.fontFamily.sans,
+              minWidth: '130px',
+              transition: 'all 0.15s ease'
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = designTokens.colors.accent.lime;
+              e.currentTarget.style.boxShadow = `0 0 0 3px ${designTokens.colors.accent.lime}20`;
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = designTokens.colors.border.default;
+              e.currentTarget.style.boxShadow = 'none';
             }}
             title="Font family"
           >
@@ -807,26 +1112,32 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
           <button
             onClick={() => handleRichTextCommand('bold')}
             style={{
-              width: '32px',
-              height: '32px',
+              width: '28px',
+              height: '28px',
               padding: '0',
-              border: '1px solid #E5E7EB',
-              borderRadius: '6px',
+              border: 'none',
+              borderRadius: designTokens.radius.sm,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: 'transparent',
-              transition: 'all 0.2s',
+              backgroundColor: selectedElement.font_weight >= 700 ? designTokens.colors.accent.lime : 'transparent',
+              transition: 'all 0.15s ease',
               fontWeight: 700,
-              fontSize: '14px',
-              color: '#6B7280'
+              fontSize: designTokens.typography.fontSize.xs,
+              color: selectedElement.font_weight >= 700 ? designTokens.colors.text.inverse : designTokens.colors.text.secondary
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#F3F4F6';
+              if (selectedElement.font_weight < 700) {
+                e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                e.currentTarget.style.color = designTokens.colors.text.primary;
+              }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
+              if (selectedElement.font_weight < 700) {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = designTokens.colors.text.secondary;
+              }
             }}
             title="Bold"
           >
@@ -837,27 +1148,33 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
           <button
             onClick={() => handleRichTextCommand('italic')}
             style={{
-              width: '32px',
-              height: '32px',
+              width: '28px',
+              height: '28px',
               padding: '0',
-              border: '1px solid #E5E7EB',
-              borderRadius: '6px',
+              border: 'none',
+              borderRadius: designTokens.radius.sm,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: 'transparent',
-              transition: 'all 0.2s',
+              backgroundColor: selectedElement.font_style === 'italic' ? designTokens.colors.accent.lime : 'transparent',
+              transition: 'all 0.15s ease',
               fontStyle: 'italic',
-              fontSize: '14px',
+              fontSize: designTokens.typography.fontSize.xs,
               fontWeight: 700,
-              color: '#6B7280'
+              color: selectedElement.font_style === 'italic' ? designTokens.colors.text.inverse : designTokens.colors.text.secondary
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#F3F4F6';
+              if (selectedElement.font_style !== 'italic') {
+                e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                e.currentTarget.style.color = designTokens.colors.text.primary;
+              }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
+              if (selectedElement.font_style !== 'italic') {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = designTokens.colors.text.secondary;
+              }
             }}
             title="Italic"
           >
@@ -868,27 +1185,33 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
           <button
             onClick={() => handleRichTextCommand('underline')}
             style={{
-              width: '32px',
-              height: '32px',
+              width: '28px',
+              height: '28px',
               padding: '0',
-              border: '1px solid #E5E7EB',
-              borderRadius: '6px',
+              border: 'none',
+              borderRadius: designTokens.radius.sm,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: 'transparent',
-              transition: 'all 0.2s',
+              backgroundColor: selectedElement.text_decoration === 'underline' ? designTokens.colors.accent.lime : 'transparent',
+              transition: 'all 0.15s ease',
               textDecoration: 'underline',
-              fontSize: '14px',
+              fontSize: designTokens.typography.fontSize.xs,
               fontWeight: 700,
-              color: '#6B7280'
+              color: selectedElement.text_decoration === 'underline' ? designTokens.colors.text.inverse : designTokens.colors.text.secondary
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#F3F4F6';
+              if (selectedElement.text_decoration !== 'underline') {
+                e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                e.currentTarget.style.color = designTokens.colors.text.primary;
+              }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
+              if (selectedElement.text_decoration !== 'underline') {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = designTokens.colors.text.secondary;
+              }
             }}
             title="Underline"
           >
@@ -900,36 +1223,37 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
             <button
               onClick={() => setShowColorPicker(!showColorPicker)}
               style={{
-                width: '32px',
-                height: '32px',
+                width: '28px',
+                height: '28px',
                 padding: '0',
-                border: '1px solid #E5E7EB',
-                borderRadius: '6px',
+                border: `2px solid ${showColorPicker ? designTokens.colors.accent.lime : designTokens.colors.border.default}`,
+                borderRadius: designTokens.radius.sm,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: selectedElement.color,
-                transition: 'all 0.2s',
-                fontSize: '14px',
+                backgroundColor: selectedElement.color || designTokens.colors.text.primary,
+                transition: 'all 0.15s ease',
+                fontSize: designTokens.typography.fontSize.xs,
                 fontWeight: 700,
-                color: '#FFFFFF'
+                color: '#FFFFFF',
+                boxShadow: showColorPicker ? `0 0 0 3px ${designTokens.colors.accent.lime}20` : 'none'
               }}
               title="Text Color"
             >
-              A
+              <Palette size={14} />
             </button>
             {showColorPicker && (
               <div style={{
                 position: 'absolute',
                 top: '100%',
                 left: 0,
-                marginTop: '4px',
-                padding: '8px',
-                backgroundColor: '#FFFFFF',
-                border: '1px solid #E5E7EB',
-                borderRadius: '6px',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                marginTop: '6px',
+                padding: '12px',
+                backgroundColor: designTokens.colors.background.layer1,
+                border: `1px solid ${designTokens.colors.border.default}`,
+                borderRadius: designTokens.radius.md,
+                boxShadow: designTokens.shadow.card,
                 zIndex: 10001
               }}>
                 <input
@@ -938,9 +1262,9 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                   onChange={(e) => updateSelectedElement({ color: e.target.value })}
                   style={{
                     width: '100%',
-                    height: '32px',
-                    border: 'none',
-                    borderRadius: '4px',
+                    height: '36px',
+                    border: `1px solid ${designTokens.colors.border.default}`,
+                    borderRadius: designTokens.radius.sm,
                     cursor: 'pointer'
                   }}
                 />
@@ -948,110 +1272,134 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
             )}
           </div>
 
-          <div style={{ width: '1px', height: '24px', backgroundColor: '#E5E7EB', margin: '0 4px' }} />
+          <div style={{ width: '1px', height: '20px', backgroundColor: designTokens.colors.border.default, margin: '0 6px' }} />
 
           {/* Text Align Buttons */}
-          <div style={{ display: 'flex', gap: 0 }}>
+          <div style={{ display: 'flex', gap: 0, border: `1px solid ${designTokens.colors.border.default}`, borderRadius: designTokens.radius.sm, overflow: 'hidden', backgroundColor: designTokens.colors.background.input }}>
             <button
               onClick={() => updateSelectedElement({ text_align: 'left' })}
               style={{
-                width: '32px',
-                height: '32px',
+                width: '28px',
+                height: '28px',
                 padding: '0',
-                border: `1px solid ${selectedElement.text_align === 'left' ? '#5B5FE3' : '#E5E7EB'}`,
-                borderRadius: '6px 0 0 6px',
+                border: 'none',
+                borderRight: `1px solid ${designTokens.colors.border.default}`,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: selectedElement.text_align === 'left' ? '#EEF2FF' : 'transparent',
-                transition: 'all 0.2s'
+                backgroundColor: selectedElement.text_align === 'left' ? designTokens.colors.accent.lime : 'transparent',
+                transition: 'all 0.15s ease',
+                color: selectedElement.text_align === 'left' ? designTokens.colors.text.inverse : designTokens.colors.text.secondary
+              }}
+              onMouseEnter={(e) => {
+                if (selectedElement.text_align !== 'left') {
+                  e.currentTarget.style.backgroundColor = designTokens.colors.background.layer2;
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (selectedElement.text_align !== 'left') {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }
               }}
               title="Align Left"
             >
-              <AlignLeft size={16} color={selectedElement.text_align === 'left' ? '#5B5FE3' : '#6B7280'} />
+              <AlignLeft size={14} />
             </button>
             <button
               onClick={() => updateSelectedElement({ text_align: 'center' })}
               style={{
-                width: '32px',
-                height: '32px',
+                width: '28px',
+                height: '28px',
                 padding: '0',
-                border: `1px solid ${selectedElement.text_align === 'center' ? '#5B5FE3' : '#E5E7EB'}`,
-                borderRadius: '0',
-                borderLeft: 'none',
-                borderRight: 'none',
+                border: 'none',
+                borderRight: `1px solid ${designTokens.colors.border.default}`,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: selectedElement.text_align === 'center' ? '#EEF2FF' : 'transparent',
-                transition: 'all 0.2s'
+                backgroundColor: selectedElement.text_align === 'center' ? designTokens.colors.accent.lime : 'transparent',
+                transition: 'all 0.15s ease',
+                color: selectedElement.text_align === 'center' ? designTokens.colors.text.inverse : designTokens.colors.text.secondary
+              }}
+              onMouseEnter={(e) => {
+                if (selectedElement.text_align !== 'center') {
+                  e.currentTarget.style.backgroundColor = designTokens.colors.background.layer2;
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (selectedElement.text_align !== 'center') {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }
               }}
               title="Align Center"
             >
-              <AlignCenter size={16} color={selectedElement.text_align === 'center' ? '#5B5FE3' : '#6B7280'} />
+              <AlignCenter size={14} />
             </button>
             <button
               onClick={() => updateSelectedElement({ text_align: 'right' })}
               style={{
-                width: '32px',
-                height: '32px',
+                width: '28px',
+                height: '28px',
                 padding: '0',
-                border: `1px solid ${selectedElement.text_align === 'right' ? '#5B5FE3' : '#E5E7EB'}`,
-                borderRadius: '0 6px 6px 0',
+                border: 'none',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: selectedElement.text_align === 'right' ? '#EEF2FF' : 'transparent',
-                transition: 'all 0.2s'
+                backgroundColor: selectedElement.text_align === 'right' ? designTokens.colors.accent.lime : 'transparent',
+                transition: 'all 0.15s ease',
+                color: selectedElement.text_align === 'right' ? designTokens.colors.text.inverse : designTokens.colors.text.secondary
+              }}
+              onMouseEnter={(e) => {
+                if (selectedElement.text_align !== 'right') {
+                  e.currentTarget.style.backgroundColor = designTokens.colors.background.layer2;
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (selectedElement.text_align !== 'right') {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }
               }}
               title="Align Right"
             >
-              <AlignRight size={16} color={selectedElement.text_align === 'right' ? '#5B5FE3' : '#6B7280'} />
+              <AlignRight size={14} />
             </button>
           </div>
 
-          <div style={{ width: '1px', height: '24px', backgroundColor: '#E5E7EB', margin: '0 4px' }} />
+          <div style={{ width: '1px', height: '20px', backgroundColor: '#E5E7EB', margin: '0 6px' }} />
 
-          {/* Link */}
+          {/* Link - IMG.LY Style */}
           <button
             style={{
-              width: '32px',
-              height: '32px',
+              width: '28px',
+              height: '28px',
               padding: '0',
-              border: '1px solid #E5E7EB',
+              border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: 'transparent',
-              transition: 'all 0.2s'
+              transition: 'all 0.15s ease',
+              color: '#6B7280'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#F3F4F6';
+              e.currentTarget.style.color = '#374151';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = '#6B7280';
+            }}
             title="Add Link"
           >
-            <LinkIcon size={16} color="#6B7280" />
+            <LinkIcon size={14} />
           </button>
         </div>
       )}
 
-      {/* Main Content Area */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', paddingTop: selectedElement ? '49px' : '0' }}>
-        {/* Left Canvas Area */}
-        <div style={{
-          flex: 1,
-          backgroundColor: '#F5F5F7',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '24px',
-          position: 'relative',
-          overflow: 'auto'
-        }}>
           <div
             ref={previewContainerRef}
             onDoubleClick={handleDoubleClick}
@@ -1062,15 +1410,17 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
               position: 'relative',
               width: '100%',
               height: '100%',
-              backgroundColor: '#FFFFFF',
-              borderRadius: '6px',
-              border: '1px solid #F3F4F6',
-              boxShadow: '0 8px 16px rgba(0, 0, 0, 0.1)',
+                backgroundColor: designTokens.colors.background.layer2,
+                borderRadius: designTokens.radius.lg,
+                border: `1px solid ${designTokens.colors.border.default}`,
+                boxShadow: designTokens.shadow.card,
               overflow: 'hidden',
-              cursor: isPanning ? 'grabbing' : 'text',
+                cursor: isPanning ? 'text' : 'default',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+                justifyContent: 'center',
+                backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)',
+                backgroundSize: '20px 20px'
             }}
           >
             <div style={{
@@ -1125,17 +1475,23 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                     setIsEditingText(true);
                   }}
                 >
-                {/* Selection border */}
+                {/* Selection border - IMG.LY Style - Fits actual text bounds */}
                 {isSelected && !isEditingText && (
                   <>
                     <div style={{
                       position: 'absolute',
-                      inset: '-4px',
-                      border: `2px solid #5B5FE3`,
-                      borderRadius: '4px',
-                      pointerEvents: 'none'
+                      left: '-4px',
+                      top: '-4px',
+                      right: '-4px',
+                      bottom: '-4px',
+                      border: `2px solid ${designTokens.colors.accent.lime}`,
+                      borderRadius: designTokens.radius.md,
+                      pointerEvents: 'none',
+                      boxShadow: `0 0 0 1px ${designTokens.colors.accent.lime}40`,
+                      width: 'calc(100% + 8px)',
+                      height: 'calc(100% + 8px)'
                     }} />
-                    {/* Resize handles */}
+                    {/* Resize handles - IMG.LY Style */}
                     {[
                       { position: { top: '-6px', left: '-6px' }, cursor: 'nwse-resize', direction: 'top-left' },
                       { position: { top: '-6px', right: '-6px' }, cursor: 'nesw-resize', direction: 'top-right' },
@@ -1150,38 +1506,59 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                         key={idx}
                         style={{
                           position: 'absolute',
-                          width: '12px',
-                          height: '12px',
-                          backgroundColor: '#5B5FE3',
-                          border: '2px solid #FFFFFF',
-                          borderRadius: '3px',
+                          width: '10px',
+                          height: '10px',
+                          backgroundColor: designTokens.colors.accent.lime,
+                          border: `2px solid ${designTokens.colors.background.layer2}`,
+                          borderRadius: designTokens.radius.sm,
                           cursor: handle.cursor,
                           pointerEvents: 'auto',
+                          boxShadow: designTokens.shadow.subtle,
+                          transition: 'all 0.15s ease',
                           ...handle.position
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = designTokens.colors.accent.limeHover;
+                          e.currentTarget.style.transform = 'scale(1.2)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = designTokens.colors.accent.lime;
+                          e.currentTarget.style.transform = 'scale(1)';
                         }}
                         onMouseDown={(e) => handleResizeMouseDown(e, element.id, handle.direction)}
                       />
                     ))}
-                    {/* Rotate handle - above top center */}
+                    {/* Rotate handle - IMG.LY Style */}
                     <div 
                       style={{
                         position: 'absolute',
-                        top: '-28px',
+                        top: '-26px',
                         left: '50%',
                         transform: 'translateX(-50%)',
-                        width: '20px',
-                        height: '20px',
-                        backgroundColor: '#5B5FE3',
+                        width: '18px',
+                        height: '18px',
+                        backgroundColor: designTokens.colors.accent.lime,
                         borderRadius: '50%',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         cursor: 'grab',
-                        pointerEvents: 'auto'
+                        pointerEvents: 'auto',
+                        border: `2px solid ${designTokens.colors.background.layer2}`,
+                        boxShadow: designTokens.shadow.subtle,
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = designTokens.colors.accent.limeHover;
+                        e.currentTarget.style.transform = 'translateX(-50%) scale(1.15)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = designTokens.colors.accent.lime;
+                        e.currentTarget.style.transform = 'translateX(-50%) scale(1)';
                       }}
                       onMouseDown={(e) => handleRotateMouseDown(e, element.id)}
                     >
-                      <RotateCw size={12} color="#FFFFFF" />
+                      <RotateCw size={10} color="#FFFFFF" />
                     </div>
                   </>
                 )}
@@ -1291,12 +1668,12 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
               right: '16px',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              backgroundColor: '#FFFFFF',
-              border: '1px solid #E5E7EB',
-              borderRadius: '8px',
+              gap: '4px',
+              backgroundColor: designTokens.colors.background.layer1,
+              border: `1px solid ${designTokens.colors.border.default}`,
+              borderRadius: designTokens.radius.lg,
               padding: '4px',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+              boxShadow: designTokens.shadow.card,
               zIndex: 100
             }}>
               <button
@@ -1314,11 +1691,17 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                   backgroundColor: 'transparent',
                   transition: 'all 0.2s'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                  e.currentTarget.style.color = designTokens.colors.text.primary;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = designTokens.colors.text.secondary;
+                }}
                 title="Zoom Out"
               >
-                <ZoomOut size={18} color="#6B7280" />
+                <ZoomOut size={18} style={{ color: designTokens.colors.text.secondary }} />
               </button>
               <button
                 onClick={handleZoomReset}
@@ -1327,19 +1710,25 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                   height: '32px',
                   padding: '0 8px',
                   border: 'none',
-                  borderRadius: '6px',
+                  borderRadius: designTokens.radius.sm,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   backgroundColor: 'transparent',
                   transition: 'all 0.2s',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: '#6B7280'
+                  fontSize: designTokens.typography.fontSize.sm,
+                  fontWeight: designTokens.typography.fontWeight.medium,
+                  color: designTokens.colors.text.secondary
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                  e.currentTarget.style.color = designTokens.colors.text.primary;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = designTokens.colors.text.secondary;
+                }}
                 title="Reset Zoom"
               >
                 {zoomLevel}%
@@ -1351,210 +1740,258 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                   height: '32px',
                   padding: '0',
                   border: 'none',
-                  borderRadius: '6px',
+                  borderRadius: designTokens.radius.sm,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   backgroundColor: 'transparent',
-                  transition: 'all 0.2s'
+                  transition: 'all 0.2s',
+                  color: designTokens.colors.text.secondary
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                  e.currentTarget.style.color = designTokens.colors.text.primary;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = designTokens.colors.text.secondary;
+                }}
                 title="Zoom In"
               >
-                <ZoomIn size={18} color="#6B7280" />
+                <ZoomIn size={18} style={{ color: designTokens.colors.text.secondary }} />
               </button>
             </div>
           </div>
         </div>
 
-        {/* Right Settings Sidebar - 320px */}
+          {/* Right Sidebar */}
         <div style={{
-          width: '320px',
-          backgroundColor: '#FFFFFF',
-          borderLeft: '1px solid #E5E7EB',
+            width: '380px',
+            backgroundColor: designTokens.colors.background.layer1,
+            borderLeft: `1px solid ${designTokens.colors.border.default}`,
           display: 'flex',
           flexDirection: 'column',
-          maxHeight: '100vh',
-          overflow: 'auto'
+            overflow: 'hidden'
         }}>
-          {/* Header with Close Button */}
+            {/* Sidebar Header */}
           <div style={{
-            borderBottom: '1px solid #F3F4F6',
-            backgroundColor: '#FFFFFF',
+              borderBottom: `1px solid ${designTokens.colors.border.default}`,
+              padding: '20px',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '16px',
-            position: 'relative'
+              flexDirection: 'column',
+              gap: '12px'
           }}>
-            <button
-              onClick={handleApply}
-              disabled={loadingOverlay}
-              style={{
-                height: '32px',
-                padding: '0 12px',
-                fontSize: '13px',
-                fontWeight: 500,
-                color: '#FFFFFF',
-                backgroundColor: '#5B5FE3',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: loadingOverlay ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (!loadingOverlay) {
-                  e.currentTarget.style.backgroundColor = '#4F46E5';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!loadingOverlay) {
-                  e.currentTarget.style.backgroundColor = '#5B5FE3';
-                }
-              }}
-            >
-              <Type size={16} />
-              <span>Add Text</span>
-            </button>
-            {campaignData && (
+              {/* AI Design Button */}
+            {campaignData ? (
               <button
                 onClick={handleGenerateAiOverlay}
                 disabled={loadingAiText}
                 style={{
-                  height: '32px',
-                  padding: '0 12px',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: '#FFFFFF',
-                  backgroundColor: '#8B5CF6',
+                    width: '100%',
+                    padding: '12px 20px',
+                    fontSize: designTokens.typography.fontSize.sm,
+                    fontWeight: designTokens.typography.fontWeight.semibold,
+                    color: designTokens.colors.text.inverse,
+                    backgroundColor: designTokens.colors.accent.lime,
                   border: 'none',
-                  borderRadius: '8px',
+                    borderRadius: designTokens.radius.full,
                   cursor: loadingAiText ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s'
+                    justifyContent: 'center',
+                  gap: '8px',
+                    transition: 'all 0.2s',
+                    boxShadow: designTokens.shadow.subtle
                 }}
                 onMouseEnter={(e) => {
                   if (!loadingAiText) {
-                    e.currentTarget.style.backgroundColor = '#7C3AED';
+                      e.currentTarget.style.backgroundColor = designTokens.colors.accent.limeHover;
+                    e.currentTarget.style.transform = 'translateY(-1px)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!loadingAiText) {
-                    e.currentTarget.style.backgroundColor = '#8B5CF6';
+                      e.currentTarget.style.backgroundColor = designTokens.colors.accent.lime;
+                    e.currentTarget.style.transform = 'translateY(0)';
                   }
                 }}
-                title="AI: Generate professional text placement for your campaign"
               >
                 {loadingAiText ? (
-                  <Loader size={16} className="animate-spin" />
+                  <>
+                    <Loader size={18} className="animate-spin" />
+                    <span>Analyzing Image...</span>
+                  </>
                 ) : (
-                  <Sparkles size={16} />
+                  <>
+                    <Sparkles size={18} />
+                    <span>AI Design</span>
+                  </>
                 )}
-                <span>{loadingAiText ? 'Generating...' : 'AI Design'}</span>
               </button>
-            )}
+            ) : null}
+            
+              {/* Add Text Button */}
             <button
-              onClick={onClose}
+              onClick={handleApply}
+              disabled={loadingOverlay}
               style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                border: 'none',
-                backgroundColor: 'transparent',
+                  width: '100%',
+                  padding: '10px 20px',
+                  fontSize: designTokens.typography.fontSize.sm,
+                  fontWeight: designTokens.typography.fontWeight.medium,
+                  color: designTokens.colors.text.secondary,
+                  backgroundColor: 'transparent',
+                  border: `1px solid ${designTokens.colors.border.default}`,
+                  borderRadius: designTokens.radius.full,
+                cursor: loadingOverlay ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                if (!loadingOverlay) {
+                    e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                    e.currentTarget.style.borderColor = designTokens.colors.border.subtle;
+                    e.currentTarget.style.color = designTokens.colors.text.primary;
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!loadingOverlay) {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.borderColor = designTokens.colors.border.default;
+                    e.currentTarget.style.color = designTokens.colors.text.secondary;
+                }
+              }}
+            >
+              <Type size={16} />
+              <span>Add Text Manually</span>
+              </button>
+          </div>
+
+          {/* AI Generation Info Banner - Shows when AI elements are generated */}
+          {aiGenerationInfo && (
+            <div style={{
+              backgroundColor: '#EFF6FF',
+              borderBottom: '1px solid #BFDBFE',
+              padding: '12px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              fontSize: '12px'
+            }}>
+              <div style={{
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
+                backgroundColor: '#3B82F6',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'background-color 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#F3F4F6';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-              }}
-            >
-              <X style={{ width: '20px', height: '20px', color: '#6B7280' }} />
-            </button>
-          </div>
+                flexShrink: 0
+              }}>
+                <Sparkles size={14} color="#FFFFFF" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, color: '#1E40AF', marginBottom: '2px' }}>
+                  ✨ Advanced AI Design Generated
+                </div>
+                <div style={{ color: '#3B82F6', fontSize: '11px' }}>
+                  {aiGenerationInfo.elements_generated} elements • Template: {aiGenerationInfo.template} • Quality: {aiGenerationInfo.quality_score}
+                </div>
+              </div>
+              <button
+                onClick={() => setAiGenerationInfo(null)}
+                style={{
+                  width: '20px',
+                  height: '20px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#3B82F6'
+                }}
+                title="Dismiss"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
 
-          {/* Tabs */}
+            {/* Tabs */}
           <div style={{
-            borderBottom: '2px solid #F3F4F6',
-            backgroundColor: '#FFFFFF',
-            display: 'flex'
+              borderBottom: `1px solid ${designTokens.colors.border.default}`,
+              display: 'flex',
+              backgroundColor: designTokens.colors.background.layer1
           }}>
-            <div 
+              <button
               onClick={() => setActiveTab('edit')}
               style={{
                 flex: 1,
-                padding: '16px 12px',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: activeTab === 'edit' ? '#1A1A1A' : '#6B7280',
+                  padding: '12px',
+                  fontSize: designTokens.typography.fontSize.sm,
+                  fontWeight: designTokens.typography.fontWeight.semibold,
+                  color: activeTab === 'edit' ? designTokens.colors.text.primary : designTokens.colors.text.tertiary,
                 textAlign: 'center',
                 cursor: 'pointer',
-                borderBottom: activeTab === 'edit' ? '2px solid #5B5FE3' : 'none',
-                position: 'relative',
-                top: activeTab === 'edit' ? '2px' : '0',
-                transition: 'all 0.2s'
+                  borderBottom: activeTab === 'edit' ? `2px solid ${designTokens.colors.accent.lime}` : '2px solid transparent',
+                  transition: 'all 0.2s',
+                  backgroundColor: 'transparent',
+                  borderTop: 'none',
+                  borderLeft: 'none',
+                  borderRight: 'none'
               }}
               onMouseEnter={(e) => {
                 if (activeTab !== 'edit') {
-                  e.currentTarget.style.color = '#1A1A1A';
-                  e.currentTarget.style.backgroundColor = '#F9FAFB';
+                    e.currentTarget.style.color = designTokens.colors.text.secondary;
                 }
               }}
               onMouseLeave={(e) => {
                 if (activeTab !== 'edit') {
-                  e.currentTarget.style.color = '#6B7280';
-                  e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = designTokens.colors.text.tertiary;
                 }
               }}
             >
               EDIT
-            </div>
-            <div 
+              </button>
+              <button
               onClick={() => setActiveTab('layers')}
               style={{
                 flex: 1,
-                padding: '16px 12px',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: activeTab === 'layers' ? '#1A1A1A' : '#6B7280',
+                  padding: '12px',
+                  fontSize: designTokens.typography.fontSize.sm,
+                  fontWeight: designTokens.typography.fontWeight.semibold,
+                  color: activeTab === 'layers' ? designTokens.colors.text.primary : designTokens.colors.text.tertiary,
                 textAlign: 'center',
                 cursor: 'pointer',
-                borderBottom: activeTab === 'layers' ? '2px solid #5B5FE3' : 'none',
-                position: 'relative',
-                top: activeTab === 'layers' ? '2px' : '0',
-                transition: 'all 0.2s'
+                  borderBottom: activeTab === 'layers' ? `2px solid ${designTokens.colors.accent.lime}` : '2px solid transparent',
+                  transition: 'all 0.2s',
+                  backgroundColor: 'transparent',
+                  borderTop: 'none',
+                  borderLeft: 'none',
+                  borderRight: 'none'
               }}
               onMouseEnter={(e) => {
                 if (activeTab !== 'layers') {
-                  e.currentTarget.style.color = '#1A1A1A';
-                  e.currentTarget.style.backgroundColor = '#F9FAFB';
+                    e.currentTarget.style.color = designTokens.colors.text.secondary;
                 }
               }}
               onMouseLeave={(e) => {
                 if (activeTab !== 'layers') {
-                  e.currentTarget.style.color = '#6B7280';
-                  e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = designTokens.colors.text.tertiary;
                 }
               }}
             >
               LAYERS
-            </div>
+              </button>
           </div>
 
           {/* Content */}
-          <div style={{ padding: '16px', flex: 1 }}>
+            <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
             {activeTab === 'layers' ? (
               <>
                 {/* Layers List */}
@@ -1563,38 +2000,53 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    marginBottom: '12px'
+                      marginBottom: '16px'
                   }}>
                     <div style={{
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      color: '#1A1A1A'
+                        fontSize: designTokens.typography.fontSize.sm,
+                        fontWeight: designTokens.typography.fontWeight.semibold,
+                        color: designTokens.colors.text.primary
                     }}>
                       Text Layers ({textElements.length})
+                      {textElements.some(el => el.ai_generated) && (
+                        <span style={{
+                          marginLeft: '8px',
+                            fontSize: designTokens.typography.fontSize.xs,
+                            fontWeight: designTokens.typography.fontWeight.medium,
+                            color: designTokens.colors.accent.lime,
+                            backgroundColor: designTokens.colors.accent.lime + '20',
+                            padding: '4px 8px',
+                            borderRadius: designTokens.radius.full
+                        }}>
+                          {textElements.filter(el => el.ai_generated).length} AI Generated
+                        </span>
+                      )}
                     </div>
                     <button
                       onClick={handleApply}
                       style={{
-                        padding: '6px 12px',
-                        fontSize: '12px',
-                        fontWeight: 500,
-                        color: '#5B5FE3',
-                        backgroundColor: '#EEF2FF',
-                        border: '1px solid #C7D2FE',
-                        borderRadius: '6px',
+                          padding: '8px 16px',
+                          fontSize: designTokens.typography.fontSize.xs,
+                          fontWeight: designTokens.typography.fontWeight.medium,
+                          color: designTokens.colors.text.secondary,
+                          backgroundColor: 'transparent',
+                          border: `1px solid ${designTokens.colors.border.default}`,
+                          borderRadius: designTokens.radius.md,
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '4px',
+                          gap: '6px',
                         transition: 'all 0.2s'
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#E0E7FF';
-                        e.currentTarget.style.borderColor = '#A5B4FC';
+                          e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                          e.currentTarget.style.borderColor = designTokens.colors.border.subtle;
+                          e.currentTarget.style.color = designTokens.colors.text.primary;
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#EEF2FF';
-                        e.currentTarget.style.borderColor = '#C7D2FE';
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                          e.currentTarget.style.borderColor = designTokens.colors.border.default;
+                          e.currentTarget.style.color = designTokens.colors.text.secondary;
                       }}
                       title="Add another text layer"
                     >
@@ -1604,15 +2056,15 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                   </div>
                   {textElements.length === 0 ? (
                     <div style={{
-                      padding: '32px 16px',
+                      padding: '40px 20px',
                       textAlign: 'center',
-                      color: '#9CA3AF',
-                      fontSize: '14px'
+                      color: designTokens.colors.text.tertiary,
+                      fontSize: designTokens.typography.fontSize.sm
                     }}>
                       No text layers yet
                     </div>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       {textElements.map((element, idx) => (
                         <div
                           key={element.id}
@@ -1622,32 +2074,59 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                           onDragEnd={handleLayerDragEnd}
                           onClick={() => setSelectedElementId(element.id)}
                           style={{
-                            padding: '12px',
-                            border: `2px solid ${selectedElementId === element.id ? '#5B5FE3' : '#E5E7EB'}`,
-                            borderRadius: '8px',
+                            padding: '14px',
+                            border: `2px solid ${selectedElementId === element.id ? designTokens.colors.accent.lime : designTokens.colors.border.default}`,
+                            borderRadius: designTokens.radius.md,
                             cursor: 'pointer',
-                            backgroundColor: dragOverLayerIndex === idx ? '#E0E7FF' : (selectedElementId === element.id ? '#F5F3FF' : '#FFFFFF'),
-                            transition: 'all 0.2s',
+                            backgroundColor: dragOverLayerIndex === idx 
+                              ? designTokens.colors.accent.lime + '10' 
+                              : (selectedElementId === element.id 
+                                ? designTokens.colors.accent.lime + '10' 
+                                : designTokens.colors.background.input),
+                            transition: 'all 0.15s ease',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '8px',
-                            opacity: draggedLayerIndex === idx ? 0.5 : 1
+                            gap: '12px',
+                            opacity: draggedLayerIndex === idx ? 0.5 : 1,
+                            boxShadow: selectedElementId === element.id ? designTokens.shadow.subtle : 'none'
                           }}
                         >
-                          <GripVertical size={16} color="#9CA3AF" style={{ cursor: 'grab' }} />
+                          <GripVertical size={16} style={{ cursor: 'grab', color: designTokens.colors.text.tertiary }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              color: '#6B7280',
-                              marginBottom: '4px'
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              marginBottom: '6px'
                             }}>
-                              Layer {idx + 1}
+                              <div style={{
+                                fontSize: designTokens.typography.fontSize.xs,
+                                fontWeight: designTokens.typography.fontWeight.semibold,
+                                color: selectedElementId === element.id ? designTokens.colors.text.primary : designTokens.colors.text.secondary
+                              }}>
+                                Layer {idx + 1}
+                              </div>
+                              {element.ai_generated && (
+                                <div style={{
+                                  fontSize: designTokens.typography.fontSize.xs,
+                                  fontWeight: designTokens.typography.fontWeight.semibold,
+                                  color: designTokens.colors.accent.lime,
+                                  backgroundColor: designTokens.colors.accent.lime + '20',
+                                  padding: '2px 8px',
+                                  borderRadius: designTokens.radius.sm,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}>
+                                  <Sparkles size={10} />
+                                  AI
+                                </div>
+                              )}
                             </div>
                             <div style={{
-                              fontSize: '14px',
-                              fontWeight: 500,
-                              color: '#1A1A1A',
+                              fontSize: designTokens.typography.fontSize.sm,
+                              fontWeight: designTokens.typography.fontWeight.medium,
+                              color: selectedElementId === element.id ? designTokens.colors.text.primary : designTokens.colors.text.secondary,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap'
@@ -1664,27 +2143,30 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                               setTextElements(prev => prev.filter(el => el.id !== element.id));
                             }}
                             style={{
-                              width: '28px',
-                              height: '28px',
+                              width: '32px',
+                              height: '32px',
                               padding: '0',
                               border: 'none',
-                              borderRadius: '6px',
+                              borderRadius: designTokens.radius.sm,
                               cursor: 'pointer',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               backgroundColor: 'transparent',
-                              transition: 'all 0.2s'
+                              transition: 'all 0.2s',
+                              color: designTokens.colors.text.tertiary
                             }}
                             onMouseEnter={(e) => {
-                              e.currentTarget.style.backgroundColor = '#FEE2E2';
+                              e.currentTarget.style.backgroundColor = designTokens.colors.error + '20';
+                              e.currentTarget.style.color = designTokens.colors.error;
                             }}
                             onMouseLeave={(e) => {
                               e.currentTarget.style.backgroundColor = 'transparent';
+                              e.currentTarget.style.color = designTokens.colors.text.tertiary;
                             }}
                             title="Delete layer"
                           >
-                            <Trash2 size={14} color="#9CA3AF" />
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       ))}
@@ -1694,54 +2176,70 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
               </>
             ) : selectedElement ? (
               <>
+                {/* AI Generation Badge - Show if element is AI-generated */}
+                {selectedElement.ai_generated && (
+                  <div style={{
+                    marginBottom: '16px',
+                    padding: '10px 12px',
+                    backgroundColor: '#EFF6FF',
+                    border: '1px solid #BFDBFE',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '12px'
+                  }}>
+                    <Sparkles size={16} color="#3B82F6" />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, color: '#1E40AF', marginBottom: '2px' }}>
+                        AI-Generated Element
+                      </div>
+                      <div style={{ color: '#3B82F6', fontSize: '11px' }}>
+                        {selectedElement.template_id ? `Template: ${selectedElement.template_id}` : 'Optimized placement & styling'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Text Input */}
                 <div style={{ marginBottom: '24px' }}>
                   <input
                     type="text"
                     value={selectedElement.text}
                     onChange={(e) => updateSelectedElement({ text: e.target.value })}
-        placeholder="Add Heading Text"
+                    placeholder="Add Heading Text"
                     style={{
                       width: '100%',
                       padding: '12px 16px',
-                      color: '#1A1A1A',
-                      border: '1px solid #E5E7EB',
-                      borderRadius: '8px',
-                      fontSize: '14px',
-                      outline: 'none',
+                      backgroundColor: designTokens.colors.background.input,
+                      border: `1px solid ${designTokens.colors.border.default}`,
+                      borderRadius: designTokens.radius.md,
+                      color: designTokens.colors.text.primary,
+                      fontSize: designTokens.typography.fontSize.sm,
+                      fontFamily: designTokens.typography.fontFamily.sans,
                       transition: 'all 0.2s',
-                      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-                      backgroundColor: '#FFFFFF'
+                      outline: 'none'
                     }}
                     onFocus={(e) => {
-                      e.currentTarget.style.borderColor = '#5B5FE3';
-                      e.currentTarget.style.outline = '2px solid #5B5FE3';
-                      e.currentTarget.style.outlineOffset = '0px';
+                      e.currentTarget.style.borderColor = designTokens.colors.accent.lime;
                     }}
                     onBlur={(e) => {
-                      e.currentTarget.style.borderColor = '#E5E7EB';
-                      e.currentTarget.style.outline = 'none';
+                      e.currentTarget.style.borderColor = designTokens.colors.border.default;
                     }}
                   />
                 </div>
 
                 {/* Font Section */}
                 <div style={{ marginBottom: '24px' }}>
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '12px'
-                  }}>
                     <label style={{
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      color: '#1A1A1A',
-                      margin: 0
+                    fontSize: designTokens.typography.fontSize.sm,
+                    fontWeight: designTokens.typography.fontWeight.semibold,
+                    color: designTokens.colors.text.primary,
+                    marginBottom: '12px',
+                    display: 'block'
                     }}>
                       Font
                     </label>
-                  </div>
                   
                   <div style={{ position: 'relative' }}>
                     <select
@@ -1750,27 +2248,28 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                       style={{
                         width: '100%',
                         padding: '12px 16px',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        color: '#1A1A1A',
-                        backgroundColor: '#FFFFFF',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '8px',
+                        fontSize: designTokens.typography.fontSize.sm,
+                        fontWeight: designTokens.typography.fontWeight.medium,
+                        color: designTokens.colors.text.primary,
+                        backgroundColor: designTokens.colors.background.input,
+                        border: `1px solid ${designTokens.colors.border.default}`,
+                        borderRadius: designTokens.radius.md,
                         cursor: 'pointer',
-                        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'
+                        fontFamily: designTokens.typography.fontFamily.sans,
+                        outline: 'none',
+                        transition: 'all 0.2s'
                       }}
                       onFocus={(e) => {
-                        e.currentTarget.style.borderColor = '#5B5FE3';
-                        e.currentTarget.style.outline = '2px solid #5B5FE3';
-                        e.currentTarget.style.outlineOffset = '0px';
+                        e.currentTarget.style.borderColor = designTokens.colors.accent.lime;
+                        e.currentTarget.style.boxShadow = `0 0 0 3px ${designTokens.colors.accent.lime}20`;
                       }}
                       onBlur={(e) => {
-                        e.currentTarget.style.borderColor = '#E5E7EB';
-                        e.currentTarget.style.outline = 'none';
+                        e.currentTarget.style.borderColor = designTokens.colors.border.default;
+                        e.currentTarget.style.boxShadow = 'none';
                       }}
                     >
                       {googleFonts.map((font, idx) => (
-                        <option key={idx} value={font.family}>{font.display}</option>
+                        <option key={idx} value={font.family} style={{ backgroundColor: designTokens.colors.background.input, color: designTokens.colors.text.primary }}>{font.display}</option>
                       ))}
                     </select>
                   </div>
@@ -1779,9 +2278,9 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                 {/* Color Section */}
                 <div style={{ marginBottom: '24px' }}>
                   <label style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: '#1A1A1A',
+                    fontSize: designTokens.typography.fontSize.sm,
+                    fontWeight: designTokens.typography.fontWeight.semibold,
+                    color: designTokens.colors.text.primary,
                     marginBottom: '12px',
                     display: 'block'
                   }}>
@@ -1790,29 +2289,42 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <input
                       type="color"
-                      value={selectedElement.color || '#000000'}
+                      value={selectedElement.color || designTokens.colors.text.primary}
                       onChange={(e) => updateSelectedElement({ color: e.target.value })}
                       style={{
                         width: '50px',
                         height: '40px',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '8px',
+                        border: `1px solid ${designTokens.colors.border.default}`,
+                        borderRadius: designTokens.radius.md,
                         cursor: 'pointer',
-                        padding: '2px'
+                        padding: '2px',
+                        backgroundColor: designTokens.colors.background.input
                       }}
                     />
                     <input
                       type="text"
-                      value={selectedElement.color || '#000000'}
+                      value={selectedElement.color || designTokens.colors.text.primary}
                       onChange={(e) => updateSelectedElement({ color: e.target.value })}
-                      placeholder="#000000"
+                      placeholder={designTokens.colors.text.primary}
                       style={{
                         flex: 1,
-                        padding: '8px 12px',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '8px',
-                        fontSize: '13px',
-                        fontFamily: 'monospace'
+                        padding: '10px 12px',
+                        border: `1px solid ${designTokens.colors.border.default}`,
+                        borderRadius: designTokens.radius.md,
+                        fontSize: designTokens.typography.fontSize.xs,
+                        fontFamily: 'monospace',
+                        backgroundColor: designTokens.colors.background.input,
+                        color: designTokens.colors.text.primary,
+                        outline: 'none',
+                        transition: 'all 0.2s'
+                      }}
+                      onFocus={(e) => {
+                        e.currentTarget.style.borderColor = designTokens.colors.accent.lime;
+                        e.currentTarget.style.boxShadow = `0 0 0 3px ${designTokens.colors.accent.lime}20`;
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.borderColor = designTokens.colors.border.default;
+                        e.currentTarget.style.boxShadow = 'none';
                       }}
                     />
                   </div>
@@ -1822,9 +2334,9 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                 <div style={{ marginBottom: '24px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <label style={{
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      color: '#1A1A1A',
+                      fontSize: designTokens.typography.fontSize.sm,
+                      fontWeight: designTokens.typography.fontWeight.semibold,
+                      color: designTokens.colors.text.primary,
                       margin: 0
                     }}>
                       Outline
@@ -1834,9 +2346,14 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                         type="checkbox"
                         checked={(selectedElement.stroke_width || 0) > 0}
                         onChange={(e) => updateSelectedElement({ stroke_width: e.target.checked ? 2 : 0 })}
-                        style={{ cursor: 'pointer' }}
+                        style={{ 
+                          cursor: 'pointer',
+                          width: '16px',
+                          height: '16px',
+                          accentColor: designTokens.colors.accent.lime
+                        }}
                       />
-                      <span style={{ fontSize: '13px', color: '#6B7280' }}>Enable</span>
+                      <span style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary }}>Enable</span>
                     </label>
                   </div>
                   {(selectedElement.stroke_width || 0) > 0 && (
@@ -1849,23 +2366,36 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                         onChange={(e) => updateSelectedElement({ stroke_width: parseInt(e.target.value) || 0 })}
                         style={{
                           width: '80px',
-                          padding: '8px',
-                          border: '1px solid #E5E7EB',
-                          borderRadius: '8px',
-                          fontSize: '13px'
+                          padding: '10px',
+                          border: `1px solid ${designTokens.colors.border.default}`,
+                          borderRadius: designTokens.radius.md,
+                          fontSize: designTokens.typography.fontSize.xs,
+                          backgroundColor: designTokens.colors.background.input,
+                          color: designTokens.colors.text.primary,
+                          outline: 'none',
+                          transition: 'all 0.2s'
                         }}
                         placeholder="Width"
+                        onFocus={(e) => {
+                          e.currentTarget.style.borderColor = designTokens.colors.accent.lime;
+                          e.currentTarget.style.boxShadow = `0 0 0 3px ${designTokens.colors.accent.lime}20`;
+                        }}
+                        onBlur={(e) => {
+                          e.currentTarget.style.borderColor = designTokens.colors.border.default;
+                          e.currentTarget.style.boxShadow = 'none';
+                        }}
                       />
                       <input
                         type="color"
-                        value={selectedElement.stroke_color || '#000000'}
+                        value={selectedElement.stroke_color || designTokens.colors.text.primary}
                         onChange={(e) => updateSelectedElement({ stroke_color: e.target.value })}
                         style={{
                           width: '50px',
                           height: '40px',
-                          border: '1px solid #E5E7EB',
-                          borderRadius: '8px',
-                          cursor: 'pointer'
+                          border: `1px solid ${designTokens.colors.border.default}`,
+                          borderRadius: designTokens.radius.md,
+                          cursor: 'pointer',
+                          backgroundColor: designTokens.colors.background.input
                         }}
                       />
                     </div>
@@ -1876,9 +2406,9 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                 <div style={{ marginBottom: '24px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <label style={{
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      color: '#1A1A1A',
+                      fontSize: designTokens.typography.fontSize.sm,
+                      fontWeight: designTokens.typography.fontWeight.semibold,
+                      color: designTokens.colors.text.primary,
                       margin: 0
                     }}>
                       Shadow
@@ -1888,80 +2418,107 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                         type="checkbox"
                         checked={selectedElement.shadow_enabled || false}
                         onChange={(e) => updateSelectedElement({ shadow_enabled: e.target.checked })}
-                        style={{ cursor: 'pointer' }}
+                        style={{ 
+                          cursor: 'pointer',
+                          width: '16px',
+                          height: '16px',
+                          accentColor: designTokens.colors.accent.lime
+                        }}
                       />
-                      <span style={{ fontSize: '13px', color: '#6B7280' }}>Enable</span>
+                      <span style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary }}>Enable</span>
                     </label>
                   </div>
                   {(selectedElement.shadow_enabled || false) && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <label style={{ fontSize: '12px', color: '#6B7280', width: '80px' }}>Color:</label>
+                        <label style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '80px' }}>Color:</label>
                         <input
                           type="color"
-                          value={selectedElement.shadow_color || '#000000'}
+                          value={selectedElement.shadow_color || designTokens.colors.text.primary}
                           onChange={(e) => updateSelectedElement({ shadow_color: e.target.value })}
                           style={{
                             width: '50px',
                             height: '40px',
-                            border: '1px solid #E5E7EB',
-                            borderRadius: '8px',
-                            cursor: 'pointer'
+                            border: `1px solid ${designTokens.colors.border.default}`,
+                            borderRadius: designTokens.radius.md,
+                            cursor: 'pointer',
+                            backgroundColor: designTokens.colors.background.input
                           }}
                         />
                         <input
                           type="text"
-                          value={selectedElement.shadow_color || '#000000'}
+                          value={selectedElement.shadow_color || designTokens.colors.text.primary}
                           onChange={(e) => updateSelectedElement({ shadow_color: e.target.value })}
                           style={{
                             flex: 1,
-                            padding: '8px',
-                            border: '1px solid #E5E7EB',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            fontFamily: 'monospace'
+                            padding: '10px 12px',
+                            border: `1px solid ${designTokens.colors.border.default}`,
+                            borderRadius: designTokens.radius.md,
+                            fontSize: designTokens.typography.fontSize.xs,
+                            fontFamily: 'monospace',
+                            backgroundColor: designTokens.colors.background.input,
+                            color: designTokens.colors.text.primary,
+                            outline: 'none',
+                            transition: 'all 0.2s'
+                          }}
+                          onFocus={(e) => {
+                            e.currentTarget.style.borderColor = designTokens.colors.accent.lime;
+                            e.currentTarget.style.boxShadow = `0 0 0 3px ${designTokens.colors.accent.lime}20`;
+                          }}
+                          onBlur={(e) => {
+                            e.currentTarget.style.borderColor = designTokens.colors.border.default;
+                            e.currentTarget.style.boxShadow = 'none';
                           }}
                         />
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <label style={{ fontSize: '12px', color: '#6B7280', width: '80px' }}>Blur:</label>
+                        <label style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '80px' }}>Blur:</label>
                         <input
                           type="range"
                           min="0"
                           max="50"
                           value={selectedElement.shadow_blur || 10}
                           onChange={(e) => updateSelectedElement({ shadow_blur: parseInt(e.target.value) })}
-                          style={{ flex: 1 }}
+                          style={{ 
+                            flex: 1,
+                            accentColor: designTokens.colors.accent.lime
+                          }}
                         />
-                        <span style={{ fontSize: '12px', color: '#6B7280', width: '40px', textAlign: 'right' }}>
+                        <span style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '40px', textAlign: 'right' }}>
                           {selectedElement.shadow_blur || 10}px
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <label style={{ fontSize: '12px', color: '#6B7280', width: '80px' }}>X Offset:</label>
+                        <label style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '80px' }}>X Offset:</label>
                         <input
                           type="range"
                           min="-50"
                           max="50"
                           value={selectedElement.shadow_offset_x || 0}
                           onChange={(e) => updateSelectedElement({ shadow_offset_x: parseInt(e.target.value) })}
-                          style={{ flex: 1 }}
+                          style={{ 
+                            flex: 1,
+                            accentColor: designTokens.colors.accent.lime
+                          }}
                         />
-                        <span style={{ fontSize: '12px', color: '#6B7280', width: '40px', textAlign: 'right' }}>
+                        <span style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '40px', textAlign: 'right' }}>
                           {selectedElement.shadow_offset_x || 0}px
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <label style={{ fontSize: '12px', color: '#6B7280', width: '80px' }}>Y Offset:</label>
+                        <label style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '80px' }}>Y Offset:</label>
                         <input
                           type="range"
                           min="-50"
                           max="50"
                           value={selectedElement.shadow_offset_y || 0}
                           onChange={(e) => updateSelectedElement({ shadow_offset_y: parseInt(e.target.value) })}
-                          style={{ flex: 1 }}
+                          style={{ 
+                            flex: 1,
+                            accentColor: designTokens.colors.accent.lime
+                          }}
                         />
-                        <span style={{ fontSize: '12px', color: '#6B7280', width: '40px', textAlign: 'right' }}>
+                        <span style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '40px', textAlign: 'right' }}>
                           {selectedElement.shadow_offset_y || 0}px
                         </span>
                       </div>
@@ -1972,9 +2529,9 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                 {/* Background Color Section */}
                 <div style={{ marginBottom: '24px' }}>
                   <label style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: '#1A1A1A',
+                    fontSize: designTokens.typography.fontSize.sm,
+                    fontWeight: designTokens.typography.fontWeight.semibold,
+                    color: designTokens.colors.text.primary,
                     marginBottom: '12px',
                     display: 'block'
                   }}>
@@ -1983,15 +2540,16 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <input
                       type="color"
-                      value={selectedElement.background_color === 'transparent' ? '#FFFFFF' : (selectedElement.background_color || '#FFFFFF')}
+                      value={selectedElement.background_color === 'transparent' ? designTokens.colors.background.layer2 : (selectedElement.background_color || designTokens.colors.background.layer2)}
                       onChange={(e) => updateSelectedElement({ background_color: e.target.value })}
                       style={{
                         width: '50px',
                         height: '40px',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '8px',
+                        border: `1px solid ${designTokens.colors.border.default}`,
+                        borderRadius: designTokens.radius.md,
                         cursor: 'pointer',
-                        padding: '2px'
+                        padding: '2px',
+                        backgroundColor: designTokens.colors.background.input
                       }}
                     />
                     <input
@@ -2001,22 +2559,47 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                       placeholder="transparent"
                       style={{
                         flex: 1,
-                        padding: '8px 12px',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '8px',
-                        fontSize: '13px',
-                        fontFamily: 'monospace'
+                        padding: '10px 12px',
+                        border: `1px solid ${designTokens.colors.border.default}`,
+                        borderRadius: designTokens.radius.md,
+                        fontSize: designTokens.typography.fontSize.xs,
+                        fontFamily: 'monospace',
+                        backgroundColor: designTokens.colors.background.input,
+                        color: designTokens.colors.text.primary,
+                        outline: 'none',
+                        transition: 'all 0.2s'
+                      }}
+                      onFocus={(e) => {
+                        e.currentTarget.style.borderColor = designTokens.colors.accent.lime;
+                        e.currentTarget.style.boxShadow = `0 0 0 3px ${designTokens.colors.accent.lime}20`;
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.borderColor = designTokens.colors.border.default;
+                        e.currentTarget.style.boxShadow = 'none';
                       }}
                     />
                     <button
                       onClick={() => updateSelectedElement({ background_color: 'transparent' })}
                       style={{
-                        padding: '8px 12px',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '8px',
-                        fontSize: '12px',
+                        padding: '8px 16px',
+                        border: `1px solid ${designTokens.colors.border.default}`,
+                        borderRadius: designTokens.radius.md,
+                        fontSize: designTokens.typography.fontSize.xs,
+                        fontWeight: designTokens.typography.fontWeight.medium,
                         cursor: 'pointer',
-                        backgroundColor: '#FFFFFF'
+                        backgroundColor: 'transparent',
+                        color: designTokens.colors.text.secondary,
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                        e.currentTarget.style.borderColor = designTokens.colors.border.subtle;
+                        e.currentTarget.style.color = designTokens.colors.text.primary;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.borderColor = designTokens.colors.border.default;
+                        e.currentTarget.style.color = designTokens.colors.text.secondary;
                       }}
                     >
                       Clear
@@ -2027,45 +2610,51 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                 {/* Advanced Styling Section */}
                 <div style={{ marginBottom: '24px' }}>
                   <label style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: '#1A1A1A',
+                    fontSize: designTokens.typography.fontSize.sm,
+                    fontWeight: designTokens.typography.fontWeight.semibold,
+                    color: designTokens.colors.text.primary,
                     marginBottom: '12px',
                     display: 'block'
                   }}>
                     Advanced
                   </label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <label style={{ fontSize: '12px', color: '#6B7280', width: '100px' }}>Opacity:</label>
+                      <label style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '120px' }}>Opacity:</label>
                       <input
                         type="range"
                         min="0"
                         max="100"
                         value={selectedElement.opacity !== undefined ? selectedElement.opacity : 100}
                         onChange={(e) => updateSelectedElement({ opacity: parseInt(e.target.value) })}
-                        style={{ flex: 1 }}
+                        style={{ 
+                          flex: 1,
+                          accentColor: designTokens.colors.accent.lime
+                        }}
                       />
-                      <span style={{ fontSize: '12px', color: '#6B7280', width: '40px', textAlign: 'right' }}>
+                      <span style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '50px', textAlign: 'right' }}>
                         {selectedElement.opacity !== undefined ? selectedElement.opacity : 100}%
                       </span>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <label style={{ fontSize: '12px', color: '#6B7280', width: '100px' }}>Letter Spacing:</label>
+                      <label style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '120px' }}>Letter Spacing:</label>
                       <input
                         type="range"
                         min="-5"
                         max="20"
                         value={selectedElement.letter_spacing || 0}
                         onChange={(e) => updateSelectedElement({ letter_spacing: parseInt(e.target.value) })}
-                        style={{ flex: 1 }}
+                        style={{ 
+                          flex: 1,
+                          accentColor: designTokens.colors.accent.lime
+                        }}
                       />
-                      <span style={{ fontSize: '12px', color: '#6B7280', width: '40px', textAlign: 'right' }}>
+                      <span style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '50px', textAlign: 'right' }}>
                         {selectedElement.letter_spacing || 0}px
                       </span>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <label style={{ fontSize: '12px', color: '#6B7280', width: '100px' }}>Line Height:</label>
+                      <label style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '120px' }}>Line Height:</label>
                       <input
                         type="range"
                         min="0.8"
@@ -2073,9 +2662,12 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
                         step="0.1"
                         value={selectedElement.line_height || 1.2}
                         onChange={(e) => updateSelectedElement({ line_height: parseFloat(e.target.value) })}
-                        style={{ flex: 1 }}
+                        style={{ 
+                          flex: 1,
+                          accentColor: designTokens.colors.accent.lime
+                        }}
                       />
-                      <span style={{ fontSize: '12px', color: '#6B7280', width: '40px', textAlign: 'right' }}>
+                      <span style={{ fontSize: designTokens.typography.fontSize.xs, color: designTokens.colors.text.secondary, width: '50px', textAlign: 'right' }}>
                         {selectedElement.line_height ? selectedElement.line_height.toFixed(1) : '1.2'}
                       </span>
                     </div>
@@ -2092,16 +2684,18 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
               textAlign: 'center'
             }}>
               <p style={{
-                fontSize: '14px',
-                color: '#6B7280',
-                marginBottom: '8px'
+                fontSize: designTokens.typography.fontSize.sm,
+                color: designTokens.colors.text.secondary,
+                marginBottom: '8px',
+                fontWeight: designTokens.typography.fontWeight.medium
               }}>
                 {textElements.length === 0 ? 'No text layers yet' : 'No text selected'}
               </p>
               <p style={{
-                fontSize: '12px',
-                color: '#9CA3AF',
-                marginBottom: '12px'
+                fontSize: designTokens.typography.fontSize.xs,
+                color: designTokens.colors.text.tertiary,
+                marginBottom: '12px',
+                lineHeight: 1.5
               }}>
                 {textElements.length === 0 
                   ? 'Double-click on the canvas or click "Add Text" to add your first layer'
@@ -2109,8 +2703,8 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
               </p>
               {textElements.length > 0 && (
                 <p style={{
-                  fontSize: '11px',
-                  color: '#9CA3AF',
+                  fontSize: designTokens.typography.fontSize.xs,
+                  color: designTokens.colors.text.tertiary,
                   fontStyle: 'italic'
                 }}>
                   You have {textElements.length} layer{textElements.length !== 1 ? 's' : ''} - add more anytime!
@@ -2123,8 +2717,8 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
           {/* Footer Actions */}
           <div style={{
             padding: '16px',
-            borderTop: '1px solid #F3F4F6',
-            backgroundColor: '#FFFFFF',
+            borderTop: `1px solid ${designTokens.colors.border.default}`,
+            backgroundColor: designTokens.colors.background.layer1,
             display: 'flex',
             gap: '8px'
           }}>
@@ -2134,26 +2728,28 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
               style={{
                 flex: 1,
                 padding: '12px',
-                fontSize: '14px',
-                fontWeight: 500,
-                color: '#6B7280',
-                backgroundColor: '#FFFFFF',
-                border: '1px solid #E5E7EB',
-                borderRadius: '8px',
+                fontSize: designTokens.typography.fontSize.sm,
+                fontWeight: designTokens.typography.fontWeight.medium,
+                color: designTokens.colors.text.secondary,
+                backgroundColor: 'transparent',
+                border: `1px solid ${designTokens.colors.border.default}`,
+                borderRadius: designTokens.radius.full,
                 cursor: loadingOverlay ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s',
-                fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'
+                fontFamily: designTokens.typography.fontFamily.sans
               }}
               onMouseEnter={(e) => {
                 if (!loadingOverlay) {
-                  e.currentTarget.style.backgroundColor = '#F3F4F6';
-                  e.currentTarget.style.borderColor = '#D1D5DB';
+                  e.currentTarget.style.backgroundColor = designTokens.colors.background.input;
+                  e.currentTarget.style.borderColor = designTokens.colors.border.subtle;
+                  e.currentTarget.style.color = designTokens.colors.text.primary;
                 }
               }}
               onMouseLeave={(e) => {
                 if (!loadingOverlay) {
-                  e.currentTarget.style.backgroundColor = '#FFFFFF';
-                  e.currentTarget.style.borderColor = '#E5E7EB';
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.borderColor = designTokens.colors.border.default;
+                  e.currentTarget.style.color = designTokens.colors.text.secondary;
                 }
               }}
             >
@@ -2165,29 +2761,33 @@ const TextOverlayModal = ({ isOpen, onClose, imageUrl, onApply, initialElements 
               style={{
                 flex: 1,
                 padding: '12px',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: '#FFFFFF',
-                backgroundColor: loadingOverlay || textElements.length === 0 ? '#D1D5DB' : '#5B5FE3',
+                fontSize: designTokens.typography.fontSize.sm,
+                fontWeight: designTokens.typography.fontWeight.semibold,
+                color: designTokens.colors.text.inverse,
+                backgroundColor: loadingOverlay || textElements.length === 0 ? designTokens.colors.text.tertiary : designTokens.colors.accent.lime,
                 border: 'none',
-                borderRadius: '8px',
+                borderRadius: designTokens.radius.full,
                 cursor: loadingOverlay || textElements.length === 0 ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s',
-                fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'
+                fontFamily: designTokens.typography.fontFamily.sans,
+                boxShadow: designTokens.shadow.subtle
               }}
               onMouseEnter={(e) => {
                 if (!loadingOverlay && textElements.length > 0) {
-                  e.currentTarget.style.backgroundColor = '#4F46E5';
+                  e.currentTarget.style.backgroundColor = designTokens.colors.accent.limeHover;
+                  e.currentTarget.style.transform = 'translateY(-1px)';
                 }
               }}
               onMouseLeave={(e) => {
                 if (!loadingOverlay && textElements.length > 0) {
-                  e.currentTarget.style.backgroundColor = '#5B5FE3';
+                  e.currentTarget.style.backgroundColor = designTokens.colors.accent.lime;
+                  e.currentTarget.style.transform = 'translateY(0)';
                 }
               }}
             >
               {loadingOverlay ? 'Saving...' : 'Save'}
             </button>
+          </div>
           </div>
         </div>
       </div>

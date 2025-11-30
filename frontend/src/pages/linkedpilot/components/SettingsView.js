@@ -1,59 +1,40 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { User, Bell, CreditCard, Linkedin, LogOut, Globe, Eye, EyeOff } from 'lucide-react';
+import { User, CreditCard, Linkedin, LogOut, Globe, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import BillingView from './BillingView';
 import axios from 'axios';
+import { useThemeTokens } from '@/hooks/useThemeTokens';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 const SettingsView = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const tokens = useThemeTokens();
   const [activeTab, setActiveTab] = useState('profile');
-  const [apiProvider, setApiProvider] = useState('openrouter'); // openrouter, openai, claude, gemini
   const [timezone, setTimezone] = useState('');
   const [detectedTimezone, setDetectedTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
-  const [apiKeys, setApiKeys] = useState({
-    // OpenRouter
-    openrouter_api_key: '',
-    // OpenAI
-    openai_api_key: '',
-    // Claude/Anthropic
-    anthropic_api_key: '',
-    // Google Gemini
-    google_ai_api_key: '',
-    // LinkedIn
-    linkedin_client_id: '',
-    linkedin_client_secret: '',
-    // Canva
-    canva_api_key: '',
-    // Stock Images
-    unsplash_access_key: '',
-    pexels_api_key: '',
-    // Model preferences
-    text_model: 'anthropic/claude-3.5-sonnet',
-    image_model: 'google/gemini-2.5-flash-image',
-    content_generation_model: 'anthropic/claude-3.5-sonnet'
-  });
-  const [showKeys, setShowKeys] = useState({
-    openrouter_api_key: false,
-    openai_api_key: false,
-    anthropic_api_key: false,
-    google_ai_api_key: false,
-    linkedin_client_id: false,
-    linkedin_client_secret: false,
-    canva_api_key: false,
-    unsplash_access_key: false,
-    pexels_api_key: false
-  });
   const [saveStatus, setSaveStatus] = useState('');
+  const [profileForm, setProfileForm] = useState({
+    full_name: '',
+    title: '',
+    company: '',
+    location: '',
+    website: '',
+    bio: '',
+    profile_image: ''
+  });
+  const [profileStatus, setProfileStatus] = useState('');
+  const [profileLoading, setProfileLoading] = useState(false);
+  const fileInputRef = useRef(null);
   const [linkedinConnected, setLinkedinConnected] = useState(false);
   const [linkedinProfile, setLinkedinProfile] = useState(null);
   const [linkedinLoading, setLinkedinLoading] = useState(false);
+  const [profileImageError, setProfileImageError] = useState(false);
   const [selectedOrgId, setSelectedOrgId] = useState(null);
 
   useEffect(() => {
@@ -61,15 +42,12 @@ const SettingsView = () => {
     const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     setDetectedTimezone(userTimezone);
     
-    if (user && activeTab === 'apikeys') {
-      fetchApiKeys();
-    }
     if (user && activeTab === 'linkedin') {
-      fetchApiKeys(); // Load API keys for LinkedIn credentials
       checkLinkedInConnection();
     }
     if (user && activeTab === 'profile') {
       fetchTimezonePreference();
+      fetchProfile();
     }
     
     // Get selected org from localStorage
@@ -113,46 +91,63 @@ const SettingsView = () => {
     }
   };
 
-  const fetchApiKeys = async () => {
+  const fetchProfile = async () => {
+    if (!user) return;
+    setProfileLoading(true);
     try {
-      const response = await axios.get(`${BACKEND_URL}/api/settings/api-keys?user_id=${user.id}`);
-      setApiKeys(response.data);
+      const response = await axios.get(`${BACKEND_URL}/api/settings/profile`, {
+        params: { user_id: user.id }
+      });
+      const data = response.data || {};
+      setProfileForm({
+        full_name: data.full_name || user?.full_name || '',
+        title: data.title || '',
+        company: data.company || '',
+        location: data.location || '',
+        website: data.website || '',
+        bio: data.bio || '',
+        profile_image: data.profile_image || ''
+      });
     } catch (error) {
-      console.error('Error fetching API keys:', error);
+      console.error('Error fetching profile:', error);
+    } finally {
+      setProfileLoading(false);
     }
   };
 
-  const handleSaveApiKeys = async () => {
-    setSaveStatus('saving');
+  const handleProfileInputChange = (field, value) => {
+    setProfileForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleProfileImageUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setProfileForm(prev => ({ ...prev, profile_image: reader.result }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveProfileImage = () => {
+    setProfileForm(prev => ({ ...prev, profile_image: '' }));
+  };
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    setProfileStatus('saving');
     try {
-      // Filter out unchanged masked values (don't save '***')
-      const keysToSave = { ...apiKeys };
-      
-      // Remove masked values - they haven't been changed
-      Object.keys(keysToSave).forEach(key => {
-        if (keysToSave[key] === '***' || keysToSave[key] === '********') {
-          delete keysToSave[key];
-        }
-      });
-      
-      console.log('💾 Saving API keys:', {
+      await axios.post(`${BACKEND_URL}/api/settings/profile`, {
         user_id: user.id,
-        keys: Object.keys(keysToSave).filter(k => k !== 'user_id')
+        ...profileForm
       });
-      
-      await axios.post(`${BACKEND_URL}/api/settings/api-keys`, {
-        user_id: user.id,
-        ...keysToSave
-      });
-      
-      console.log('✅ API keys saved successfully!');
-      setSaveStatus('success');
-      setTimeout(() => setSaveStatus(''), 3000);
+      setProfileStatus('saved');
+      setTimeout(() => setProfileStatus(''), 2500);
     } catch (error) {
-      console.error('❌ Error saving API keys:', error);
-      console.error('Error details:', error.response?.data);
-      setSaveStatus('error');
-      setTimeout(() => setSaveStatus(''), 3000);
+      console.error('Error saving profile:', error);
+      setProfileStatus('error');
+      setTimeout(() => setProfileStatus(''), 2500);
     }
   };
 
@@ -165,7 +160,17 @@ const SettingsView = () => {
       
       // Set profile info if connected
       if (isConnected && response.data.linkedin_profile) {
-        setLinkedinProfile(response.data.linkedin_profile);
+        const profile = response.data.linkedin_profile;
+        setLinkedinProfile(profile);
+        setProfileImageError(false); // Reset error state when profile is fetched
+        
+        // Debug: Log picture URL if available
+        const picUrl = profile.picture || profile.pictureUrl || profile.picture_url || profile.profilePicture;
+        if (picUrl) {
+          console.log('LinkedIn profile picture URL:', picUrl);
+        } else {
+          console.warn('LinkedIn profile picture not found in profile data:', profile);
+        }
       }
     } catch (error) {
       console.error('Error checking LinkedIn connection:', error);
@@ -298,327 +303,439 @@ const SettingsView = () => {
     }
   };
 
-  const tabs = [
-    { id: 'profile', label: 'Profile', icon: User },
-    { id: 'linkedin', label: 'LinkedIn Connection', icon: Linkedin },
-    { id: 'billing', label: 'Billing & Usage', icon: CreditCard },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-  ];
+  const renderProfileTab = () => (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div
+        style={{
+          backgroundColor: tokens.colors.background.layer2,
+          border: `1px solid ${tokens.colors.border.default}`,
+          borderRadius: tokens.radius.xl
+        }}
+        className="p-6 space-y-6"
+      >
+        <div className="flex flex-col gap-4 border-b pb-6" style={{ borderColor: tokens.colors.border.default }}>
+          <div className="flex flex-col md:flex-row gap-6">
+            <div className="flex flex-col items-center gap-3">
+              <div
+                style={{
+                  width: '112px',
+                  height: '112px',
+                  borderRadius: '50%',
+                  backgroundColor: tokens.colors.background.app,
+                  border: `1px solid ${tokens.colors.border.default}`,
+                  overflow: 'hidden'
+                }}
+                className="flex items-center justify-center text-2xl font-semibold text-muted-foreground"
+              >
+                {profileForm.profile_image ? (
+                  <img src={profileForm.profile_image} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  (profileForm.full_name || user?.full_name || user?.email || '?')
+                    .split(' ')
+                    .map(word => word.charAt(0))
+                    .slice(0, 2)
+                    .join('')
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Upload Photo
+                </Button>
+                {profileForm.profile_image && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRemoveProfileImage}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                ref={fileInputRef}
+                onChange={handleProfileImageUpload}
+                className="hidden"
+              />
+            </div>
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label style={{ color: tokens.colors.text.secondary }} className="mb-2 block">Full Name</Label>
+                <Input
+                  value={profileForm.full_name}
+                  onChange={(e) => handleProfileInputChange('full_name', e.target.value)}
+                  style={{ backgroundColor: tokens.colors.background.app, borderColor: tokens.colors.border.default, color: tokens.colors.text.primary }}
+                  placeholder="Your name"
+                />
+              </div>
+              <div>
+                <Label style={{ color: tokens.colors.text.secondary }} className="mb-2 block">Title</Label>
+                <Input
+                  value={profileForm.title}
+                  onChange={(e) => handleProfileInputChange('title', e.target.value)}
+                  style={{ backgroundColor: tokens.colors.background.app, borderColor: tokens.colors.border.default, color: tokens.colors.text.primary }}
+                  placeholder="Role / Title"
+                />
+              </div>
+              <div>
+                <Label style={{ color: tokens.colors.text.secondary }} className="mb-2 block">Company / Organization</Label>
+                <Input
+                  value={profileForm.company}
+                  onChange={(e) => handleProfileInputChange('company', e.target.value)}
+                  style={{ backgroundColor: tokens.colors.background.app, borderColor: tokens.colors.border.default, color: tokens.colors.text.primary }}
+                  placeholder="Company name"
+                />
+              </div>
+              <div>
+                <Label style={{ color: tokens.colors.text.secondary }} className="mb-2 block">Location</Label>
+                <Input
+                  value={profileForm.location}
+                  onChange={(e) => handleProfileInputChange('location', e.target.value)}
+                  style={{ backgroundColor: tokens.colors.background.app, borderColor: tokens.colors.border.default, color: tokens.colors.text.primary }}
+                  placeholder="City, Country"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <Label style={{ color: tokens.colors.text.secondary }} className="mb-2 block">Website</Label>
+                <Input
+                  value={profileForm.website}
+                  onChange={(e) => handleProfileInputChange('website', e.target.value)}
+                  style={{ backgroundColor: tokens.colors.background.app, borderColor: tokens.colors.border.default, color: tokens.colors.text.primary }}
+                  placeholder="https://yourwebsite.com"
+                />
+              </div>
+            </div>
+          </div>
+          <div>
+            <Label style={{ color: tokens.colors.text.secondary }} className="mb-2 block">About</Label>
+            <textarea
+              value={profileForm.bio}
+              onChange={(e) => handleProfileInputChange('bio', e.target.value)}
+              rows={4}
+              style={{
+                width: '100%',
+                backgroundColor: tokens.colors.background.app,
+                border: `1px solid ${tokens.colors.border.default}`,
+                borderRadius: tokens.radius.lg,
+                padding: '12px 16px',
+                color: tokens.colors.text.primary,
+                fontFamily: tokens.typography.fontFamily.sans
+              }}
+              placeholder="Share a short bio or anything your team should know."
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="text-sm" style={{ color: tokens.colors.text.tertiary }}>
+              {profileStatus === 'saved' && 'Profile updated!'}
+              {profileStatus === 'error' && 'Something went wrong. Please try again.'}
+            </div>
+            <Button
+              onClick={handleSaveProfile}
+              disabled={profileStatus === 'saving' || profileLoading}
+              style={{ backgroundColor: tokens.colors.accent.lime, color: tokens.colors.text.inverse }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.lime}
+            >
+              {profileStatus === 'saving' ? 'Saving...' : 'Save Profile'}
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <Label style={{ color: tokens.colors.text.secondary }} className="mb-2 block">Email Address</Label>
+            <div style={{ backgroundColor: tokens.colors.background.app, border: `1px solid ${tokens.colors.border.default}`, borderRadius: tokens.radius.lg }} className="flex items-center justify-between px-4 py-2">
+              <span style={{ color: tokens.colors.text.primary }}>{user?.email}</span>
+              <span style={{ fontSize: '12px', backgroundColor: tokens.colors.status.badge, color: tokens.colors.text.secondary }} className="px-2 py-1 rounded">
+                Primary
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <Label style={{ color: tokens.colors.text.secondary }} className="mb-2 block">Your Timezone</Label>
+            <div className="flex gap-3">
+              <div className="flex-1 relative">
+                <select 
+                  value={timezone} 
+                  onChange={(e) => setTimezone(e.target.value)}
+                  style={{
+                    width: '100%',
+                    backgroundColor: tokens.colors.background.app,
+                    border: `1px solid ${tokens.colors.border.default}`,
+                    borderRadius: tokens.radius.lg,
+                    padding: '8px 16px',
+                    color: tokens.colors.text.primary,
+                    fontFamily: tokens.typography.fontFamily.sans,
+                    fontSize: '14px',
+                    appearance: 'none'
+                  }}
+                  className="outline-none"
+                  onFocus={(e) => e.currentTarget.style.borderColor = tokens.colors.accent.lime}
+                  onBlur={(e) => e.currentTarget.style.borderColor = tokens.colors.border.default}
+                >
+                  {Intl.supportedValuesOf('timeZone').map(tz => (
+                    <option key={tz} value={tz}>{tz}</option>
+                  ))}
+                </select>
+                <Globe style={{ color: tokens.colors.text.tertiary }} className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" />
+              </div>
+              <Button 
+                onClick={handleSaveTimezone}
+                style={{ backgroundColor: tokens.colors.accent.lime, color: tokens.colors.text.inverse, minWidth: '100px' }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.lime}
+              >
+                {saveStatus === 'saved' ? 'Saved!' : 'Save'}
+              </Button>
+            </div>
+            <p style={{ fontSize: '12px', color: tokens.colors.text.tertiary }} className="mt-2">
+              Current detected time: {new Date().toLocaleTimeString()}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ backgroundColor: tokens.colors.background.layer2, border: `1px solid ${tokens.colors.border.default}`, borderRadius: tokens.radius.xl }} className="p-6">
+        <h3 style={{ color: tokens.colors.text.primary, fontSize: '18px', fontWeight: 500 }} className="mb-4">Account Actions</h3>
+        <Button 
+          onClick={handleLogout} 
+          variant="destructive" 
+          className="w-full sm:w-auto bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20"
+        >
+          <LogOut className="w-4 h-4 mr-2" />
+          Log Out
+        </Button>
+      </div>
+    </div>
+  );
+
+
+  const renderLinkedInTab = () => (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div style={{ backgroundColor: tokens.colors.background.layer2, border: `1px solid ${tokens.colors.border.default}`, borderRadius: tokens.radius.xl }} className="p-6">
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h3 style={{ color: tokens.colors.text.primary, fontSize: '18px', fontWeight: 500 }} className="mb-1">LinkedIn Connection</h3>
+            <p style={{ fontSize: '14px', color: tokens.colors.text.secondary }}>
+              Connect your personal profile to publish posts.
+            </p>
+          </div>
+          <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: linkedinConnected ? '#10B981' : '#EF4444' }} />
+        </div>
+
+        {linkedinConnected ? (
+          <div style={{ backgroundColor: tokens.colors.background.app, border: `1px solid ${tokens.colors.border.default}`, borderRadius: tokens.radius.lg }} className="p-4 mb-6">
+            <div className="flex items-center gap-4">
+              {(() => {
+                const pictureUrl = linkedinProfile?.picture || linkedinProfile?.pictureUrl || linkedinProfile?.picture_url || linkedinProfile?.profilePicture;
+                return pictureUrl ? `${BACKEND_URL}/api/settings/linkedin-profile-picture?user_id=${user.id}` : null;
+              })() && !profileImageError ? (
+                <img 
+                  src={(() => {
+                    const pictureUrl = linkedinProfile?.picture || linkedinProfile?.pictureUrl || linkedinProfile?.picture_url || linkedinProfile?.profilePicture;
+                    return pictureUrl ? `${BACKEND_URL}/api/settings/linkedin-profile-picture?user_id=${user.id}` : null;
+                  })()}
+                  alt="LinkedIn Profile"
+                  style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }}
+                  onError={() => {
+                    console.warn('Failed to load LinkedIn profile picture:', linkedinProfile.picture || linkedinProfile.pictureUrl || linkedinProfile.picture_url || linkedinProfile.profilePicture);
+                    setProfileImageError(true);
+                  }}
+                  onLoad={() => {
+                    setProfileImageError(false);
+                  }}
+                />
+              ) : (
+                <div style={{ width: '48px', height: '48px', backgroundColor: '#0A66C2', borderRadius: '50%', display: 'flex' }} className="items-center justify-center text-white">
+                  <Linkedin className="w-6 h-6" />
+                </div>
+              )}
+              <div>
+                <h4 style={{ fontWeight: 500, color: tokens.colors.text.primary }}>
+                  {linkedinProfile ? (linkedinProfile.name || `${linkedinProfile.firstName || ''} ${linkedinProfile.lastName || ''}`.trim() || 'LinkedIn Profile') : 'Connected Profile'}
+                </h4>
+                <p style={{ fontSize: '14px', color: tokens.colors.text.tertiary }}>LinkedIn Account Active</p>
+              </div>
+              <Button 
+                variant="outline" 
+                style={{ borderColor: 'rgba(239, 68, 68, 0.2)', color: '#EF4444' }}
+                className="ml-auto"
+                onClick={handleDisconnectLinkedIn}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                  e.currentTarget.style.color = '#F87171';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = '#EF4444';
+                }}
+              >
+                Disconnect
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ backgroundColor: tokens.colors.background.app, border: `1px dashed ${tokens.colors.border.default}`, borderRadius: tokens.radius.lg }} className="text-center py-8 mb-6">
+            <div style={{ width: '48px', height: '48px', backgroundColor: 'rgba(10, 102, 194, 0.1)', color: '#0A66C2', borderRadius: '50%' }} className="flex items-center justify-center mx-auto mb-3">
+              <Linkedin className="w-6 h-6" />
+            </div>
+            <h4 style={{ color: tokens.colors.text.primary, fontWeight: 500 }} className="mb-2">Not Connected</h4>
+            <p style={{ color: tokens.colors.text.tertiary, fontSize: '14px' }} className="mb-4">Connect your LinkedIn account to start publishing.</p>
+            <Button 
+              onClick={handleConnectLinkedIn}
+              disabled={linkedinLoading}
+              style={{ backgroundColor: '#0A66C2', color: '#FFFFFF' }}
+              onMouseEnter={(e) => !e.currentTarget.disabled && (e.currentTarget.style.backgroundColor = '#004182')}
+              onMouseLeave={(e) => !e.currentTarget.disabled && (e.currentTarget.style.backgroundColor = '#0A66C2')}
+            >
+              {linkedinLoading ? 'Connecting...' : 'Connect LinkedIn'}
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
-    <div className="h-full flex flex-col bg-gray-50">
-      {/* Header - Responsive */}
-      <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 md:py-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900">Settings</h1>
+    <div style={{ backgroundColor: tokens.colors.background.app, color: tokens.colors.text.primary }} className="h-full flex flex-col">
+      {/* Header */}
+      <div style={{ backgroundColor: tokens.colors.background.app, borderBottom: `1px solid ${tokens.colors.border.default}` }} className="px-6 py-4">
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 style={{ fontSize: '30px', fontFamily: tokens.typography.fontFamily.serif, fontStyle: 'italic', color: tokens.colors.text.primary }} className="mb-2">Settings</h1>
+            <p style={{ fontSize: '14px', color: tokens.colors.text.secondary, fontWeight: 300 }}>Manage your account and integrations</p>
+          </div>
           <Button
-            onClick={handleLogout}
-            variant="outline"
-            className="flex items-center gap-2 text-red-600 border-red-600 hover:bg-red-50 text-sm px-3 py-2"
+            onClick={() => navigate('/onboarding')}
+            style={{
+              backgroundColor: tokens.colors.accent.lime,
+              color: tokens.colors.text.inverse,
+              fontFamily: tokens.typography.fontFamily.sans,
+              fontWeight: 500
+            }}
+            className="rounded-full px-6 flex items-center gap-2"
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = tokens.colors.accent.lime}
           >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Logout</span>
+            <Sparkles className="w-4 h-4" />
+            Start New Onboarding
           </Button>
         </div>
       </div>
 
-      {/* Content - Responsive */}
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-6xl mx-auto p-4 md:p-8">
-          <div className="flex flex-col md:grid md:grid-cols-4 gap-4 md:gap-8">
-            {/* Tabs - Horizontal scroll on mobile, sidebar on desktop */}
-            <div className="md:col-span-1">
-              <nav className="flex md:flex-col gap-2 md:gap-1 overflow-x-auto md:overflow-x-visible pb-2 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitScrollbarDisplay: 'none' }}>
-                {tabs.map((tab) => {
-                  const Icon = tab.icon;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 md:py-3 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap md:w-full ${
-                        activeTab === tab.id
-                          ? 'bg-gray-900 text-white'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      }`}
-                    >
-                      <Icon className="w-4 h-4 flex-shrink-0" />
-                      <span>{tab.label}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar Navigation */}
+        <div style={{ width: '256px', borderRight: `1px solid ${tokens.colors.border.default}`, backgroundColor: tokens.colors.background.layer1 }} className="p-4">
+          <nav className="space-y-1">
+            <button
+              onClick={() => setActiveTab('profile')}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 16px',
+                borderRadius: tokens.radius.lg,
+                fontSize: '14px',
+                fontWeight: 500,
+                backgroundColor: activeTab === 'profile' ? tokens.colors.accent.lime : 'transparent',
+                color: activeTab === 'profile' ? tokens.colors.text.inverse : tokens.colors.text.secondary,
+                fontFamily: tokens.typography.fontFamily.sans
+              }}
+              onMouseEnter={(e) => {
+                if (activeTab !== 'profile') {
+                  e.currentTarget.style.color = tokens.colors.text.primary;
+                  e.currentTarget.style.backgroundColor = tokens.colors.background.input;
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (activeTab !== 'profile') {
+                  e.currentTarget.style.color = tokens.colors.text.secondary;
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }
+              }}
+            >
+              <User className="w-4 h-4" />
+              Profile
+            </button>
+            <button
+              onClick={() => setActiveTab('linkedin')}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 16px',
+                borderRadius: tokens.radius.lg,
+                fontSize: '14px',
+                fontWeight: 500,
+                backgroundColor: activeTab === 'linkedin' ? tokens.colors.accent.lime : 'transparent',
+                color: activeTab === 'linkedin' ? tokens.colors.text.inverse : tokens.colors.text.secondary,
+                fontFamily: tokens.typography.fontFamily.sans
+              }}
+              onMouseEnter={(e) => {
+                if (activeTab !== 'linkedin') {
+                  e.currentTarget.style.color = tokens.colors.text.primary;
+                  e.currentTarget.style.backgroundColor = tokens.colors.background.input;
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (activeTab !== 'linkedin') {
+                  e.currentTarget.style.color = tokens.colors.text.secondary;
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }
+              }}
+            >
+              <Linkedin className="w-4 h-4" />
+              LinkedIn
+            </button>
+            <button
+              onClick={() => setActiveTab('billing')}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 16px',
+                borderRadius: tokens.radius.lg,
+                fontSize: '14px',
+                fontWeight: 500,
+                backgroundColor: activeTab === 'billing' ? tokens.colors.accent.lime : 'transparent',
+                color: activeTab === 'billing' ? tokens.colors.text.inverse : tokens.colors.text.secondary,
+                fontFamily: tokens.typography.fontFamily.sans
+              }}
+              onMouseEnter={(e) => {
+                if (activeTab !== 'billing') {
+                  e.currentTarget.style.color = tokens.colors.text.primary;
+                  e.currentTarget.style.backgroundColor = tokens.colors.background.input;
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (activeTab !== 'billing') {
+                  e.currentTarget.style.color = tokens.colors.text.secondary;
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }
+              }}
+            >
+              <CreditCard className="w-4 h-4" />
+              Billing
+            </button>
+          </nav>
+        </div>
 
-            {/* Tab Content - Responsive padding */}
-            <div className="md:col-span-3">
-              <div className="bg-white rounded-lg border border-gray-200 p-4 md:p-6">
-                {activeTab === 'profile' && (
-                  <div className="space-y-6">
-                    <div>
-                      <h2 className="text-lg font-semibold text-gray-900 mb-4">Profile Information</h2>
-                      <p className="text-sm text-gray-600 mb-6">Your personal information and profile details.</p>
-                    </div>
-
-                    {/* User Info Card */}
-                    <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 rounded-lg p-6 mb-6">
-                      <div className="flex items-center gap-4">
-                        <div className="w-16 h-16 bg-gray-900 rounded-full flex items-center justify-center">
-                          <span className="text-white font-bold text-2xl">
-                            {user?.full_name?.charAt(0).toUpperCase() || 'U'}
-                          </span>
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-bold text-gray-900">{user?.full_name || 'User'}</h3>
-                          <p className="text-sm text-gray-600">{user?.email || 'No email'}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div>
-                        <Label className="text-gray-700 mb-2 block text-sm font-medium">Full Name</Label>
-                        <Input
-                          value={user?.full_name || ''}
-                          readOnly
-                          className="bg-gray-50 border-gray-300"
-                        />
-                      </div>
-
-                      <div>
-                        <Label className="text-gray-700 mb-2 block text-sm font-medium">Email Address</Label>
-                        <Input
-                          value={user?.email || ''}
-                          readOnly
-                          className="bg-gray-50 border-gray-300"
-                        />
-                      </div>
-
-                      {/* Timezone Setting */}
-                      <div className="pt-6 border-t border-gray-200">
-                        <div className="mb-4">
-                          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                            <Globe className="w-4 h-4" />
-                            Timezone Preference
-                          </h3>
-                          <p className="text-xs text-gray-600 mt-1">
-                            All times in the calendar and scheduler will use this timezone
-                          </p>
-                        </div>
-                        
-                        <div className="space-y-3">
-                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                            <p className="text-sm text-blue-900">
-                              <strong>Auto-detected:</strong> {detectedTimezone || 'UTC'}
-                            </p>
-                            <p className="text-xs text-blue-700 mt-1">
-                              Current local time: {detectedTimezone ? new Date().toLocaleTimeString('en-US', { 
-                                timeZone: detectedTimezone,
-                                hour: '2-digit',
-                                minute: '2-digit',
-                                hour12: true
-                              }) : new Date().toLocaleTimeString('en-US', { 
-                                hour: '2-digit',
-                                minute: '2-digit',
-                                hour12: true
-                              })}
-                            </p>
-                          </div>
-                          
-                          <div>
-                            <Label className="text-gray-700 mb-2 block text-sm font-medium">Select Timezone</Label>
-                            <select
-                              value={timezone}
-                              onChange={(e) => setTimezone(e.target.value)}
-                              className="w-full h-10 rounded-md border border-gray-300 bg-white text-gray-900 px-3 py-2 text-sm"
-                            >
-                              <option value="">-- Select Timezone --</option>
-                              <optgroup label="Africa">
-                                <option value="Africa/Nairobi">East Africa Time (Nairobi) - UTC+3</option>
-                                <option value="Africa/Cairo">Egypt (Cairo) - UTC+2</option>
-                                <option value="Africa/Johannesburg">South Africa (Johannesburg) - UTC+2</option>
-                                <option value="Africa/Lagos">West Africa (Lagos) - UTC+1</option>
-                              </optgroup>
-                              <optgroup label="Americas">
-                                <option value="America/New_York">Eastern Time (New York) - UTC-5</option>
-                                <option value="America/Chicago">Central Time (Chicago) - UTC-6</option>
-                                <option value="America/Denver">Mountain Time (Denver) - UTC-7</option>
-                                <option value="America/Los_Angeles">Pacific Time (Los Angeles) - UTC-8</option>
-                                <option value="America/Toronto">Toronto - UTC-5</option>
-                                <option value="America/Mexico_City">Mexico City - UTC-6</option>
-                                <option value="America/Sao_Paulo">São Paulo - UTC-3</option>
-                              </optgroup>
-                              <optgroup label="Europe">
-                                <option value="Europe/London">London (GMT) - UTC+0</option>
-                                <option value="Europe/Paris">Paris (CET) - UTC+1</option>
-                                <option value="Europe/Berlin">Berlin (CET) - UTC+1</option>
-                                <option value="Europe/Rome">Rome (CET) - UTC+1</option>
-                                <option value="Europe/Madrid">Madrid (CET) - UTC+1</option>
-                                <option value="Europe/Amsterdam">Amsterdam (CET) - UTC+1</option>
-                                <option value="Europe/Moscow">Moscow - UTC+3</option>
-                              </optgroup>
-                              <optgroup label="Asia">
-                                <option value="Asia/Dubai">Dubai - UTC+4</option>
-                                <option value="Asia/Karachi">Karachi - UTC+5</option>
-                                <option value="Asia/Kolkata">India (Kolkata) - UTC+5:30</option>
-                                <option value="Asia/Dhaka">Bangladesh (Dhaka) - UTC+6</option>
-                                <option value="Asia/Bangkok">Bangkok - UTC+7</option>
-                                <option value="Asia/Singapore">Singapore - UTC+8</option>
-                                <option value="Asia/Hong_Kong">Hong Kong - UTC+8</option>
-                                <option value="Asia/Shanghai">Shanghai - UTC+8</option>
-                                <option value="Asia/Tokyo">Tokyo - UTC+9</option>
-                                <option value="Asia/Seoul">Seoul - UTC+9</option>
-                              </optgroup>
-                              <optgroup label="Australia & Pacific">
-                                <option value="Australia/Sydney">Sydney - UTC+10</option>
-                                <option value="Australia/Melbourne">Melbourne - UTC+10</option>
-                                <option value="Australia/Perth">Perth - UTC+8</option>
-                                <option value="Pacific/Auckland">Auckland - UTC+12</option>
-                              </optgroup>
-                            </select>
-                          </div>
-                          
-                          <Button 
-                            onClick={handleSaveTimezone}
-                            className="bg-gray-900 text-white hover:bg-gray-800"
-                          >
-                            {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved!' : 'Save Timezone'}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-
-                {activeTab === 'linkedin' && (
-                  <div className="space-y-6">
-                    <div>
-                      <h2 className="text-lg font-semibold text-gray-900 mb-4">LinkedIn Connection</h2>
-                      <p className="text-sm text-gray-600 mb-6">Connect your LinkedIn account to publish posts and manage engagement.</p>
-                    </div>
-
-                    <div className="border border-gray-200 rounded-lg p-6 bg-gray-50">
-                        <div className="flex items-center gap-4 mb-4">
-                          <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
-                            <Linkedin className="w-6 h-6 text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-gray-900">LinkedIn Account</h3>
-                            <p className="text-sm text-gray-600">
-                              {linkedinConnected ? (
-                                <span className="text-green-600 font-medium">✓ Connected</span>
-                              ) : (
-                                'Not connected'
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                        
-                        {linkedinConnected ? (
-                          <div className="space-y-3">
-                            {linkedinProfile && (
-                              <div className="bg-white border border-gray-200 rounded-lg p-4 mb-3">
-                                <div className="flex items-center gap-3">
-                                  {linkedinProfile.picture ? (
-                                    <img 
-                                      src={linkedinProfile.picture} 
-                                      alt={linkedinProfile.name}
-                                      className="w-12 h-12 rounded-full"
-                                    />
-                                  ) : (
-                                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                                      <span className="text-blue-600 font-semibold text-lg">
-                                        {linkedinProfile.name?.charAt(0) || 'L'}
-                                      </span>
-                                    </div>
-                                  )}
-                                  <div className="flex-1">
-                                    <p className="font-semibold text-gray-900">{linkedinProfile.name || 'LinkedIn User'}</p>
-                                    {linkedinProfile.email && (
-                                      <p className="text-sm text-gray-600">{linkedinProfile.email}</p>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                            
-                            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                              <p className="text-sm text-green-800">
-                                ✓ Your LinkedIn account is connected. You can now publish posts directly to LinkedIn.
-                              </p>
-                            </div>
-                            <Button 
-                              onClick={handleDisconnectLinkedIn}
-                              className="bg-red-600 hover:bg-red-700 text-white"
-                            >
-                              Disconnect LinkedIn Account
-                            </Button>
-                          </div>
-                        ) : (
-                          <div>
-                            <Button 
-                              onClick={handleConnectLinkedIn}
-                              disabled={linkedinLoading}
-                              className="bg-blue-600 hover:bg-blue-700 text-white w-full"
-                            >
-                              {linkedinLoading ? 'Opening LinkedIn...' : 'Connect LinkedIn Account'}
-                            </Button>
-                            <p className="text-xs text-gray-500 mt-3">
-                              A popup will open to authorize access to your LinkedIn organization page.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                  </div>
-                )}
-
-                {activeTab === 'notifications' && (
-                  <div className="space-y-6">
-                    <div>
-                      <h2 className="text-lg font-semibold text-gray-900 mb-4">Notification Preferences</h2>
-                      <p className="text-sm text-gray-600 mb-6">Configure how you receive notifications about your posts and engagement.</p>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                        <div>
-                          <h4 className="font-medium text-gray-900">Post Published</h4>
-                          <p className="text-sm text-gray-600">Get notified when your scheduled posts are published</p>
-                        </div>
-                        <input type="checkbox" className="w-5 h-5 text-gray-900" defaultChecked />
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                        <div>
-                          <h4 className="font-medium text-gray-900">New Comments</h4>
-                          <p className="text-sm text-gray-600">Get notified when someone comments on your posts</p>
-                        </div>
-                        <input type="checkbox" className="w-5 h-5 text-gray-900" defaultChecked />
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                        <div>
-                          <h4 className="font-medium text-gray-900">Performance Reports</h4>
-                          <p className="text-sm text-gray-600">Weekly summary of your post performance</p>
-                        </div>
-                        <input type="checkbox" className="w-5 h-5 text-gray-900" />
-                      </div>
-                    </div>
-
-                    <div className="pt-4">
-                      <Button className="bg-gray-900 text-white hover:bg-gray-800">
-                        Save Preferences
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === 'billing' && (
-                  <BillingView />
-                )}
-
-              </div>
-            </div>
+        {/* Content Area */}
+        <div style={{ backgroundColor: tokens.colors.background.app }} className="flex-1 overflow-auto p-8">
+          <div className="max-w-3xl mx-auto">
+            {activeTab === 'profile' && renderProfileTab()}
+            {activeTab === 'linkedin' && renderLinkedInTab()}
+            {activeTab === 'billing' && <BillingView user={user} />}
           </div>
         </div>
       </div>

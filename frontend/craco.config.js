@@ -12,14 +12,14 @@ module.exports = {
       '@': path.resolve(__dirname, 'src'),
     },
     configure: (webpackConfig) => {
-      
+
       // Disable hot reload completely if environment variable is set
       if (config.disableHotReload) {
         // Remove hot reload related plugins
         webpackConfig.plugins = webpackConfig.plugins.filter(plugin => {
           return !(plugin.constructor.name === 'HotModuleReplacementPlugin');
         });
-        
+
         // Disable watch mode
         webpackConfig.watch = false;
         webpackConfig.watchOptions = {
@@ -39,8 +39,14 @@ module.exports = {
           ],
         };
       }
-      
+
       return webpackConfig;
+    },
+  },
+  devServer: {
+    setupMiddlewares: (middlewares, devServer) => {
+      // Custom middleware logic can go here
+      return middlewares;
     },
   },
 };

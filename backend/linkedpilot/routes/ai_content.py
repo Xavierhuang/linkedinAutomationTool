@@ -218,7 +218,7 @@ async def generate_content(request: ContentGenerationRequest):
                 use_stock = not use_ai_images  # Use stock only if AI is explicitly disabled
                 
                 # Get campaign's preferred AI image model (only used if use_ai_images=True)
-                image_model_raw = campaign.get('image_model', 'google/gemini-2.5-flash-image')
+                image_model_raw = campaign.get('image_model', 'google/gemini-3-pro-image-preview')  # Updated to Gemini 3 Pro Image Preview
                 print(f"   [IMAGE] Mode: {'AI Generation' if use_ai_images else 'Stock Photos (default)'}")
                 if use_ai_images:
                     print(f"   [IMAGE MODEL] AI model: {image_model_raw}")
@@ -754,12 +754,19 @@ async def get_review_queue(org_id: str):
     return posts
 
 @router.get("/approved-posts")
-async def get_approved_posts(org_id: str, include_posted: bool = True):
+async def get_approved_posts(
+    org_id: str, 
+    include_posted: bool = True,
+    range_start: Optional[str] = None,
+    range_end: Optional[str] = None
+):
     """Get all approved/posted AI-generated posts
     
     Args:
         org_id: Organization ID
         include_posted: If True, also return POSTED posts (default: True for calendar view)
+        range_start: Optional ISO date string to filter posts scheduled after this date
+        range_end: Optional ISO date string to filter posts scheduled before this date
     """
     db = get_db()
     
@@ -768,6 +775,26 @@ async def get_approved_posts(org_id: str, include_posted: bool = True):
         "org_id": org_id, 
         "status": {"$in": [AIGeneratedPostStatus.APPROVED.value, AIGeneratedPostStatus.POSTED.value]}
     }
+    
+    # Add date range filtering if provided
+    if range_start or range_end:
+        date_conditions = []
+        
+        # Include posts with scheduled_for in the date range
+        scheduled_query = {}
+        if range_start:
+            scheduled_query["$gte"] = range_start
+        if range_end:
+            scheduled_query["$lte"] = range_end
+        if scheduled_query:
+            date_conditions.append({"scheduled_for": scheduled_query})
+        
+        # Also include posts without scheduled_for (unscheduled posts)
+        date_conditions.append({"scheduled_for": {"$exists": False}})
+        date_conditions.append({"scheduled_for": None})
+        
+        # Combine date conditions with OR
+        query["$or"] = date_conditions
     
     posts = await db.ai_generated_posts.find(
         query,

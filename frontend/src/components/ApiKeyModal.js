@@ -5,11 +5,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import axios from 'axios';
+import { useThemeTokens } from '@/hooks/useThemeTokens';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 const ApiKeyModal = ({ isOpen, onClose, keyType, onSaved }) => {
   const { user } = useAuth();
+  const tokens = useThemeTokens();
   const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -76,34 +78,70 @@ const ApiKeyModal = ({ isOpen, onClose, keyType, onSaved }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-md w-full p-6 relative">
+    <div 
+      className="fixed inset-0 flex items-center justify-center z-50 p-4"
+      style={{ backgroundColor: tokens.isDark ? 'rgba(0, 0, 0, 0.7)' : 'rgba(0, 0, 0, 0.5)' }}
+    >
+      <div 
+        className="rounded-lg max-w-md w-full p-6 relative"
+        style={{
+          backgroundColor: tokens.colors.background.layer2,
+          borderRadius: tokens.radius.xl,
+          border: `1px solid ${tokens.colors.border.default}`,
+          boxShadow: tokens.shadow.floating
+        }}
+      >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+          style={{ color: tokens.colors.text.secondary }}
+          className="absolute top-4 right-4 hover:opacity-70 transition-opacity"
+          onMouseEnter={(e) => e.currentTarget.style.color = tokens.colors.text.primary}
+          onMouseLeave={(e) => e.currentTarget.style.color = tokens.colors.text.secondary}
         >
           <X className="w-5 h-5" />
         </button>
 
         <div className="flex items-start gap-3 mb-4">
-          <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
-            <AlertCircle className="w-6 h-6 text-amber-600" />
+          <div 
+            style={{
+              width: '48px',
+              height: '48px',
+              backgroundColor: '#F59E0B20',
+              borderRadius: tokens.radius.md,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}
+          >
+            <AlertCircle style={{ width: '24px', height: '24px', color: '#F59E0B' }} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-900">{info.title}</h2>
-            <p className="text-sm text-gray-600 mt-1">{info.description}</p>
+            <h2 style={{ fontSize: '20px', fontWeight: 700, color: tokens.colors.text.primary, fontFamily: tokens.typography.fontFamily.sans }}>
+              {info.title}
+            </h2>
+            <p style={{ fontSize: '14px', color: tokens.colors.text.secondary, marginTop: '4px' }}>
+              {info.description}
+            </p>
           </div>
         </div>
 
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-          <p className="text-sm text-blue-900 mb-2">
+        <div 
+          style={{
+            backgroundColor: tokens.colors.accent.lime + '20',
+            border: `1px solid ${tokens.colors.accent.lime}40`,
+            borderRadius: tokens.radius.lg,
+            padding: '12px'
+          }}
+        >
+          <p style={{ fontSize: '14px', color: tokens.colors.text.primary }}>
             <strong>💡 Tip:</strong> This key works across OpenAI, Anthropic, and Google models through OpenRouter.
           </p>
         </div>
 
         <div className="space-y-4">
           <div>
-            <Label className="text-gray-700 mb-2 block text-sm font-medium">
+            <Label style={{ color: tokens.colors.text.primary, marginBottom: '8px', display: 'block', fontSize: '14px', fontWeight: 500 }}>
               API Key
             </Label>
             <Input
@@ -111,20 +149,37 @@ const ApiKeyModal = ({ isOpen, onClose, keyType, onSaved }) => {
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={info.placeholder}
-              className="border-gray-300 font-mono text-sm"
+              style={{
+                backgroundColor: tokens.colors.background.input,
+                border: `1px solid ${tokens.colors.border.default}`,
+                borderRadius: tokens.radius.lg,
+                color: tokens.colors.text.primary,
+                fontFamily: 'monospace',
+                fontSize: '14px'
+              }}
+              className="focus:outline-none transition-all"
+              onFocus={(e) => {
+                e.target.style.borderColor = tokens.colors.accent.lime;
+                e.target.style.boxShadow = `0 0 0 2px ${tokens.colors.accent.lime}20`;
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = tokens.colors.border.default;
+                e.target.style.boxShadow = 'none';
+              }}
             />
             {error && (
-              <p className="text-sm text-red-600 mt-1">{error}</p>
+              <p style={{ fontSize: '14px', color: '#EF4444', marginTop: '4px' }}>{error}</p>
             )}
           </div>
 
-          <div className="text-sm text-gray-600">
+          <div style={{ fontSize: '14px', color: tokens.colors.text.secondary }}>
             Don't have an API key?{' '}
             <a
               href={info.link}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-600 hover:underline"
+              style={{ color: tokens.colors.accent.lime }}
+              className="hover:underline"
             >
               {info.linkText} →
             </a>
@@ -133,14 +188,38 @@ const ApiKeyModal = ({ isOpen, onClose, keyType, onSaved }) => {
           <div className="flex gap-3 pt-2">
             <Button
               onClick={handleGoToSettings}
-              className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-900"
+              style={{
+                flex: 1,
+                backgroundColor: tokens.colors.background.input,
+                border: `1px solid ${tokens.colors.border.default}`,
+                borderRadius: tokens.radius.full,
+                color: tokens.colors.text.primary,
+                fontFamily: tokens.typography.fontFamily.sans,
+                fontSize: '16px',
+                fontWeight: 500,
+                padding: '10px 24px'
+              }}
+              className="hover:opacity-80 transition-opacity"
             >
               Go to Settings
             </Button>
             <Button
               onClick={handleSave}
               disabled={saving}
-              className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
+              style={{
+                flex: 1,
+                backgroundColor: tokens.colors.accent.lime,
+                borderRadius: tokens.radius.full,
+                color: tokens.colors.text.inverse,
+                fontFamily: tokens.typography.fontFamily.sans,
+                fontSize: '16px',
+                fontWeight: 600,
+                padding: '10px 24px',
+                boxShadow: tokens.shadow.subtle
+              }}
+              className="hover:opacity-90 transition-opacity disabled:opacity-50"
+              onMouseEnter={(e) => !saving && (e.currentTarget.style.backgroundColor = tokens.colors.accent.limeHover)}
+              onMouseLeave={(e) => !saving && (e.currentTarget.style.backgroundColor = tokens.colors.accent.lime)}
             >
               {saving ? 'Saving...' : 'Save & Continue'}
             </Button>

@@ -2,6 +2,13 @@ import os
 from typing import Optional, Dict, List
 from openai import AsyncOpenAI
 
+from linkedpilot.utils.linkedin_templates import (
+    pick_linkedin_template,
+    build_template_prompt,
+    pick_image_style,
+    build_image_caption_brief
+)
+
 class LLMAdapter:
     """
     Adapter for LLM operations using OpenAI or OpenRouter
@@ -20,7 +27,8 @@ class LLMAdapter:
         elif provider == "google_ai_studio":
             self.api_key = api_key or os.getenv('GOOGLE_AI_API_KEY')
             self.base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
-            self.model = model or 'gemini-2.5-flash'  # Gemini 2.5 Flash for text generation
+            # Default to Gemini 2.5 Pro for advanced capabilities
+            self.model = model or 'gemini-2.5-pro'  # Gemini 2.5 Pro for expert-grade designs
         elif provider == "anthropic":
             self.api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
             self.base_url = "https://api.anthropic.com/v1"
@@ -74,6 +82,7 @@ class LLMAdapter:
             # Build the prompt based on context
             topic = context.get('topic') or context.get('message', 'business growth')
             tone = context.get('tone', 'professional')
+            org_id = context.get('org_id', '')
             
             # Use the topic directly without forcing current trends
             print(f"[SUCCESS] Using REAL AI mode!")
@@ -81,12 +90,25 @@ class LLMAdapter:
             print(f"   - Tone: {tone}")
             print(f"   - Model: {self.model}")
             
+            # Template + visual rotation to avoid same-sounding posts
+            template = pick_linkedin_template(org_id, topic)
+            image_style = pick_image_style(org_id, template['id'])
+            template_prompt = build_template_prompt(template, tone)
+            image_caption_brief = build_image_caption_brief(topic, template, image_style)
+            
+            print(f"   - Template: {template['label']} ({template['id']})")
+            print(f"   - Image style: {image_style['label']} ({image_style['ratio']})")
+            
             # Structured prompt with few-shot examples and clear formatting
             prompt = f"""You are an expert LinkedIn content strategist with deep expertise in creating high-engagement posts that drive meaningful conversations and audience growth.
 
 TASK: Create a compelling, professional LinkedIn post about: "{topic}"
 
 IMPORTANT: Stay fully focused on the exact topic. Do NOT default to general themes (AI, tech, productivity, remote work, etc.) unless they're directly part of the topic.
+
+TEMPLATE & STYLE ROTATION
+Use this template verbatim, adapting it to the topic:
+{template_prompt}
 
 TONE:
 Professional, conversational, and authentic — written like a real person with genuine insight, not like marketing copy.
@@ -113,8 +135,15 @@ Call-to-Action (CTA):
 End with a conversation prompt, not a sales pitch.
 Example: "What's your take?" / "How are you approaching this?" / "Would you try this?"
 
+IMAGE CAPTION + VISUAL DIRECTION:
+LinkedIn rewards posts where the caption reinforces the supporting creative. After the CTA, add ONE line that starts with
+Image caption: <18 word description>
+Describe the scene that should match this visual plan: {image_caption_brief}
+Image style target: {image_style['label']} ({image_style['ratio']}, {image_style['orientation']}) — {image_style['description']}
+This caption must appear BEFORE the hashtags.
+
 Hashtags (REQUIRED):
-Include exactly 5 relevant hashtags at the very end of the post, on a new line after the CTA.
+Include exactly 5 relevant hashtags at the very end of the post, after the image caption line.
 - Mix trending hashtags with niche-specific ones
 - Make them relevant to the topic and industry
 - Use proper LinkedIn hashtag format (e.g., #Leadership #BusinessGrowth #StartupTips)
@@ -135,6 +164,8 @@ Example:
 [Your post content here with paragraphs separated by line breaks]
 
 What's your take?
+
+Image caption: describe the recommended visual in <= 18 words.
 
 #HashtagOne #HashtagTwo #HashtagThree #HashtagFour #HashtagFive"""
 
@@ -166,6 +197,11 @@ What's your take?
             print(f"[SUCCESS] OpenAI API success! Generated {len(content)} characters")
             result = self._parse_post_response(content)
             result['generation_prompt'] = prompt  # Include the prompt for logging
+            result.setdefault('image_caption', image_caption_brief)
+            result['template_id'] = template['id']
+            result['template_label'] = template['label']
+            result['image_style'] = image_style
+            result['image_caption_brief'] = image_caption_brief
             return result
             
         except Exception as e:
@@ -348,6 +384,16 @@ Make it engaging and actionable!"""
             # Parse prose format: extract hashtags from the end
             # Look for hashtags at the end (usually last line with # symbols)
             lines = text.split('\n')
+            image_caption = ""
+            image_caption_line_idx = None
+            normalized_lines = []
+            for idx, line in enumerate(lines):
+                if image_caption_line_idx is None and line.strip().lower().startswith("image caption:"):
+                    image_caption = line.split(":", 1)[1].strip()
+                    image_caption_line_idx = idx
+                else:
+                    normalized_lines.append(line)
+            lines = normalized_lines
             hashtags = []
             hashtag_line_indices = []
             
@@ -400,19 +446,24 @@ Make it engaging and actionable!"""
                         if default.lower() not in [h.lower() for h in hashtags_to_use]:
                             hashtags_to_use.append(default)
                 
-                # Re-add exactly 5 hashtags at the end
-                body_text = f"{text}\n\n{' '.join(hashtags_to_use)}"
+                body_text = text
+                if image_caption:
+                    body_text = f"{body_text}\n\nImage caption: {image_caption}"
+                body_text = f"{body_text}\n\n{' '.join(hashtags_to_use)}"
                 hashtags = hashtags_to_use
             else:
                 # No hashtags found, use text as-is and add exactly 5 default hashtags
                 body_text = text
+                if image_caption:
+                    body_text = f"{body_text}\n\nImage caption: {image_caption}"
                 hashtags = ["#LinkedIn", "#Business", "#Professional", "#Growth", "#Success"]
                 body_text = f"{body_text}\n\n{' '.join(hashtags)}"
             
             return {
                 "body": body_text,
                 "hashtags": hashtags,
-                "cta": cta
+                "cta": cta,
+                "image_caption": image_caption
             }
             
         except Exception as e:
@@ -422,7 +473,8 @@ Make it engaging and actionable!"""
             return {
                 "body": f"{response.strip()}\n\n{' '.join(hashtags)}",
                 "hashtags": hashtags,
-                "cta": "What's your take?"
+                "cta": "What's your take?",
+                "image_caption": ""
             }
     
     async def generate_completion(self, prompt: str, temperature: float = 0.7) -> str:
@@ -438,10 +490,11 @@ Make it engaging and actionable!"""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=2000
+                max_tokens=4000
             )
             
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            return content if content else ""
             
         except Exception as e:
             print(f"[ERROR] LLM completion error: {e}")
@@ -451,8 +504,70 @@ Make it engaging and actionable!"""
         """Alias for generate_completion for backward compatibility"""
         return await self.generate_completion(prompt, temperature)
     
+    async def generate_completion_with_image(self, prompt: str, image_base64: str, temperature: float = 0.7) -> str:
+        """Generate completion with image input using Gemini vision API"""
+        if self.mock_mode or not self.api_key:
+            return "Mock image analysis: This image shows professional branding elements."
+        
+        try:
+            # For Gemini, use the vision API format
+            if self.provider == "google_ai_studio":
+                import httpx
+                
+                # Gemini vision API endpoint - use gemini-1.5-pro for vision
+                model_name = self.model if self.model else "gemini-1.5-pro"
+                # Ensure model name doesn't have provider prefix
+                if "/" in model_name:
+                    model_name = model_name.split("/")[-1]
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                
+                payload = {
+                    "contents": [{
+                        "parts": [
+                            {
+                                "text": prompt
+                            },
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/jpeg",
+                                    "data": image_base64
+                                }
+                            }
+                        ]
+                    }],
+                    "generationConfig": {
+                        "temperature": temperature,
+                        "maxOutputTokens": 4000
+                    }
+                }
+                
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        url,
+                        json=payload,
+                        headers={"x-goog-api-key": self.api_key}
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    
+                    if 'candidates' in result and len(result['candidates']) > 0:
+                        content = result['candidates'][0]['content']['parts'][0]['text']
+                        return content
+                    else:
+                        raise Exception("No content in Gemini response")
+            
+            # Fallback to OpenAI-compatible vision API
+            else:
+                return await self.generate_with_image(prompt, image_base64, "image/jpeg")
+                
+        except Exception as e:
+            print(f"[ERROR] Vision completion error: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+    
     async def generate_with_image(self, prompt: str, image_base64: str, mime_type: str) -> str:
-        """Generate completion with image input (vision model)"""
+        """Generate completion with image input (vision model) - OpenAI compatible"""
         if self.mock_mode or not self.api_key:
             return "Mock image analysis: This image shows professional branding elements."
         
@@ -611,3 +726,125 @@ Format as JSON:
             import traceback
             traceback.print_exc()
             raise
+
+    async def chat_with_context(self, messages: List[Dict], user_context: Optional[Dict] = None) -> Dict:
+        """
+        Chat with the LLM to gather requirements and generate a draft.
+        
+        Args:
+            messages: List of conversation history [{"role": "user", "content": "..."}, ...]
+            user_context: Optional dict with user/org info
+            
+        Returns:
+            Dict with:
+            - type: "question" or "draft"
+            - content: The text response or the draft content
+            - context_gathered: Dict of what we know so far (topic, tone, etc.)
+        """
+        print(f"\\n[CHAT] LLMAdapter.chat_with_context called")
+        
+        if self.mock_mode or not self.api_key:
+            # Mock response
+            last_msg = messages[-1]['content'].lower() if messages else ""
+            if "topic" in last_msg or "about" in last_msg:
+                return {
+                    "type": "question",
+                    "content": "That sounds interesting! Who is your target audience for this post?",
+                    "context_gathered": {"topic": "identified"}
+                }
+            elif "audience" in last_msg or "everyone" in last_msg:
+                return {
+                    "type": "draft",
+                    "content": "Here is a draft based on our conversation... [Mock Draft]",
+                    "context_gathered": {"topic": "identified", "audience": "identified"}
+                }
+            else:
+                return {
+                    "type": "question",
+                    "content": "I can help you write a LinkedIn post. What topic do you want to write about today?",
+                    "context_gathered": {}
+                }
+
+        try:
+            # System prompt to guide the conversation
+            system_prompt = """You are an expert LinkedIn content strategist and ghostwriter.
+Your goal is to help the user create a high-performing LinkedIn post by gathering necessary information and then writing it.
+
+PROCESS:
+1. Analyze the conversation history.
+2. Determine if you have enough information to write a high-quality post.
+   Required Information:
+   - TOPIC: What is the post about?
+   - AUDIENCE: Who is this for? (e.g., developers, founders, general network)
+   - TONE: What is the desired style? (e.g., professional, controversial, personal story, educational)
+
+3. IF INFORMATION IS MISSING:
+   - Ask a specific, friendly follow-up question to get the missing piece.
+   - Do NOT ask for everything at once. Keep it conversational (one question at a time is best).
+   - If the user just says "hi" or starts, ask for the topic.
+
+4. IF YOU HAVE ENOUGH INFORMATION:
+   - Generate the LinkedIn post.
+   - Follow these best practices:
+     - Strong hook (1-2 lines).
+     - Short paragraphs (1-3 lines).
+     - Clear value or insight.
+     - Call to Action (CTA) at the end.
+     - 3-5 relevant hashtags.
+
+OUTPUT FORMAT:
+You must return a JSON object:
+{
+  "type": "question" | "draft",
+  "content": "The question to ask the user OR the full generated post content",
+  "thought_process": "Brief explanation of your decision (e.g., 'Missing tone, asking for it')",
+  "context_gathered": {
+    "topic": "detected topic or null",
+    "audience": "detected audience or null",
+    "tone": "detected tone or null"
+  }
+}
+"""
+
+            # Prepare messages for the API
+            api_messages = [{"role": "system", "content": system_prompt}]
+            api_messages.extend(messages)
+
+            print("[API] Calling OpenAI-compatible API for chat...")
+            
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=api_messages,
+                temperature=0.7,
+                response_format={"type": "json_object"} if self.provider == "openai" else None
+            )
+
+            content = response.choices[0].message.content
+            print(f"[SUCCESS] Chat response received: {content[:100]}...")
+            
+            import json
+            try:
+                # Try to parse JSON
+                # Clean up markdown code blocks if present (common with some models)
+                clean_content = content.replace('```json', '').replace('```', '').strip()
+                result = json.loads(clean_content)
+                return result
+            except json.JSONDecodeError:
+                print(f"[WARNING] Failed to parse JSON response. Fallback to text.")
+                # Fallback if model didn't output JSON
+                return {
+                    "type": "question", # Assume question if unstructured
+                    "content": content,
+                    "context_gathered": {}
+                }
+
+        except Exception as e:
+            print(f"[ERROR] Error in chat_with_context: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback error response
+            return {
+                "type": "question",
+                "content": "I'm having trouble connecting to my brain right now. Could you try saying that again?",
+                "context_gathered": {}
+            }

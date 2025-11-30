@@ -132,7 +132,7 @@ Generate a campaign configuration with:
    - industries: 3-5 industries
    - interests: 5-8 interests
 4. TONE_VOICE: Choose ONE: professional, casual, thought-leader, storytelling
-5. POSTING_FREQUENCY: Choose ONE: daily, 3x_week, 2x_week, weekly, bi_weekly
+5. POSTING_FREQUENCY: Choose ONE: daily, twice_daily (default to daily unless specified otherwise)
 6. TIME_SLOTS: 2-4 optimal posting times in HH:MM 24-hour format based on:
    - Target audience's typical LinkedIn activity times
    - Industry best practices (B2B: 07:00-09:00, 12:00-13:00, 17:00-18:00)
@@ -220,7 +220,7 @@ NO markdown formatting, ONLY the JSON object."""
                 "interests": ["Innovation", "Leadership", "Business Growth"]
             },
             "tone_voice": "professional",
-            "posting_frequency": "weekly",
+            "posting_frequency": "daily",
             "time_slots": ["08:00", "12:30", "17:00"],  # Optimal B2B times: morning, lunch, evening
             "content_types": ["text", "article"],
             "include_images": True,
@@ -266,7 +266,7 @@ NO markdown formatting, ONLY the JSON object."""
             "bi_weekly": PostingFrequency.BI_WEEKLY,
             "twice_daily": PostingFrequency.TWICE_DAILY
         }
-        frequency = freq_map.get(campaign_data.get('posting_frequency', 'weekly'), PostingFrequency.WEEKLY)
+        frequency = freq_map.get(campaign_data.get('posting_frequency', 'daily'), PostingFrequency.DAILY)
         
         # Create target audience
         target_audience = TargetAudience(

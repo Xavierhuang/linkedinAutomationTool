@@ -56,6 +56,30 @@ async def get_organization(org_id: str):
     
     return Organization(**org)
 
+@router.delete("/{org_id}")
+async def delete_organization(org_id: str):
+    """Delete organization and all associated data"""
+    db = get_db()
+    
+    # Check if organization exists
+    org = await db.organizations.find_one({"id": org_id})
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    
+    # Delete all associated data
+    await db.organization_materials.delete_many({"org_id": org_id})
+    await db.campaigns.delete_many({"org_id": org_id})
+    await db.drafts.delete_many({"org_id": org_id})
+    await db.scheduled_posts.delete_many({"org_id": org_id})
+    
+    # Delete the organization
+    result = await db.organizations.delete_one({"id": org_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    
+    return {"message": "Organization deleted successfully", "id": org_id}
+
 @router.post("/{org_id}/disconnect-linkedin")
 async def disconnect_linkedin(org_id: str):
     """Disconnect LinkedIn from organization and user settings"""

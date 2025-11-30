@@ -181,16 +181,16 @@ const DraftsView = ({ orgId }) => {
 
   if (!orgId) {
     return (
-      <div className="h-full flex items-center justify-center bg-gray-50">
-        <div className="text-center max-w-md p-8">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <FileText className="w-8 h-8 text-gray-400" />
+      <div className="h-full flex items-center justify-center bg-background">
+        <div className="text-center max-w-md p-8 bg-card rounded-2xl border border-border">
+          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+            <FileText className="w-8 h-8 text-primary" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">No Organization Selected</h3>
-          <p className="text-gray-600 mb-6">Please select an organization to create drafts.</p>
+          <h3 className="text-xl font-serif italic text-foreground mb-2">No Organization Selected</h3>
+          <p className="text-muted-foreground mb-6 text-sm">Please select an organization to create drafts.</p>
           <Button 
             onClick={() => window.location.href = '/dashboard/organizations'}
-            className="bg-gray-900 hover:bg-gray-800 text-white"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium rounded-full px-6"
           >
             Go to Organizations
           </Button>
@@ -200,17 +200,17 @@ const DraftsView = ({ orgId }) => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-gray-50">
+    <div className="h-full flex flex-col bg-background text-foreground">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-8 py-6">
+      <div className="bg-background border-b border-border px-8 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Drafts</h1>
-            <p className="text-sm text-gray-600 mt-1">Create and manage your LinkedIn post drafts</p>
+            <h1 className="text-3xl font-serif italic text-foreground mb-2">Drafts</h1>
+            <p className="text-sm text-muted-foreground font-light">Create and manage your LinkedIn post drafts</p>
           </div>
           <Button
             onClick={() => setShowCreateModal(true)}
-            className="bg-gray-900 hover:bg-gray-800 text-white flex items-center gap-2"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium rounded-full px-6 border-none flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
             Create Draft
@@ -221,52 +221,52 @@ const DraftsView = ({ orgId }) => {
       {/* Content */}
       <div className="flex-1 overflow-auto p-8">
         {drafts.length === 0 ? (
-          <div className="text-center py-20">
-            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Sparkles className="w-8 h-8 text-purple-600" />
+          <div className="text-center py-20 bg-card rounded-3xl border border-border border-dashed animate-in fade-in duration-500">
+            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+              <Sparkles className="w-8 h-8 text-muted-foreground/40" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">No Drafts Yet</h3>
-            <p className="text-gray-600 mb-6 max-w-md mx-auto">
+            <h3 className="text-xl font-medium text-foreground mb-2">No Drafts Yet</h3>
+            <p className="text-muted-foreground mb-8 max-w-md mx-auto font-light">
               Create your first draft with AI-powered content generation and image creation.
             </p>
             <Button
               onClick={() => setShowCreateModal(true)}
-              className="bg-purple-600 hover:bg-purple-700 text-white"
+              className="bg-accent/50 hover:bg-accent text-foreground rounded-full px-6 border border-border"
             >
               <Sparkles className="w-4 h-4 mr-2" />
               Create AI-Powered Draft
             </Button>
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 gap-6 max-w-7xl">
+          <div className="grid md:grid-cols-2 gap-6 max-w-7xl animate-in fade-in duration-500">
             {drafts.map((draft) => (
               <div
                 key={draft.id}
-                className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow"
+                className="bg-card border border-border rounded-2xl p-6 hover:border-primary/50 transition-all group hover:shadow-2xl hover:-translate-y-1"
               >
                 {draft.image_url && (
-                  <img 
-                    src={draft.image_url} 
-                    alt="Draft" 
-                    className="w-full h-48 object-cover rounded-lg mb-4"
-                    onError={(e) => {
-                      // Handle expired or broken image URLs gracefully
-                      e.target.style.display = 'none';
-                      const parent = e.target.parentElement;
-                      if (parent && !parent.querySelector('.image-error-placeholder')) {
-                        const placeholder = document.createElement('div');
-                        placeholder.className = 'image-error-placeholder';
-                        placeholder.style.cssText = 'width: 100%; height: 192px; display: flex; align-items: center; justify-content: center; background: #F3F4F6; color: #9CA3AF; border-radius: 8px; margin-bottom: 1rem; font-size: 14px;';
-                        placeholder.textContent = 'Image unavailable (expired link)';
-                        parent.insertBefore(placeholder, e.target);
-                      }
-                    }}
-                  />
+                  <div className="rounded-xl overflow-hidden mb-4 bg-muted/20 border border-border">
+                    <img 
+                      src={draft.image_url} 
+                      alt="Draft" 
+                      className="w-full h-48 object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-500"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        const parent = e.target.parentElement;
+                        if (parent && !parent.querySelector('.image-error-placeholder')) {
+                          const placeholder = document.createElement('div');
+                          placeholder.className = 'image-error-placeholder h-48 flex items-center justify-center text-muted-foreground/40 text-sm';
+                          placeholder.textContent = 'Image unavailable';
+                          parent.appendChild(placeholder);
+                        }
+                      }}
+                    />
+                  </div>
                 )}
-                <p className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-4 mb-4">
+                <p className="text-sm text-foreground/80 font-light leading-relaxed whitespace-pre-wrap line-clamp-4 mb-6 min-h-[5em]">
                   {draft.content}
                 </p>
-                <div className="flex gap-2">
+                <div className="flex gap-3 pt-4 border-t border-border">
                   <Button 
                     onClick={async () => {
                       if (window.confirm('Delete this draft?')) {
@@ -278,15 +278,15 @@ const DraftsView = ({ orgId }) => {
                         }
                       }
                     }}
-                    className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm"
+                    className="flex-1 bg-muted hover:bg-destructive/10 text-muted-foreground hover:text-destructive border border-border h-9 text-xs font-medium rounded-lg transition-colors"
                   >
                     Delete
                   </Button>
                   <Button 
                     onClick={() => handleScheduleDraft(draft)}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm flex items-center justify-center gap-1"
+                    className="flex-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 h-9 text-xs font-medium rounded-lg flex items-center justify-center gap-2 transition-colors"
                   >
-                    <Calendar className="w-4 h-4" />
+                    <Calendar className="w-3.5 h-3.5" />
                     Schedule
                   </Button>
                 </div>
@@ -298,247 +298,169 @@ const DraftsView = ({ orgId }) => {
 
       {/* Create Draft Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg max-w-4xl w-full p-6 my-8">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Create New Draft with AI</h2>
-            
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Left: Form */}
-              <div className="space-y-4">
+        <div className="fixed inset-0 bg-background/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-auto shadow-2xl">
+            <div className="p-8">
+              <h2 className="text-2xl font-serif italic text-foreground mb-6 flex items-center gap-3">
+                <Sparkles className="w-6 h-6 text-primary" />
+                Create AI Content
+              </h2>
+              
+              <div className="space-y-6">
                 <div>
-                  <Label className="text-gray-700 mb-2 block text-sm font-medium">Post Type</Label>
-                  <select
-                    value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                    className="w-full h-9 rounded-md border border-gray-300 bg-white text-gray-900 px-3 py-1 text-sm"
-                  >
-                    <option value="text">Text Only</option>
-                    <option value="image">Text + Image</option>
-                  </select>
-                </div>
-
-                <div>
-                  <Label className="text-gray-700 mb-2 block text-sm font-medium">Topic / Theme</Label>
+                  <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Topic / Idea</Label>
                   <Input
                     value={formData.topic}
                     onChange={(e) => setFormData({ ...formData, topic: e.target.value })}
-                    placeholder="e.g., Remote work productivity tips"
-                    className="border-gray-300 bg-white text-gray-900"
+                    placeholder="What should this post be about?"
+                    className="bg-input border border-border text-foreground placeholder:text-muted-foreground focus:border-primary/50 h-12 rounded-xl"
                   />
                 </div>
 
-                <div>
-                  <Label className="text-gray-700 mb-2 block text-sm font-medium">Tone</Label>
-                  <select
-                    value={formData.tone}
-                    onChange={(e) => setFormData({ ...formData, tone: e.target.value })}
-                    className="w-full h-9 rounded-md border border-gray-300 bg-white text-gray-900 px-3 py-1 text-sm"
-                  >
-                    <option value="professional">Professional</option>
-                    <option value="casual">Casual</option>
-                    <option value="inspirational">Inspirational</option>
-                    <option value="educational">Educational</option>
-                  </select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Tone</Label>
+                    <select
+                      value={formData.tone}
+                      onChange={(e) => setFormData({ ...formData, tone: e.target.value })}
+                      className="w-full bg-input border border-border rounded-xl px-4 h-12 text-foreground focus:border-primary/50 outline-none cursor-pointer appearance-none"
+                    >
+                      <option value="professional">Professional</option>
+                      <option value="casual">Casual</option>
+                      <option value="enthusiastic">Enthusiastic</option>
+                      <option value="thought-provoking">Thought-provoking</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Format</Label>
+                    <select
+                      value={formData.type}
+                      onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                      className="w-full bg-input border border-border rounded-xl px-4 h-12 text-foreground focus:border-primary/50 outline-none cursor-pointer appearance-none"
+                    >
+                      <option value="text">Text Post</option>
+                      <option value="short">Short Update</option>
+                      <option value="article">Article</option>
+                    </select>
+                  </div>
                 </div>
 
                 <Button
                   onClick={handleGenerateContent}
                   disabled={generatingContent || !formData.topic}
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center gap-2"
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-12 rounded-xl"
                 >
                   {generatingContent ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Generating Content...
-                    </>
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating Content...</>
                   ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      Generate Content with AI
-                    </>
+                    <><Sparkles className="w-4 h-4 mr-2" /> Generate Draft</>
                   )}
                 </Button>
 
-                {generatedDraft && formData.type === 'image' && (
-                  <Button
-                    onClick={handleGenerateImage}
-                    disabled={generatingImage}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2"
-                  >
-                    {generatingImage ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Generating Image... (may take 30-60s)
-                      </>
+                {generatedDraft && (
+                  <div className="mt-8 pt-8 border-t border-border space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                    <div>
+                      <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Generated Content</Label>
+                      <div className="bg-input border border-border rounded-xl p-4 min-h-[150px]">
+                        <p className="text-foreground whitespace-pre-wrap font-light leading-relaxed">{generatedDraft.content}</p>
+                      </div>
+                    </div>
+
+                    {generatedDraft.image_url ? (
+                      <div>
+                        <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Generated Image</Label>
+                        <div className="rounded-xl overflow-hidden border border-border bg-muted/20">
+                          <img 
+                            src={generatedDraft.image_url} 
+                            alt="Generated" 
+                            className="w-full h-64 object-cover opacity-90" 
+                          />
+                        </div>
+                      </div>
                     ) : (
-                      <>
-                        <ImageIcon className="w-4 h-4" />
-                        Generate Image with AI
-                      </>
+                      <Button
+                        onClick={handleGenerateImage}
+                        disabled={generatingImage}
+                        variant="outline"
+                        className="w-full border-border hover:bg-accent/50 text-foreground h-12 rounded-xl"
+                      >
+                        {generatingImage ? (
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating Image...</>
+                        ) : (
+                          <><ImageIcon className="w-4 h-4 mr-2" /> Generate AI Image</>
+                        )}
+                      </Button>
                     )}
-                  </Button>
+
+                    <div className="flex gap-3">
+                      <Button
+                        onClick={() => {
+                          setGeneratedDraft(null);
+                          setShowCreateModal(false);
+                        }}
+                        className="flex-1 bg-muted hover:bg-accent/50 text-foreground border border-border h-12 rounded-xl"
+                      >
+                        Discard
+                      </Button>
+                      <Button
+                        onClick={handleSaveDraft}
+                        className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-12 rounded-xl border-none"
+                      >
+                        Save to Drafts
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </div>
-
-              {/* Right: Preview */}
-              <div className="space-y-4">
-                <Label className="text-gray-700 mb-2 block text-sm font-medium">Preview</Label>
-                <div className="border border-gray-300 rounded-lg p-4 min-h-96 bg-gray-50">
-                  {generatedDraft ? (
-                    <>
-                      {generatedDraft.image_url && (
-                        <img 
-                          src={generatedDraft.image_url} 
-                          alt="Generated" 
-                          className="w-full h-64 object-cover rounded-lg mb-4"
-                        />
-                      )}
-                      <p className="text-sm text-gray-900 whitespace-pre-wrap mb-4">
-                        {generatedDraft.content}
-                      </p>
-                      {generatedDraft.hashtags && (
-                        <div className="flex flex-wrap gap-2">
-                          {generatedDraft.hashtags.map((tag, idx) => (
-                            <span key={idx} className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-gray-400">
-                      <p className="text-sm">Generated content will appear here</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-3 pt-6 border-t border-gray-200 mt-6">
-              <Button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  setGeneratedDraft(null);
-                }}
-                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-900"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSaveDraft}
-                disabled={!generatedDraft}
-                className="flex-1 bg-gray-900 hover:bg-gray-800 text-white flex items-center justify-center gap-2"
-              >
-                <Send className="w-4 h-4" />
-                Save Draft
-              </Button>
-              <Button
-                onClick={() => {
-                  if (!generatedDraft) return;
-                  // Create a temporary draft object for scheduling
-                  const tempDraft = {
-                    id: `temp_${Date.now()}`,
-                    content: generatedDraft.content,
-                    image_url: generatedDraft.image_url
-                  };
-                  setSelectedDraft(tempDraft);
-                  const tomorrow = new Date();
-                  tomorrow.setDate(tomorrow.getDate() + 1);
-                  const dateString = tomorrow.toISOString().split('T')[0];
-                  setScheduleData({
-                    scheduled_for: dateString,
-                    scheduled_time: '10:00'
-                  });
-                  setShowScheduleModal(true);
-                  setShowCreateModal(false);
-                }}
-                disabled={!generatedDraft}
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white flex items-center justify-center gap-2"
-              >
-                <Calendar className="w-4 h-4" />
-                Schedule Now
-              </Button>
             </div>
           </div>
         </div>
       )}
 
       {/* Schedule Modal */}
-      {showScheduleModal && selectedDraft && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-green-600" />
+      {showScheduleModal && (
+        <div className="fixed inset-0 bg-background/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-2xl max-w-md w-full p-8 shadow-2xl">
+            <h2 className="text-2xl font-serif italic text-foreground mb-6 flex items-center gap-3">
+              <Calendar className="w-6 h-6 text-primary" />
               Schedule Post
             </h2>
             
-            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <p className="text-sm font-medium text-gray-700 mb-2">Post Preview:</p>
-              {selectedDraft.image_url && (
-                <img 
-                  src={selectedDraft.image_url} 
-                  alt="Preview" 
-                  className="w-full h-32 object-cover rounded-lg mb-2"
-                />
-              )}
-              <p className="text-sm text-gray-600 line-clamp-3">{selectedDraft.content}</p>
-            </div>
-
-            <div className="space-y-4 mb-6">
+            <div className="space-y-5">
               <div>
-                <Label className="text-gray-700 mb-2 block text-sm font-medium">
-                  <Clock className="w-4 h-4 inline mr-1" />
-                  Select Date
-                </Label>
+                <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Date</Label>
                 <Input
                   type="date"
                   value={scheduleData.scheduled_for}
                   onChange={(e) => setScheduleData({ ...scheduleData, scheduled_for: e.target.value })}
                   min={new Date().toISOString().split('T')[0]}
-                  className="border-gray-300 bg-white text-gray-900"
+                  className="bg-input border border-border text-foreground focus:border-primary/50 h-11 rounded-xl"
                 />
               </div>
-
               <div>
-                <Label className="text-gray-700 mb-2 block text-sm font-medium">
-                  <Clock className="w-4 h-4 inline mr-1" />
-                  Select Time
-                </Label>
+                <Label className="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide">Time</Label>
                 <Input
                   type="time"
                   value={scheduleData.scheduled_time}
                   onChange={(e) => setScheduleData({ ...scheduleData, scheduled_time: e.target.value })}
-                  className="border-gray-300 bg-white text-gray-900"
+                  className="bg-input border border-border text-foreground focus:border-primary/50 h-11 rounded-xl"
                 />
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-sm text-blue-800">
-                  <strong>💡 Tip:</strong> Your post will be automatically published to LinkedIn at the scheduled time.
-                  You can view and manage all scheduled posts in the Calendar view.
-                </p>
+              <div className="flex gap-3 pt-4">
+                <Button
+                  onClick={() => setShowScheduleModal(false)}
+                  className="flex-1 bg-muted hover:bg-accent/50 text-foreground border border-border h-11 rounded-xl"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleConfirmSchedule}
+                  className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-11 rounded-xl border-none"
+                >
+                  Confirm Schedule
+                </Button>
               </div>
-            </div>
-
-            <div className="flex gap-3">
-              <Button
-                onClick={() => {
-                  setShowScheduleModal(false);
-                  setSelectedDraft(null);
-                }}
-                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-900"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleConfirmSchedule}
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white flex items-center justify-center gap-2"
-              >
-                <Calendar className="w-4 h-4" />
-                Confirm Schedule
-              </Button>
             </div>
           </div>
         </div>

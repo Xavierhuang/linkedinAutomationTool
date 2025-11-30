@@ -25,6 +25,18 @@ def get_db():
     client = AsyncIOMotorClient(os.environ['MONGO_URL'])
     return client[os.environ['DB_NAME']]
 
+async def check_mongodb_connection():
+    """Check if MongoDB is available"""
+    try:
+        client = AsyncIOMotorClient(os.environ['MONGO_URL'], serverSelectionTimeoutMS=2000)
+        db = client[os.environ['DB_NAME']]
+        # Try to ping the database
+        await client.admin.command('ping')
+        client.close()
+        return True
+    except Exception as e:
+        return False
+
 def decrypt_api_key(encrypted_key: str) -> str:
     """Decrypt an API key using Fernet encryption (same as settings.py)"""
     try:
@@ -57,6 +69,13 @@ async def generate_content_for_active_campaigns():
     print(f"[AI-CONTENT-GEN] Job Started")
     print(f"   Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print(f"{'='*60}\n")
+    
+    # Check MongoDB connection first
+    if not await check_mongodb_connection():
+        print(f"[ERROR] MongoDB connection failed - cannot generate content")
+        print(f"   Please ensure MongoDB is running on {os.environ.get('MONGO_URL', 'localhost:27017')}")
+        print(f"{'='*60}\n")
+        return
     
     db = get_db()
     
@@ -227,7 +246,7 @@ async def generate_content_for_active_campaigns():
                             
                             # Check campaign's image mode setting
                             use_ai_images = campaign.get('use_ai_images', True)  # Default to AI images
-                            image_model_raw = campaign.get('image_model', 'google/gemini-2.5-flash-image')
+                            image_model_raw = campaign.get('image_model', 'google/gemini-3-pro-image-preview')  # Updated to Gemini 3 Pro Image Preview
                             
                             print(f"   [IMAGE] Campaign image mode: {'AI Generation' if use_ai_images else 'Stock Photos'}")
                             print(f"   [IMAGE] Campaign image_model setting: {image_model_raw}")
@@ -286,33 +305,46 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
                                 default_image_setting = await get_default_model_setting('image_draft_image')
                                 default_img_provider, default_img_model = parse_model_setting(default_image_setting)
                                 
-                                # Use campaign's image_model if set, otherwise use admin default
-                                image_model_to_use = image_model_raw if image_model_raw else default_img_model
+                                # Parse campaign's image_model if it has a prefix (e.g., "google/gemini-3-pro-image-preview")
+                                # Otherwise use admin default
+                                if image_model_raw and '/' in image_model_raw:
+                                    # Campaign model has provider prefix, extract just the model name
+                                    campaign_model_name = image_model_raw.split('/')[-1]
+                                    image_model_to_use = campaign_model_name
+                                    model_provider = "google_ai_studio"  # Campaign models use google_ai_studio
+                                elif image_model_raw:
+                                    # Campaign model is just the model name
+                                    image_model_to_use = image_model_raw
+                                    model_provider = default_img_provider
+                                else:
+                                    # Use admin default
+                                    image_model_to_use = default_img_model
+                                    model_provider = default_img_provider
                                 
                                 print(f"   [IMAGE] Admin default: {default_img_provider}/{default_img_model}")
                                 print(f"   [IMAGE] Campaign setting: {image_model_raw}")
-                                print(f"   [IMAGE] Using: {image_model_to_use}")
+                                print(f"   [IMAGE] Using: {image_model_to_use} (provider: {model_provider})")
                                 
-                                # Try admin default first (same as create page)
+                                # Try to get API key for the provider
                                 try:
-                                    system_api_key, provider = await get_system_api_key(default_img_provider)
+                                    system_api_key, provider = await get_system_api_key(model_provider)
                                     
                                     if not system_api_key:
                                         system_api_key, provider = await get_system_api_key("google_ai_studio")
                                         if system_api_key:
-                                            default_img_provider = "google_ai_studio"
-                                            default_img_model = "gemini-2.5-flash-image"
+                                            model_provider = "google_ai_studio"
+                                            # Keep the model from campaign or admin default
                                     
                                     if system_api_key:
                                         print(f"   [IMAGE] Creating ImageAdapter with:")
-                                        print(f"      Provider: {default_img_provider}")
-                                        print(f"      Model: {default_img_model}")
+                                        print(f"      Provider: {model_provider}")
+                                        print(f"      Model: {image_model_to_use}")
                                         print(f"      API Key: {system_api_key[:8]}...{system_api_key[-4:]}")
                                         
                                         image_adapter = ImageAdapter(
                                             api_key=system_api_key,
-                                            provider=default_img_provider,
-                                            model=default_img_model
+                                            provider=model_provider,
+                                            model=image_model_to_use  # Use the parsed campaign model or admin default
                                         )
                                         
                                         # Verify adapter was initialized correctly
@@ -520,6 +552,10 @@ async def auto_schedule_approved_posts():
     Auto-schedule approved posts to campaign time slots
     This assigns scheduled_for times to approved posts that don't have one yet
     """
+    # Check MongoDB connection first
+    if not await check_mongodb_connection():
+        return  # Silently return if MongoDB is not available
+    
     db = get_db()
     
     try:
@@ -778,6 +814,13 @@ async def auto_post_approved_content():
     print(f"[AUTO-POST] Job Started")
     print(f"   Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print(f"{'='*60}\n")
+    
+    # Check MongoDB connection first
+    if not await check_mongodb_connection():
+        print(f"[ERROR] MongoDB connection failed - cannot post content")
+        print(f"   Please ensure MongoDB is running on {os.environ.get('MONGO_URL', 'localhost:27017')}")
+        print(f"{'='*60}\n")
+        return
     
     db = get_db()
     

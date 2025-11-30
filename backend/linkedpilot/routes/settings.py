@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -6,6 +7,7 @@ import os
 from cryptography.fernet import Fernet
 import base64
 import hashlib
+import httpx
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -194,6 +196,27 @@ class TimezoneRequest(BaseModel):
     timezone: str
 
 
+class ProfileRequest(BaseModel):
+    user_id: str
+    full_name: Optional[str] = ''
+    title: Optional[str] = ''
+    company: Optional[str] = ''
+    location: Optional[str] = ''
+    website: Optional[str] = ''
+    bio: Optional[str] = ''
+    profile_image: Optional[str] = ''
+
+
+class ProfileResponse(BaseModel):
+    full_name: str = ''
+    title: str = ''
+    company: str = ''
+    location: str = ''
+    website: str = ''
+    bio: str = ''
+    profile_image: str = ''
+
+
 @router.get("/timezone")
 async def get_timezone(user_id: str = Query(...)):
     """Get user's timezone preference"""
@@ -230,6 +253,64 @@ async def save_timezone(request: TimezoneRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error saving timezone: {str(e)}")
 
+
+@router.get("/profile", response_model=ProfileResponse)
+async def get_profile(user_id: str = Query(...)):
+    """Get the editable profile fields for a user"""
+    try:
+        settings = await db.user_settings.find_one({"user_id": user_id}, {"_id": 0, "profile": 1})
+        profile = settings.get('profile', {}) if settings else {}
+
+        # Fallback to core user document for name if not stored yet
+        if not profile.get('full_name'):
+            user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "full_name": 1})
+            if user_doc and user_doc.get('full_name'):
+                profile['full_name'] = user_doc['full_name']
+
+        return ProfileResponse(
+            full_name=profile.get('full_name', ''),
+            title=profile.get('title', ''),
+            company=profile.get('company', ''),
+            location=profile.get('location', ''),
+            website=profile.get('website', ''),
+            bio=profile.get('bio', ''),
+            profile_image=profile.get('profile_image', '')
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching profile: {str(e)}")
+
+
+@router.post("/profile")
+async def save_profile(request: ProfileRequest):
+    """Save user profile details"""
+    try:
+        from datetime import datetime, timezone as tz
+
+        profile_data = request.dict()
+        profile_data.pop('user_id', None)
+
+        await db.user_settings.update_one(
+            {"user_id": request.user_id},
+            {
+                "$set": {
+                    "profile": profile_data,
+                    "updated_at": datetime.now(tz.utc).isoformat()
+                }
+            },
+            upsert=True
+        )
+
+        # Optionally keep user's full_name in sync with primary users collection
+        if profile_data.get('full_name'):
+            await db.users.update_one(
+                {"id": request.user_id},
+                {"$set": {"full_name": profile_data['full_name']} }
+            )
+
+        return {"message": "Profile saved successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving profile: {str(e)}")
+
 @router.get("/linkedin-status")
 async def get_linkedin_status(user_id: str = Query(...)):
     """Get LinkedIn connection status for user"""
@@ -242,9 +323,106 @@ async def get_linkedin_status(user_id: str = Query(...)):
         # Check if linkedin_access_token exists and is not empty
         linkedin_connected = bool(settings.get('linkedin_access_token'))
         
+        linkedin_profile = settings.get('linkedin_profile', {}) if linkedin_connected else {}
+        
+        # If profile picture exists, add proxy URL to avoid CORS issues
+        # The frontend will use picture_proxy if available, otherwise fallback to direct URL
+        if linkedin_profile.get('picture'):
+            # Keep original picture URL for reference
+            # Frontend will construct proxy URL: /api/settings/linkedin-profile-picture?user_id={user_id}
+            pass
+        
         return {
             "linkedin_connected": linkedin_connected,
-            "linkedin_profile": settings.get('linkedin_profile', {}) if linkedin_connected else {}
+            "linkedin_profile": linkedin_profile
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching LinkedIn status: {str(e)}")
+
+@router.get("/linkedin-profile-picture")
+async def get_linkedin_profile_picture(user_id: str = Query(...)):
+    """Proxy LinkedIn profile picture to avoid CORS issues"""
+    try:
+        settings = await db.user_settings.find_one({"user_id": user_id})
+        
+        if not settings:
+            raise HTTPException(status_code=404, detail="User settings not found")
+        
+        linkedin_profile = settings.get('linkedin_profile', {})
+        picture_url = linkedin_profile.get('picture') or linkedin_profile.get('pictureUrl') or linkedin_profile.get('picture_url') or linkedin_profile.get('profilePicture')
+        access_token = settings.get('linkedin_access_token')
+        
+        if not picture_url and not access_token:
+            raise HTTPException(status_code=404, detail="LinkedIn profile picture not found")
+        
+        # Try to fetch image from stored URL first
+        if picture_url:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.get(picture_url, follow_redirects=True)
+                    
+                    if response.status_code == 200:
+                        # Return image with proper headers
+                        return Response(
+                            content=response.content,
+                            media_type=response.headers.get('content-type', 'image/jpeg'),
+                            headers={
+                                "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+                                "Access-Control-Allow-Origin": "*"  # Allow CORS
+                            }
+                        )
+                    # If URL expired (403), try to refresh from API
+                    elif response.status_code == 403 and access_token:
+                        print(f"[LINKEDIN PROFILE] Stored picture URL expired, refreshing from API...")
+                    else:
+                        raise Exception(f"Failed to fetch image: {response.status_code}")
+            except Exception as e:
+                print(f"[LINKEDIN PROFILE] Error fetching stored URL: {e}")
+                # Fall through to refresh from API
+        
+        # If stored URL failed or doesn't exist, try to refresh from LinkedIn API
+        if access_token:
+            try:
+                from ..adapters.linkedin_adapter import LinkedInAdapter
+                linkedin = LinkedInAdapter(client_id="from_user", client_secret="from_user")
+                linkedin.mock_mode = False
+                
+                # Fetch fresh profile data
+                profile = await linkedin.get_user_profile(access_token)
+                fresh_picture_url = profile.get('picture')
+                
+                if fresh_picture_url:
+                    # Update stored profile with fresh picture URL
+                    await db.user_settings.update_one(
+                        {"user_id": user_id},
+                        {"$set": {"linkedin_profile.picture": fresh_picture_url}}
+                    )
+                    
+                    # Fetch the fresh image
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        response = await client.get(fresh_picture_url, follow_redirects=True)
+                        
+                        if response.status_code == 200:
+                            return Response(
+                                content=response.content,
+                                media_type=response.headers.get('content-type', 'image/jpeg'),
+                                headers={
+                                    "Cache-Control": "public, max-age=3600",
+                                    "Access-Control-Allow-Origin": "*"
+                                }
+                            )
+            except Exception as refresh_error:
+                print(f"[LINKEDIN PROFILE] Error refreshing from API: {refresh_error}")
+        
+        # If all else fails, return 404
+        raise HTTPException(status_code=404, detail="Failed to fetch LinkedIn profile picture")
+        
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Timeout fetching LinkedIn profile picture")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[LINKEDIN PROFILE] Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error fetching LinkedIn profile picture: {str(e)}")

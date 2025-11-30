@@ -25,6 +25,7 @@ class OrganizationMaterial(BaseModel):
     url: Optional[str] = None  # For websites and blogs
     file_path: Optional[str] = None  # For uploaded files
     content: Optional[str] = None  # Extracted text content
+    images: List[str] = []  # Extracted images
     status: MaterialStatus = MaterialStatus.PENDING
     
     # Metadata
@@ -42,8 +43,18 @@ class BrandAnalysis(BaseModel):
     # Brand Identity
     brand_tone: List[str] = []  # e.g., ["professional", "innovative", "friendly"]
     brand_voice: str = "professional"  # professional, casual, thought-leader, storytelling
+    brand_colors: List[str] = []  # Hex codes from brand discovery
+    brand_images: List[str] = []  # URLs of brand images
+    brand_fonts: List[str] = []  # Font families from brand discovery
     key_messages: List[str] = []  # Core messages the brand communicates
     value_propositions: List[str] = []  # What they offer
+    
+    # Brand DNA (from website analysis)
+    brand_story: Optional[str] = None  # Brand narrative and mission
+    brand_personality: List[str] = []  # Personality traits
+    core_values: List[str] = []  # Core values and principles
+    target_audience_description: Optional[str] = None  # Description of target audience
+    unique_selling_points: List[str] = []  # Key differentiators
     
     # Audience Insights
     target_audience: Dict = {
