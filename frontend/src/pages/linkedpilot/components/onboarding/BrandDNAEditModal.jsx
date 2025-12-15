@@ -52,16 +52,47 @@ const BrandDNAEditModal = ({ isOpen, onClose, onSave, initialData, orgId }) => {
   }, [initialData, isOpen]);
 
   const handleSave = async () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'BrandDNAEditModal.jsx:54',message:'handleSave called',data:{hasOrgId:!!orgId,formDataKeys:Object.keys(formData)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     try {
       setSaving(true);
+      
+      // During onboarding (orgId is null), save locally only
+      // The data will be saved to backend when organization is created
+      if (!orgId) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'BrandDNAEditModal.jsx:61',message:'Saving locally - no orgId',data:{formData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        console.log('[BrandDNAEditModal] Saving locally during onboarding (org not created yet)');
+        if (onSave) {
+          onSave(formData);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'BrandDNAEditModal.jsx:65',message:'onSave callback called',data:{formData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+        }
+        onClose();
+        return;
+      }
+      
+      // If orgId exists, save to backend
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'BrandDNAEditModal.jsx:70',message:'Saving to backend',data:{orgId,formData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       await axios.put(`${BACKEND_URL}/api/organization-materials/analysis`, formData, {
         params: { org_id: orgId }
       });
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'BrandDNAEditModal.jsx:74',message:'Backend save successful',data:{orgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       if (onSave) {
         onSave(formData);
       }
       onClose();
     } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'BrandDNAEditModal.jsx:82',message:'Save error',data:{error:error.message,status:error.response?.status,detail:error.response?.data?.detail},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B'})}).catch(()=>{});
+      // #endregion
       console.error('Error saving brand DNA:', error);
       alert('Failed to save brand DNA: ' + (error.response?.data?.detail || error.message));
     } finally {
@@ -516,6 +547,15 @@ const BrandDNAEditModal = ({ isOpen, onClose, onSave, initialData, orgId }) => {
 };
 
 export default BrandDNAEditModal;
+
+
+
+
+
+
+
+
+
 
 
 

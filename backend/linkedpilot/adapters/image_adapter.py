@@ -1,7 +1,7 @@
 """
 Image Generation Adapter
-Supports: Google AI Studio (Gemini 2.5 Flash Image), AI Horde (free), OpenRouter image models
-Note: DALL-E is deprecated - use Google AI Studio (Gemini 2.5 Flash Image) instead
+Supports: Google AI Studio (Gemini 3 Pro Image Preview)
+Note: DALL-E is deprecated - use Google AI Studio (Gemini 3 Pro Image Preview) instead
 """
 
 import os
@@ -10,7 +10,7 @@ from typing import Optional, List
 import httpx
 
 class ImageAdapter:
-    """Adapter for image generation using Google AI Studio (Gemini 2.5 Flash Image) or AI Horde fallback"""
+    """Adapter for image generation using Google AI Studio (Gemini 3 Pro Image Preview)"""
     
     def __init__(self, api_key: Optional[str] = None, provider: str = "google_ai_studio", model: Optional[str] = None):
         self.provider = provider
@@ -29,10 +29,8 @@ class ImageAdapter:
         
         # Determine provider based on model if not explicitly set
         if model and not provider:
-            if model.startswith('gemini-') and not model.startswith('google/'):
+            if model.startswith('gemini-') or model.startswith('google/'):
                 self.provider = "google_ai_studio"
-            elif model.startswith('google/'):
-                self.provider = "openrouter"
             else:
                 self.provider = provider
         
@@ -43,23 +41,13 @@ class ImageAdapter:
             # Use provided model or default to Gemini 3 Pro Image Preview (Nano Banana Pro Preview)
             # This is the advanced model for professional asset production
             self.model = model or "gemini-3-pro-image-preview"
-        elif self.provider == "openrouter":
-            self.api_key = api_key or os.getenv('OPENROUTER_API_KEY') or os.getenv('OPENAI_API_KEY')
-            self.base_url = "https://openrouter.ai/api/v1"
-            # Default to Google Gemini 2.5 Flash Image (Nano Banana)
-            self.model = model or os.getenv('IMAGE_MODEL', 'google/gemini-2.5-flash-image')
-        elif self.provider == "ai_horde":
-            # AI Horde (Stable Horde) - 100% free, crowdsourced
-            self.api_key = "0000000000"  # Anonymous key
-            self.base_url = "https://stablehorde.net/api/v2"
-            self.model = model or "stable_diffusion_xl"
         else:
-            # Unknown provider - default to Google AI Studio (DALL-E removed)
+            # Unknown provider - default to Google AI Studio
             print(f"[WARNING] Unknown provider '{self.provider}', defaulting to Google AI Studio")
             self.provider = "google_ai_studio"
             self.api_key = api_key or os.getenv('GOOGLE_AI_API_KEY')
             self.base_url = "https://generativelanguage.googleapis.com/v1beta"
-            self.model = "gemini-2.5-flash-image"
+            self.model = "gemini-3-pro-image-preview"
         
         self.mock_mode = not self.api_key or os.getenv('MOCK_IMAGE', 'false').lower() == 'true'
         
@@ -103,26 +91,33 @@ class ImageAdapter:
         print(f"   Size: {size}")
         
         try:
-            # Prepend ultra-strong photorealism instructions for ALL prompts
-            # DALL-E 3 needs very explicit instructions to avoid AI art style
-            photorealism_prefix = "CRITICAL: This must be an actual PHOTOGRAPH taken with a real camera - NOT AI art, NOT digital illustration, NOT stylized artwork. Real camera, real lens, real photo. "
-            
-            # Only enhance prompt with style if it doesn't already have detailed instructions
-            if "CRITICAL RULES" in prompt or "NO text whatsoever" in prompt or "ABSOLUTELY NO TEXT" in prompt:
-                # Prompt already has detailed instructions, prepend photorealism emphasis
-                full_prompt = photorealism_prefix + prompt
-                print(f"   Using enhanced prompt with photorealism prefix")
+            # We only use Gemini 3 Pro Image Preview - optimize prompts for it
+            # Remove conflicting instructions and simplify for better results
+            # Check if prompt already has detailed instructions (from AI optimizer)
+            if "Shot on DSLR" in prompt or "Photojournalistic style" in prompt or "National Geographic" in prompt:
+                # Prompt already optimized by AI - use as-is but clean up any conflicting instructions
+                # Remove "ABSOLUTELY NO TEXT" if present (Gemini 3 Pro supports text)
+                full_prompt = prompt.replace("ABSOLUTELY NO TEXT", "").replace("NO TEXT", "").replace("NO WORDS", "").replace("NO LETTERS", "").strip()
+                # Remove repetitive conflicting instructions
+                full_prompt = full_prompt.replace("NOT AI art, NOT digital illustration, NOT stylized artwork. Real camera, real lens, real photo. ", "")
+                full_prompt = full_prompt.replace("Real photo - NOT illustration, NOT digital art, NOT cartoon.", "")
+                print(f"   Using optimized prompt (cleaned)")
             else:
-                # Add style enhancement for simple prompts - PROFESSIONAL PHOTOGRAPHY ONLY
-                full_prompt = f"{photorealism_prefix}PROFESSIONAL PHOTOGRAPH - PHOTOREALISTIC 4K QUALITY. Shot on DSLR camera, 35mm lens, f/1.8 aperture. {prompt}. {style} lighting. National Geographic quality, documentary photography style, real photo, NOT illustration, NOT digital art, NOT cartoon, NOT anime. ABSOLUTELY NO TEXT OR WORDS - pure visual imagery only."
+                # Simple prompt - enhance it for LinkedIn post with text
+                # Extract a key phrase from the prompt for text overlay
+                key_phrase = prompt[:80] if len(prompt) > 80 else prompt
+                full_prompt = f"""A professional LinkedIn post image. {prompt}. 
+Shot on DSLR, 35mm f/1.8, shallow depth of field. Photojournalistic style, National Geographic quality, hyper-realistic, 4K, natural lighting. 
+Include bold, readable text overlay with a key message from the content. Text should be prominently displayed, well-positioned, and easy to read.
+Square format (1080x1080 pixels), optimized for mobile viewing."""
             
             async with httpx.AsyncClient(timeout=180.0) as client:  # Increased timeout for Gemini 3 Pro
                 if self.provider == "google_ai_studio":
-                    # Google AI Studio direct API - Supports Gemini 2.5 Flash Image and Gemini 3 Pro Image Preview
+                    # Google AI Studio direct API - Using Gemini 3 Pro Image Preview only
                     # Documentation: https://ai.google.dev/gemini-api/docs/image-generation
-                    # Models: gemini-2.5-flash-image (fast) or gemini-3-pro-image-preview (advanced, 4K)
+                    # Model: gemini-3-pro-image-preview (advanced, supports 1K/2K/4K, text rendering)
                     # Endpoint: POST /v1beta/models/{model_name}:generateContent
-                    model_name = self.model  # Use the configured model (default: gemini-3-pro-image-preview)
+                    model_name = self.model  # Always gemini-3-pro-image-preview
                     endpoint = f"{self.base_url}/models/{model_name}:generateContent"
                     
                     # Request format per Google docs:
@@ -139,19 +134,25 @@ class ImageAdapter:
                         }]
                     }
                     
-                    # Add image config for Gemini 3 Pro Image Preview (supports aspect ratios and resolutions)
-                    if "gemini-3-pro-image-preview" in model_name.lower():
-                        # Gemini 3 Pro Image Preview supports aspect ratios and resolutions
-                        # Default to 1:1 aspect ratio, 1K resolution (1024x1024)
-                        request_body["generationConfig"] = {
-                            "imageConfig": {
-                                "aspectRatio": "1:1"  # Options: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
-                            }
+                    # Add image config for Gemini 3 Pro Image Preview (supports aspect ratios, resolutions, and text)
+                    # Documentation: https://ai.google.dev/gemini-api/docs/image-generation
+                    # We only use gemini-3-pro-image-preview - always add generationConfig
+                    # Gemini 3 Pro Image Preview REQUIRES responseModalities in generationConfig
+                    # Use LinkedIn-optimized 1:1 aspect ratio (1080x1080) for square posts
+                    # Text is allowed in Gemini 3 Pro Image Preview
+                    request_body["generationConfig"] = {
+                        "responseModalities": ["TEXT", "IMAGE"],  # REQUIRED for Gemini 3 Pro Image Preview
+                        "imageConfig": {
+                            "aspectRatio": "1:1",  # LinkedIn square format (1080x1080)
+                            "imageSize": "1K"  # 1K resolution (1024x1024) - use uppercase K as per docs
                         }
+                    }
                     
                     print(f"[IMAGE] Calling Gemini API: {endpoint}")
                     print(f"[IMAGE] Model: {model_name}")
                     print(f"[IMAGE] Request body keys: {list(request_body.keys())}")
+                    import json
+                    print(f"[IMAGE] Full request body: {json.dumps(request_body, indent=2)[:1000]}...")  # Log first 1000 chars
                     
                     response = await client.post(
                         endpoint,
@@ -161,55 +162,15 @@ class ImageAdapter:
                         },
                         json=request_body
                     )
-                elif self.provider == "openrouter":
-                    # OpenRouter image generation (supports Gemini, Flux, SDXL, etc.)
-                    # Gemini 2.5 Flash Image uses chat/completions endpoint with image generation
                     
-                    if "gemini" in self.model.lower():
-                        # Gemini 2.5 Flash Image (Nano Banana) uses chat completions with image output
-                        response = await client.post(
-                            f"{self.base_url}/chat/completions",
-                            headers={
-                                "Authorization": f"Bearer {self.api_key}",
-                                "Content-Type": "application/json",
-                                "HTTP-Referer": "https://linkedin-pilot.app",
-                                "X-Title": "LinkedIn Pilot"
-                            },
-                            json={
-                                "model": self.model,
-                                "messages": [
-                                    {
-                                        "role": "user",
-                                        "content": [
-                                            {
-                                                "type": "text",
-                                                "text": f"Generate an image: {full_prompt}"
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        )
-                    else:
-                        # Other OpenRouter image models (Flux, SDXL, etc.)
-                        response = await client.post(
-                            f"{self.base_url}/images/generations",
-                            headers={
-                                "Authorization": f"Bearer {self.api_key}",
-                                "Content-Type": "application/json",
-                                "HTTP-Referer": "https://linkedin-pilot.app",
-                                "X-Title": "LinkedIn Pilot"
-                            },
-                            json={
-                                "model": self.model,
-                                "prompt": full_prompt,
-                                "n": 1,
-                                "size": size
-                            }
-                        )
-                elif self.provider == "ai_horde":
-                    # AI Horde (Stable Horde) - Free crowdsourced generation
-                    return await self._generate_ai_horde(full_prompt, size)
+                    # Log response status and error details if not successful
+                    if response.status_code != 200:
+                        print(f"[ERROR] API returned status {response.status_code}")
+                        try:
+                            error_body = response.json()
+                            print(f"[ERROR] Error response: {error_body}")
+                        except:
+                            print(f"[ERROR] Error response text: {response.text[:500]}")
                 elif self.provider == "openai":
                     # OpenAI image generation (DALL-E 2/3 or GPT Image 1) - ONLY if explicitly using OpenAI provider
                     # Note: DALL-E is deprecated - use Google AI Studio (Gemini) instead
@@ -386,61 +347,8 @@ class ImageAdapter:
                                                 print(f"   Part {i} keys: {list(part.keys())}")
                             raise Exception("No image data found in Google AI Studio response. Response structure logged above.")
                 
-                elif self.provider == "openrouter" and "gemini" in self.model.lower():
-                    # Gemini 2.5 Flash Image returns the image in the message content
-                    if result.get('choices') and len(result['choices']) > 0:
-                        message = result['choices'][0].get('message', {})
-                        content = message.get('content', [])
-                        
-                        # Find image content - Gemini returns base64 images
-                        image_base64 = None
-                        image_url = None
-                        
-                        for item in content if isinstance(content, list) else []:
-                            if isinstance(item, dict):
-                                # Check for image_url type (data URL with base64)
-                                if item.get('type') == 'image_url':
-                                    url = item.get('image_url', {}).get('url', '')
-                                    if url.startswith('data:image'):
-                                        image_base64 = url.split(',')[1] if ',' in url else url
-                                        image_url = url
-                                        break
-                                # Check for direct base64 in other formats
-                                elif 'base64' in str(item):
-                                    # Extract base64 data from various possible formats
-                                    item_str = str(item)
-                                    if 'iVBORw0KGgo' in item_str:  # PNG signature in base64
-                                        # Find the base64 data
-                                        import re
-                                        base64_match = re.search(r'[A-Za-z0-9+/]{100,}={0,2}', item_str)
-                                        if base64_match:
-                                            image_base64 = base64_match.group()
-                                            image_url = f"data:image/png;base64,{image_base64}"
-                                            break
-                        
-                        if image_base64 or image_url:
-                            print(f"[SUCCESS] Image generated successfully with Gemini 2.5 Flash Image!")
-                            if image_url:
-                                print(f"   Data URL length: {len(image_url)}")
-                            
-                            return {
-                                "url": image_url,
-                                "image_base64": image_base64,
-                                "prompt": full_prompt,
-                                "revised_prompt": full_prompt,
-                                "size": size
-                            }
-                        else:
-                            # Log the actual response for debugging
-                            print(f"[WARNING] Could not extract image from Gemini response")
-                            print(f"   Response structure: {list(result.keys())}")
-                            if result.get('choices'):
-                                print(f"   Content type: {type(content)}")
-                                print(f"   Content items: {len(content) if isinstance(content, list) else 'not a list'}")
-                            raise Exception("No image data found in Gemini response")
-                
                 elif result.get('data') and len(result['data']) > 0:
-                    # Standard OpenAI/OpenRouter image response (only for OpenAI provider)
+                    # Standard OpenAI image response (only for OpenAI provider)
                     if self.provider != "openai":
                         raise Exception(f"Unexpected response format for provider {self.provider}")
                     image_url = result['data'][0]['url']
@@ -483,114 +391,6 @@ class ImageAdapter:
             })
         return images
     
-    async def _generate_ai_horde(self, prompt: str, size: str) -> dict:
-        """
-        Generate image using AI Horde (Stable Horde)
-        100% free, crowdsourced, slower (30s-5min)
-        Anonymous key: 0000000000
-        """
-        width, height = map(int, size.split('x'))
-        
-        print(f"[IMAGE] Using AI Horde (free crowdsourced generation)")
-        print(f"   This may take 30 seconds to 5 minutes...")
-        
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            # Step 1: Submit async request
-            submit_response = await client.post(
-                f"{self.base_url}/generate/async",
-                json={
-                    "prompt": f"{prompt}, photorealistic, professional photography, DSLR quality, 4K, National Geographic style, documentary photo, real photo",
-                    "params": {
-                        "width": width,
-                        "height": height,
-                        "steps": 30,
-                        "cfg_scale": 7.5,
-                        "sampler_name": "k_euler_a",
-                        "karras": True,
-                        "negative_prompt": "illustration, digital art, cartoon, anime, drawing, painting, 3D render, CGI, text, words, letters, typography, watermark, signature, low quality, blurry"
-                    },
-                    "models": [self.model],
-                    "nsfw": False,
-                    "trusted_workers": True,
-                    "r2": True  # Use R2 storage for faster retrieval
-                },
-                headers={
-                    "apikey": self.api_key,
-                    "Content-Type": "application/json"
-                }
-            )
-            
-            if submit_response.status_code != 202:
-                raise Exception(f"AI Horde submission failed: {submit_response.status_code} - {submit_response.text}")
-            
-            job_data = submit_response.json()
-            job_id = job_data.get("id")
-            
-            if not job_id:
-                raise Exception("No job ID returned from AI Horde")
-            
-            print(f"[IMAGE] AI Horde job submitted: {job_id}")
-            wait_time = job_data.get("wait_time", 0)
-            print(f"[IMAGE] Estimated wait: {wait_time} seconds")
-            
-            # Step 2: Poll for completion (max 5 minutes)
-            for attempt in range(60):  # 60 × 5s = 5 minutes
-                await asyncio.sleep(5)
-                
-                check_response = await client.get(
-                    f"{self.base_url}/generate/check/{job_id}",
-                    headers={"apikey": self.api_key}
-                )
-                
-                if check_response.status_code != 200:
-                    continue
-                
-                status = check_response.json()
-                
-                if status.get("done"):
-                    # Step 3: Retrieve result
-                    status_response = await client.get(
-                        f"{self.base_url}/generate/status/{job_id}",
-                        headers={"apikey": self.api_key}
-                    )
-                    
-                    if status_response.status_code != 200:
-                        raise Exception(f"Failed to retrieve AI Horde result: {status_response.status_code}")
-                    
-                    result = status_response.json()
-                    generations = result.get("generations", [])
-                    
-                    if not generations:
-                        raise Exception("No image generated by AI Horde")
-                    
-                    image_url = generations[0].get("img")
-                    
-                    if not image_url:
-                        raise Exception("No image URL in AI Horde response")
-                    
-                    print(f"[SUCCESS] AI Horde image generated!")
-                    print(f"   Wait time: {attempt * 5} seconds")
-                    print(f"   URL: {image_url[:60]}...")
-                    
-                    return {
-                        "url": image_url,
-                        "prompt": prompt,
-                        "revised_prompt": f"AI Horde (Stable Diffusion XL): {prompt}",
-                        "size": size,
-                        "provider": "AI Horde",
-                        "model": self.model,
-                        "cost": "$0.00",
-                        "wait_time": attempt * 5
-                    }
-                
-                # Still waiting
-                current_wait = status.get("wait_time", 0)
-                queue_pos = status.get("queue_position", "unknown")
-                print(f"[IMAGE] AI Horde: waiting... (queue position: {queue_pos}, ~{current_wait}s remaining)")
-            
-            # Timeout after 5 minutes
-            raise TimeoutError("AI Horde generation timeout (>5 min). Try again later.")
-    
     def _generate_mock_image(self, prompt: str, style: str, size: str) -> dict:
         """Generate a professional mock image based on the model type"""
         import base64
@@ -604,7 +404,7 @@ class ImageAdapter:
             return self._generate_svg_fallback(prompt, style, size)
         
         width, height = map(int, size.split('x'))
-        model_name = getattr(self, 'model', 'mock-gemini-2.5-flash-image')
+        model_name = getattr(self, 'model', 'mock-gemini-3-pro-image-preview')
         
         print(f"[IMAGE] Generating mock image with {model_name}")
         print(f"   Prompt: {prompt[:50]}...")
@@ -633,170 +433,6 @@ class ImageAdapter:
         img = Image.new('RGB', (width, height))
         draw = ImageDraw.Draw(img)
         
-        # Create gradient
-        for y in range(height):
-            ratio = y / height
-            color1 = colors[0]
-            color2 = colors[1] if len(colors) > 1 else colors[0]
-            
-            r = int(color1[0] * (1 - ratio) + color2[0] * ratio)
-            g = int(color1[1] * (1 - ratio) + color2[1] * ratio)
-            b = int(color1[2] * (1 - ratio) + color2[2] * ratio)
-            
-            draw.line([(0, y), (width, y)], fill=(r, g, b))
-        
-        # Add geometric elements for professional look
-        if "professional" in style.lower() or "business" in prompt.lower():
-            overlay = Image.new('RGBA', (width, height), (255, 255, 255, 0))
-            overlay_draw = ImageDraw.Draw(overlay)
-            
-            # Add subtle circles
-            for i in range(3):
-                x = random.randint(100, width-200)
-                y = random.randint(100, height-200)
-                size_circle = random.randint(80, 180)
-                overlay_draw.ellipse([x, y, x+size_circle, y+size_circle], fill=(255, 255, 255, 25))
-            
-            # Add some lines for modern look
-            for i in range(2):
-                x1 = random.randint(0, width//2)
-                y1 = random.randint(0, height)
-                x2 = random.randint(width//2, width)
-                y2 = random.randint(0, height)
-                overlay_draw.line([(x1, y1), (x2, y2)], fill=(255, 255, 255, 30), width=2)
-            
-            # Composite overlay
-            img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
-        
-        # Convert to base64
-        buffer = io.BytesIO()
-        img.save(buffer, format='PNG', quality=95)
-        img_base64 = base64.b64encode(buffer.getvalue()).decode()
-        
-        print(f"[SUCCESS] Mock image generated successfully!")
-        print(f"   Model: {model_display}")
-        print(f"   Size: {len(img_base64)} bytes")
-        
-        return {
-            "url": f"data:image/png;base64,{img_base64}",
-            "image_base64": img_base64,
-            "prompt": prompt,
-            "revised_prompt": f"{model_display}: {prompt}",
-            "size": size,
-            "mock": True,
-            "model": model_display
-        }
-    
-    def _generate_svg_fallback(self, prompt: str, style: str, size: str) -> dict:
-        """Generate SVG fallback when PIL is not available"""
-        import base64
-        
-        width, height = map(int, size.split('x'))
-        
-        # Simple SVG gradient
-        svg = f'''<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" fill="none" xmlns="http://www.w3.org/2000/svg">
-<defs>
-<linearGradient id="paint0_linear_0_1" x1="{width//2}" y1="0" x2="{width//2}" y2="{height}" gradientUnits="userSpaceOnUse">
-<stop stop-color="#0075B5"/>
-<stop offset="1" stop-color="#00598B"/>
-</linearGradient>
-</defs>
-<rect width="{width}" height="{height}" fill="url(#paint0_linear_0_1)"/>
-</svg>'''
-        
-        svg_base64 = base64.b64encode(svg.encode()).decode()
-        
-        return {
-            "url": f"data:image/svg+xml;base64,{svg_base64}",
-            "image_base64": svg_base64,
-            "prompt": prompt,
-            "revised_prompt": f"Mock SVG: {prompt}",
-            "size": size,
-            "mock": True
-        }
-
-        # Create gradient
-        for y in range(height):
-            ratio = y / height
-            color1 = colors[0]
-            color2 = colors[1] if len(colors) > 1 else colors[0]
-            
-            r = int(color1[0] * (1 - ratio) + color2[0] * ratio)
-            g = int(color1[1] * (1 - ratio) + color2[1] * ratio)
-            b = int(color1[2] * (1 - ratio) + color2[2] * ratio)
-            
-            draw.line([(0, y), (width, y)], fill=(r, g, b))
-        
-        # Add geometric elements for professional look
-        if "professional" in style.lower() or "business" in prompt.lower():
-            overlay = Image.new('RGBA', (width, height), (255, 255, 255, 0))
-            overlay_draw = ImageDraw.Draw(overlay)
-            
-            # Add subtle circles
-            for i in range(3):
-                x = random.randint(100, width-200)
-                y = random.randint(100, height-200)
-                size_circle = random.randint(80, 180)
-                overlay_draw.ellipse([x, y, x+size_circle, y+size_circle], fill=(255, 255, 255, 25))
-            
-            # Add some lines for modern look
-            for i in range(2):
-                x1 = random.randint(0, width//2)
-                y1 = random.randint(0, height)
-                x2 = random.randint(width//2, width)
-                y2 = random.randint(0, height)
-                overlay_draw.line([(x1, y1), (x2, y2)], fill=(255, 255, 255, 30), width=2)
-            
-            # Composite overlay
-            img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
-        
-        # Convert to base64
-        buffer = io.BytesIO()
-        img.save(buffer, format='PNG', quality=95)
-        img_base64 = base64.b64encode(buffer.getvalue()).decode()
-        
-        print(f"[SUCCESS] Mock image generated successfully!")
-        print(f"   Model: {model_display}")
-        print(f"   Size: {len(img_base64)} bytes")
-        
-        return {
-            "url": f"data:image/png;base64,{img_base64}",
-            "image_base64": img_base64,
-            "prompt": prompt,
-            "revised_prompt": f"{model_display}: {prompt}",
-            "size": size,
-            "mock": True,
-            "model": model_display
-        }
-    
-    def _generate_svg_fallback(self, prompt: str, style: str, size: str) -> dict:
-        """Generate SVG fallback when PIL is not available"""
-        import base64
-        
-        width, height = map(int, size.split('x'))
-        
-        # Simple SVG gradient
-        svg = f'''<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" fill="none" xmlns="http://www.w3.org/2000/svg">
-<defs>
-<linearGradient id="paint0_linear_0_1" x1="{width//2}" y1="0" x2="{width//2}" y2="{height}" gradientUnits="userSpaceOnUse">
-<stop stop-color="#0075B5"/>
-<stop offset="1" stop-color="#00598B"/>
-</linearGradient>
-</defs>
-<rect width="{width}" height="{height}" fill="url(#paint0_linear_0_1)"/>
-</svg>'''
-        
-        svg_base64 = base64.b64encode(svg.encode()).decode()
-        
-        return {
-            "url": f"data:image/svg+xml;base64,{svg_base64}",
-            "image_base64": svg_base64,
-            "prompt": prompt,
-            "revised_prompt": f"Mock SVG: {prompt}",
-            "size": size,
-            "mock": True
-        }
-
         # Create gradient
         for y in range(height):
             ratio = y / height

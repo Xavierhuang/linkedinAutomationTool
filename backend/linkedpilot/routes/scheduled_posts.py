@@ -30,7 +30,7 @@ async def create_scheduled_post(scheduled_post: ScheduledPost):
 
 @router.get("")
 async def list_scheduled_posts(
-    org_id: str, 
+    org_id: Optional[str] = None, 
     range_start: Optional[str] = None, 
     range_end: Optional[str] = None,
     include_cancelled: Optional[bool] = False
@@ -38,7 +38,13 @@ async def list_scheduled_posts(
     """List scheduled posts with optional date range"""
     db = get_db()
     
-    query = {"org_id": org_id}
+    # Build query - if org_id provided, filter by it; otherwise return all (for admin)
+    query = {}
+    if org_id:
+        query["org_id"] = org_id
+    else:
+        # If no org_id provided, only return posts with org_id set (exclude null/onboarding posts)
+        query["org_id"] = {"$ne": None}
     
     # Exclude cancelled posts by default (for calendar view)
     # Include them when explicitly requested (for posts view)
@@ -63,6 +69,12 @@ async def list_scheduled_posts(
         print(f"[SCHEDULED POSTS] Querying ALL posts for org_id={org_id} (no date range)")
     
     posts = await db.scheduled_posts.find(query, {"_id": 0}).to_list(length=500)  # EXCLUDE _id
+    
+    # #region agent log
+    import json
+    with open('/var/www/linkedin-pilot/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"location":"scheduled_posts.py:71","message":"list_scheduled_posts query executed","data":{"org_id":org_id,"query":str(query),"posts_count":len(posts),"post_ids":[p.get('id') for p in posts[:5]],"post_org_ids":[p.get('org_id') for p in posts[:5]],"post_publish_times":[p.get('publish_time') for p in posts[:5]]},"timestamp":int(datetime.utcnow().timestamp()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"B"})+"\n")
+    # #endregion
     
     print(f"[SCHEDULED POSTS] Found {len(posts)} posts matching query")
     if posts:
@@ -130,8 +142,8 @@ async def get_scheduled_post(post_id: str):
     return post
 
 @router.patch("/{post_id}")
-async def update_scheduled_post(post_id: str, publish_time: Optional[str] = None, timezone: Optional[str] = None):
-    """Update scheduled post (for drag-drop reschedule)"""
+async def update_scheduled_post(post_id: str, publish_time: Optional[str] = None, timezone: Optional[str] = None, org_id: Optional[str] = None):
+    """Update scheduled post (for drag-drop reschedule or org_id update)"""
     db = get_db()
     
     update_data = {"updated_at": datetime.utcnow().isoformat()}
@@ -140,6 +152,8 @@ async def update_scheduled_post(post_id: str, publish_time: Optional[str] = None
         update_data['publish_time'] = publish_time
     if timezone:
         update_data['timezone'] = timezone
+    if org_id:
+        update_data['org_id'] = org_id
     
     result = await db.scheduled_posts.update_one(
         {"id": post_id},
@@ -152,6 +166,74 @@ async def update_scheduled_post(post_id: str, publish_time: Optional[str] = None
     # TODO: Re-enqueue job with new time
     
     return {"post_id": post_id, "updated": True}
+
+@router.put("/{post_id}")
+async def update_scheduled_post_full(post_id: str, update_data: dict):
+    """Update scheduled post with full object (for org_id updates during onboarding)"""
+    import json
+    db = get_db()
+    
+    # #region agent log
+    with open('/var/www/linkedin-pilot/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"location":"scheduled_posts.py:164","message":"PUT update_scheduled_post_full called","data":{"post_id":post_id,"update_data_keys":list(update_data.keys()),"has_org_id":'org_id' in update_data,"new_org_id":update_data.get('org_id')},"timestamp":int(datetime.utcnow().timestamp()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"A"})+"\n")
+    # #endregion
+    
+    # Check if post exists
+    existing_post = await db.scheduled_posts.find_one({"id": post_id}, {"_id": 0})
+    if not existing_post:
+        raise HTTPException(status_code=404, detail="Scheduled post not found")
+    
+    # #region agent log
+    with open('/var/www/linkedin-pilot/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"location":"scheduled_posts.py:171","message":"Existing post found","data":{"post_id":post_id,"existing_org_id":existing_post.get('org_id'),"existing_status":existing_post.get('status'),"existing_publish_time":existing_post.get('publish_time')},"timestamp":int(datetime.utcnow().timestamp()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"A"})+"\n")
+    # #endregion
+    
+    # Build update dict - only update fields that are provided
+    update_fields = {"updated_at": datetime.utcnow().isoformat()}
+    
+    # Update org_id if provided
+    # Handle both null and actual org_id values
+    if 'org_id' in update_data:
+        new_org_id = update_data['org_id']
+        # Only update if it's different from existing (avoid unnecessary updates)
+        if existing_post.get('org_id') != new_org_id:
+            update_fields['org_id'] = new_org_id
+        else:
+            # org_id already correct, but we still update updated_at
+            pass
+    
+    # Update other fields if provided (preserve existing if not provided)
+    for field in ['publish_time', 'timezone', 'status', 'draft_id', 'require_approval']:
+        if field in update_data:
+            if field == 'publish_time':
+                # Handle both datetime and string formats
+                if isinstance(update_data[field], datetime):
+                    update_fields[field] = update_data[field].isoformat()
+                elif isinstance(update_data[field], str):
+                    update_fields[field] = update_data[field]
+            else:
+                update_fields[field] = update_data[field]
+    
+    # Preserve created_at from existing post
+    if 'created_at' in existing_post:
+        update_fields['created_at'] = existing_post['created_at']
+    
+    result = await db.scheduled_posts.update_one(
+        {"id": post_id},
+        {"$set": update_fields}
+    )
+    
+    if result.modified_count == 0:
+        # Still return success if org_id was already set correctly
+        if 'org_id' in update_fields and existing_post.get('org_id') == update_fields['org_id']:
+            return {"post_id": post_id, "updated": True, "message": "No changes needed"}
+        raise HTTPException(status_code=400, detail="Failed to update scheduled post or no changes made")
+    
+    print(f"[SCHEDULED POST] Updated {post_id} with org_id: {update_fields.get('org_id')}")
+    
+    # Return updated post
+    updated_post = await db.scheduled_posts.find_one({"id": post_id}, {"_id": 0})
+    return updated_post
 
 @router.post("/{post_id}/publish-now")
 async def publish_now(post_id: str):

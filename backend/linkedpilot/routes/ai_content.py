@@ -67,45 +67,24 @@ async def generate_content(request: ContentGenerationRequest):
     providers_to_try = []
     
     # Priority 1: Use configured default model
+    # ALWAYS use system API keys from admin dashboard - users never enter API keys
     default_key, _ = await get_system_api_key(default_provider)
-    if not default_key:
-        default_key, _ = await get_user_api_key(request.user_id, default_provider)
     if default_key:
         providers_to_try.append((default_provider, default_model))
         print(f"   [SUCCESS] Added default model: {default_provider}:{default_model}")
     
-    # Priority 2-4: Add other providers if keys are present (for fallback)
+    # Priority 2: Add other providers if keys are present (for fallback)
     # Google AI Studio
     if default_provider != "google_ai_studio":
         google_key, _ = await get_system_api_key("google_ai_studio")
-        if not google_key:
-            google_key, _ = await get_user_api_key(request.user_id, "google_ai_studio")
         if google_key:
             providers_to_try.append(("google_ai_studio", "gemini-2.5-flash"))
     
     # OpenAI
     if default_provider != "openai":
         openai_key, _ = await get_system_api_key("openai")
-        if not openai_key:
-            openai_key, _ = await get_user_api_key(request.user_id, "openai")
         if openai_key:
             providers_to_try.append(("openai", "gpt-4o"))
-    
-    # Anthropic
-    if default_provider != "anthropic":
-        anthropic_key, _ = await get_system_api_key("anthropic")
-        if not anthropic_key:
-            anthropic_key, _ = await get_user_api_key(request.user_id, "anthropic")
-        if anthropic_key:
-            providers_to_try.append(("anthropic", "claude-3-5-sonnet"))
-    
-    # OpenRouter
-    if default_provider != "openrouter":
-        openrouter_key, _ = await get_system_api_key("openrouter")
-        if not openrouter_key:
-            openrouter_key, _ = await get_user_api_key(request.user_id, "openrouter")
-        if openrouter_key:
-            providers_to_try.append(("openrouter", "anthropic/claude-3.5-sonnet"))
     
     content_data = None
     last_error = None
@@ -207,9 +186,10 @@ async def generate_content(request: ContentGenerationRequest):
     }
     
     try:
-        # Generate image if campaign requires it
+        # Generate image - default to True if not explicitly set
         image_url = None
-        if campaign.get('include_images', False):
+        include_images = campaign.get('include_images', True)  # Default to True - always generate images
+        if include_images:
             try:
                 print(f"   [IMAGE] Generating image...")
                 
@@ -218,7 +198,7 @@ async def generate_content(request: ContentGenerationRequest):
                 use_stock = not use_ai_images  # Use stock only if AI is explicitly disabled
                 
                 # Get campaign's preferred AI image model (only used if use_ai_images=True)
-                image_model_raw = campaign.get('image_model', 'google/gemini-3-pro-image-preview')  # Updated to Gemini 3 Pro Image Preview
+                image_model_raw = campaign.get('image_model', 'google/gemini-3-pro-image-preview')  # Gemini 3 Pro Image Preview (supports text)
                 print(f"   [IMAGE] Mode: {'AI Generation' if use_ai_images else 'Stock Photos (default)'}")
                 if use_ai_images:
                     print(f"   [IMAGE MODEL] AI model: {image_model_raw}")
@@ -349,7 +329,7 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
                             system_api_key, provider = await get_system_api_key("google_ai_studio")
                             if system_api_key:
                                 default_img_provider = "google_ai_studio"
-                                default_img_model = "gemini-2.5-flash-image"
+                                default_img_model = "gemini-3-pro-image-preview"
                         
                         if system_api_key:
                             print(f"   [IMAGE] Creating ImageAdapter with:")
@@ -396,7 +376,7 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
                                     image_adapter = ImageAdapter(
                                         api_key=system_api_key,
                                         provider="google_ai_studio",
-                                        model="gemini-2.5-flash-image"
+                                        model="gemini-3-pro-image-preview"
                                     )
                                     image_result = await image_adapter.generate_image(
                                         prompt=image_prompt,

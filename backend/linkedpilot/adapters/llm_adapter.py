@@ -11,8 +11,8 @@ from linkedpilot.utils.linkedin_templates import (
 
 class LLMAdapter:
     """
-    Adapter for LLM operations using OpenAI or OpenRouter
-    Supports: OpenAI, OpenRouter (with access to Claude, Gemini, etc.)
+    Adapter for LLM operations using OpenAI or Google AI Studio
+    Supports: OpenAI, Google AI Studio (Gemini)
     """
     
     def __init__(self, api_key: Optional[str] = None, provider: str = "openai", model: Optional[str] = None):
@@ -20,19 +20,11 @@ class LLMAdapter:
         self.provider = provider
         
         # Multi-provider support
-        if provider == "openrouter":
-            self.api_key = api_key or os.getenv('OPENROUTER_API_KEY')
-            self.base_url = "https://openrouter.ai/api/v1"
-            self.model = model or 'anthropic/claude-3.5-sonnet'
-        elif provider == "google_ai_studio":
+        if provider == "google_ai_studio":
             self.api_key = api_key or os.getenv('GOOGLE_AI_API_KEY')
             self.base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
             # Default to Gemini 2.5 Pro for advanced capabilities
             self.model = model or 'gemini-2.5-pro'  # Gemini 2.5 Pro for expert-grade designs
-        elif provider == "anthropic":
-            self.api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
-            self.base_url = "https://api.anthropic.com/v1"
-            self.model = model or 'claude-3-5-sonnet'  # Valid Anthropic model name
         else:  # openai (default)
             self.api_key = api_key or os.getenv('OPENAI_API_KEY')
             self.base_url = "https://api.openai.com/v1"
@@ -45,15 +37,6 @@ class LLMAdapter:
         self.client = None
         if self.api_key:
             extra_headers = {}
-            if provider == "openrouter":
-                extra_headers = {
-                    "HTTP-Referer": "https://linkedin-pilot.app",
-                    "X-Title": "LinkedIn Pilot"
-                }
-            elif provider == "anthropic":
-                extra_headers = {
-                    "anthropic-version": "2023-06-01"
-                }
             
             self.client = AsyncOpenAI(
                 api_key=self.api_key,
@@ -573,7 +556,7 @@ Make it engaging and actionable!"""
         
         try:
             # Use vision-capable model
-            vision_model = "gpt-4o" if self.provider == "openai" else "anthropic/claude-3.5-sonnet"
+            vision_model = "gpt-4o" if self.provider == "openai" else "gemini-2.5-pro"
             
             response = await self.client.chat.completions.create(
                 model=vision_model,
@@ -793,7 +776,7 @@ PROCESS:
      - 3-5 relevant hashtags.
 
 OUTPUT FORMAT:
-You must return a JSON object:
+You MUST return ONLY a valid JSON object with no additional text, markdown, or code blocks. The JSON must follow this exact structure:
 {
   "type": "question" | "draft",
   "content": "The question to ask the user OR the full generated post content",
@@ -804,6 +787,8 @@ You must return a JSON object:
     "tone": "detected tone or null"
   }
 }
+
+CRITICAL: Return ONLY the JSON object. Do not include markdown code blocks, explanations, or any other text. The response must be valid JSON that can be parsed directly.
 """
 
             # Prepare messages for the API
@@ -828,13 +813,38 @@ You must return a JSON object:
                 # Clean up markdown code blocks if present (common with some models)
                 clean_content = content.replace('```json', '').replace('```', '').strip()
                 result = json.loads(clean_content)
+                
+                # Validate response structure
+                if not isinstance(result, dict):
+                    raise ValueError("Response is not a dictionary")
+                
+                # Ensure required fields exist
+                if 'type' not in result:
+                    print(f"[WARNING] Missing 'type' field, defaulting to 'question'")
+                    result['type'] = 'question'
+                
+                if 'content' not in result:
+                    print(f"[WARNING] Missing 'content' field, using empty string")
+                    result['content'] = ''
+                
+                if 'context_gathered' not in result:
+                    result['context_gathered'] = {}
+                
+                # Validate type value
+                if result['type'] not in ['question', 'draft']:
+                    print(f"[WARNING] Invalid type '{result['type']}', defaulting to 'question'")
+                    result['type'] = 'question'
+                
+                print(f"[SUCCESS] Validated response: type={result['type']}, content_length={len(result.get('content', ''))}")
                 return result
-            except json.JSONDecodeError:
-                print(f"[WARNING] Failed to parse JSON response. Fallback to text.")
+                
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"[WARNING] Failed to parse JSON response: {e}")
+                print(f"[DEBUG] Raw content: {content[:500]}")
                 # Fallback if model didn't output JSON
                 return {
-                    "type": "question", # Assume question if unstructured
-                    "content": content,
+                    "type": "question",
+                    "content": content if content else "I'm having trouble processing that. Could you rephrase?",
                     "context_gathered": {}
                 }
 

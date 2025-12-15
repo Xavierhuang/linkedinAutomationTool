@@ -217,7 +217,7 @@ async def extract_material_content(material_id: str):
         elif material['type'] == MaterialType.IMAGE:
             # Get API key
             settings = await db.user_settings.find_one({"org_id": material['org_id']}, {"_id": 0})
-            api_key = settings.get('openrouter_api_key') or settings.get('openai_api_key') if settings else None
+            api_key = settings.get('openai_api_key') if settings else None
             if api_key:
                 extracted = await extractor.extract_from_image(material['file_path'], api_key)
             else:
@@ -330,7 +330,7 @@ async def analyze_materials(org_id: str):
         # Get settings by user_id (not org_id)
         settings = await db.user_settings.find_one({"user_id": user_id}, {"_id": 0})
         
-        # Get API key and provider using helper (priority: OpenAI → Gemini → Anthropic → OpenRouter)
+        # Get API key and provider using helper (priority: OpenAI → Google AI)
         from ..utils.api_key_helper import get_api_key_and_provider
         api_key, provider = get_api_key_and_provider(settings, decrypt_value)
         
@@ -340,7 +340,7 @@ async def analyze_materials(org_id: str):
             api_key, provider = await get_system_api_key("any")
         
         if not api_key:
-            raise HTTPException(status_code=400, detail="No API key configured. Please add an OpenAI, Google AI, Anthropic, or OpenRouter key in Settings or Admin Dashboard.")
+            raise HTTPException(status_code=400, detail="No API key configured. Please add an OpenAI or Google AI key in Settings or Admin Dashboard.")
         
         print(f"   [OK] Using provider: {provider}")
         print(f"   [OK] API key starts with: {api_key[:15] if api_key else 'None'}...")
@@ -833,7 +833,7 @@ async def generate_campaign_config(request: CampaignGenerationRequest):
         # Get settings by user_id (not org_id)
         settings = await db.user_settings.find_one({"user_id": user_id}, {"_id": 0})
         
-        # Get API key and provider using helper (priority: OpenAI → Gemini → Anthropic → OpenRouter)
+        # Get API key and provider using helper (priority: OpenAI → Google AI)
         from ..utils.api_key_helper import get_api_key_and_provider
         api_key, provider = get_api_key_and_provider(settings, decrypt_value)
         
@@ -843,7 +843,7 @@ async def generate_campaign_config(request: CampaignGenerationRequest):
             api_key, provider = await get_system_api_key("any")
         
         if not api_key:
-            raise HTTPException(status_code=400, detail="No API key configured. Please add an OpenAI, Google AI, Anthropic, or OpenRouter key in Settings or Admin Dashboard.")
+            raise HTTPException(status_code=400, detail="No API key configured. Please add an OpenAI or Google AI key in Settings or Admin Dashboard.")
         
         print(f"   [OK] Using provider: {provider}")
         print(f"   [OK] API key starts with: {api_key[:15] if api_key else 'None'}...")

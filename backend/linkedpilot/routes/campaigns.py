@@ -59,7 +59,7 @@ from pydantic import BaseModel as PydanticBaseModel
 
 # Request Models
 class CampaignCreateRequest(PydanticBaseModel):
-    org_id: str
+    org_id: Optional[str] = None  # Allow None for onboarding
     name: str
     description: Optional[str] = None
     target_audience: Optional[TargetAudience] = None
@@ -72,7 +72,7 @@ class CampaignCreateRequest(PydanticBaseModel):
     include_images: bool = True
     use_ai_images: bool = True
     image_style: Optional[str] = "professional"
-    image_model: Optional[str] = "google/gemini-2.5-flash-image"
+    image_model: Optional[str] = "google/gemini-3-pro-image-preview"
     profile_type: Optional[str] = "personal"
     linkedin_author_id: Optional[str] = None
     status: CampaignStatus = CampaignStatus.DRAFT
@@ -109,14 +109,14 @@ async def create_campaign(request: CampaignCreateRequest):
     
     # Resolve author name if profile_type and linkedin_author_id are provided
     author_name = None
-    if request.profile_type and request.linkedin_author_id:
+    if request.org_id and request.profile_type and request.linkedin_author_id:
         author_name = await resolve_author_name(request.org_id, request.profile_type, request.linkedin_author_id)
     
-    # Validate and reject DALL-E models (deprecated)
-    image_model = request.image_model or "google/gemini-2.5-flash-image"
+    # Validate and reject DALL-E models (deprecated), default to Gemini 3 Pro Image Preview
+    image_model = request.image_model or "google/gemini-3-pro-image-preview"
     if image_model.lower() and ('dall-e' in image_model.lower() or image_model.lower().startswith('openai:')):
-        print(f"[WARNING] DALL-E model detected in create: {image_model}, converting to Gemini")
-        image_model = "google/gemini-2.5-flash-image"
+        print(f"[WARNING] DALL-E model detected in create: {image_model}, converting to Gemini 3 Pro")
+        image_model = "google/gemini-3-pro-image-preview"
     
     # Create campaign with all new fields
     campaign = Campaign(
@@ -228,7 +228,7 @@ async def update_campaign(campaign_id: str, request: CampaignUpdateRequest):
         image_model = request.image_model.lower()
         if 'dall-e' in image_model or image_model.startswith('openai:'):
             print(f"[WARNING] DALL-E model detected in update: {request.image_model}, converting to Gemini")
-            update_data['image_model'] = "google/gemini-2.5-flash-image"
+            update_data['image_model'] = "google/gemini-3-pro-image-preview"
         else:
             update_data['image_model'] = request.image_model
     if request.profile_type is not None:

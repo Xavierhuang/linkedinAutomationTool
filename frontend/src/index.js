@@ -24,9 +24,16 @@ import App from "./App";
       }
     }
     
-    // Suppress browser extension errors
+    // Suppress browser extension and Stripe iframe errors
     if (errorMessage.includes('message channel closed') || 
-        errorMessage.includes('asynchronous response')) {
+        errorMessage.includes('asynchronous response') ||
+        errorMessage.includes('listener indicated an asynchronous response')) {
+      return;
+    }
+    
+    // Suppress Stripe iframe communication errors (harmless)
+    if ((errorMessage.includes('stripe.com') || errorMessage.includes('stripe.network')) &&
+        (errorMessage.includes('message channel') || errorMessage.includes('asynchronous response'))) {
       return;
     }
     
@@ -55,17 +62,19 @@ import App from "./App";
     // Suppress Stripe network errors (including undefined errors from Stripe SDK)
     if (fullError.includes('stripe') || fullError.includes('STRIPE') || 
         fullError.includes('stripe.com') || fullError.includes('stripe.network')) {
-      // Suppress network errors and undefined promise rejections from Stripe
+      // Suppress network errors, undefined promise rejections, and iframe communication errors from Stripe
       if (fullError.includes('ERR_NAME_NOT_RESOLVED') || 
           fullError.includes('ERR_NETWORK_CHANGED') ||
           errorMessage === 'undefined' ||
-          !errorMessage) {
+          !errorMessage ||
+          fullError.includes('message channel') ||
+          fullError.includes('asynchronous response')) {
         event.preventDefault();
         return;
       }
     }
     
-    // Suppress browser extension errors
+    // Suppress browser extension and Stripe iframe errors
     if (fullError.includes('message channel closed') || 
         fullError.includes('asynchronous response') ||
         fullError.includes('listener indicated')) {

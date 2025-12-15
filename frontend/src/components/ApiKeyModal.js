@@ -135,7 +135,7 @@ const ApiKeyModal = ({ isOpen, onClose, keyType, onSaved }) => {
           }}
         >
           <p style={{ fontSize: '14px', color: tokens.colors.text.primary }}>
-            <strong>💡 Tip:</strong> This key works across OpenAI, Anthropic, and Google models through OpenRouter.
+            <strong>💡 Tip:</strong> This key works with OpenAI and Google AI models.
           </p>
         </div>
 

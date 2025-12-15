@@ -15,6 +15,7 @@ import Pricing from '@/pages/Pricing';
 // Direct import to avoid lazy loading issues
 import LinkedPilotDashboard from '@/pages/linkedpilot/LinkedPilotDashboard';
 import OnboardingFlow from '@/pages/linkedpilot/components/onboarding/OnboardingFlow';
+import TextEditorPage from '@/pages/linkedpilot/components/TextEditorPage';
 
 // 21st.dev Toolbar (development only)
 import { TwentyFirstToolbar } from '@21st-extension/toolbar-react';
@@ -48,32 +49,41 @@ const OnboardingRoute = ({ children }) => {
   const { user, loading } = useAuth();
   const [hasOrgs, setHasOrgs] = React.useState(null);
   const [checkingOrgs, setCheckingOrgs] = React.useState(true);
+  const hasCheckedRef = React.useRef(false);
 
   React.useEffect(() => {
-    const checkOrganizations = async () => {
+    // Only check once per user ID to prevent infinite polling
+    if (!user || hasCheckedRef.current === user.id) {
       if (!user) {
         setCheckingOrgs(false);
-        return;
       }
+      return;
+    }
 
+    const checkOrganizations = async () => {
       try {
         const axios = (await import('axios')).default;
         const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+        const token = localStorage.getItem('token');
         const response = await axios.get(`${BACKEND_URL}/api/organizations`, {
           params: { user_id: user.id },
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
         const orgs = Array.isArray(response.data) ? response.data : [];
         setHasOrgs(orgs.length > 0);
+        hasCheckedRef.current = user.id; // Mark as checked for this user ID
       } catch (error) {
-        console.error('Error checking organizations:', error);
+        // Silently fail - don't block onboarding if API call fails
+        console.warn('Error checking organizations (non-blocking):', error);
         setHasOrgs(false);
+        hasCheckedRef.current = user.id; // Mark as checked even on error
       } finally {
         setCheckingOrgs(false);
       }
     };
 
     checkOrganizations();
-  }, [user]);
+  }, [user?.id]); // Only depend on user.id, not the entire user object
 
   if (loading || checkingOrgs) {
     return (
@@ -87,11 +97,15 @@ const OnboardingRoute = ({ children }) => {
     return <Navigate to="/login" />;
   }
 
-  // If user has already completed onboarding OR has existing organizations, redirect to dashboard
-  // Onboarding should only appear once for new users without organizations
-  if (user.onboarding_completed || hasOrgs) {
+  // If user has already completed onboarding, redirect to dashboard
+  // Note: We allow users with organizations to still access onboarding if they haven't completed it
+  // This allows them to complete onboarding even if they have existing organizations
+  if (user.onboarding_completed) {
     return <Navigate to="/dashboard" />;
   }
+  
+  // If user has organizations but hasn't completed onboarding, allow them to continue onboarding
+  // This prevents users from being stuck if they have orgs but onboarding_completed is false
 
   return children;
 };
@@ -121,6 +135,14 @@ const AppContent = () => {
           element={
             <ProtectedRoute>
               <LinkedPilotDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/text-editor/:projectId?"
+          element={
+            <ProtectedRoute>
+              <TextEditorPage />
             </ProtectedRoute>
           }
         />

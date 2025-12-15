@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..models.campaign import Campaign
 from ..models.organization_materials import BrandAnalysis
@@ -20,11 +20,117 @@ from ..utils.api_key_helper import get_api_key_and_provider
 
 router = APIRouter(prefix="/brand", tags=["brand"])
 
+class GeneratePostRequest(BaseModel):
+    """Request model for generating a single post using CampaignGenerator"""
+    org_id: Optional[str] = None
+    campaign_id: str
+    brand_context: Optional[Dict] = None
+    excluded_types: Optional[List[str]] = None
+    user_id: str
+
 def get_db():
     from motor.motor_asyncio import AsyncIOMotorClient
     import os
     client = AsyncIOMotorClient(os.environ['MONGO_URL'])
     return client[os.environ['DB_NAME']]
+
+
+def _fallback_campaign_previews(
+    brand_analysis: BrandAnalysis,
+    suggestions: List[CampaignSuggestion],
+    count: int,
+) -> CampaignPreviewResponse:
+    # Deterministic fallback that never calls the LLM.
+    safe_count = max(1, min(int(count or 1), 10))
+
+    pillars = list(brand_analysis.content_pillars or [])
+    if not pillars:
+        pillars = ["Industry Insights", "Best Practices", "Case Studies", "Thought Leadership"]
+
+    audience = (
+        brand_analysis.target_audience
+        if isinstance(brand_analysis.target_audience, dict)
+        else brand_analysis.target_audience.model_dump()
+        if hasattr(brand_analysis.target_audience, "model_dump")
+        else {}
+    )
+
+    p0 = pillars[0] if len(pillars) > 0 else "industry trends"
+    p1 = pillars[1] if len(pillars) > 1 else p0
+
+    fallback: List[CampaignPreview] = []
+    if not suggestions:
+        fallback.append(
+            CampaignPreview(
+                id="campaign_fallback_1",
+                name="Thought Leadership",
+                description="Establish your brand as an industry authority through insights and expert commentary.",
+                focus="Brand Authority",
+                content_pillars=pillars[:4],
+                target_audience=audience,
+                tone_voice=brand_analysis.brand_voice,
+                posting_schedule={"frequency": "daily", "time_slots": ["08:00", "12:00", "17:00"]},
+                sample_posts=[
+                    f"Share a contrarian take on {p0}",
+                    f"Break down a complex topic related to {p1}",
+                    "Highlight a recent customer success story",
+                ],
+            )
+        )
+        fallback.append(
+            CampaignPreview(
+                id="campaign_fallback_2",
+                name="Educational Series",
+                description="Educate your audience with actionable tips, how-to guides, and best practices.",
+                focus="Audience Education",
+                content_pillars=pillars[:4],
+                target_audience=audience,
+                tone_voice="informative",
+                posting_schedule={"frequency": "daily", "time_slots": ["09:00", "13:00", "18:00"]},
+                sample_posts=[
+                    "5 tips for better results with...",
+                    "How to solve a common challenge",
+                    "A simple checklist for success",
+                ],
+            )
+        )
+        fallback.append(
+            CampaignPreview(
+                id="campaign_fallback_3",
+                name="Community Engagement",
+                description="Spark conversations, gather feedback, and build relationships.",
+                focus="Engagement",
+                content_pillars=pillars[:4],
+                target_audience=audience,
+                tone_voice="conversational",
+                posting_schedule={"frequency": "daily", "time_slots": ["10:00", "14:00", "19:00"]},
+                sample_posts=[
+                    "Poll: What's your biggest challenge right now?",
+                    "A behind-the-scenes look at how we work",
+                    "Question of the day: what would you do differently?",
+                ],
+            )
+        )
+    else:
+        for suggestion in suggestions[:safe_count]:
+            fallback.append(
+                CampaignPreview(
+                    id=f"campaign_fallback_{len(fallback) + 1}",
+                    name=suggestion.name,
+                    description=suggestion.description,
+                    focus=suggestion.focus,
+                    content_pillars=pillars[:4],
+                    target_audience=audience,
+                    tone_voice=brand_analysis.brand_voice,
+                    posting_schedule={"frequency": "daily", "time_slots": ["08:00", "12:00", "17:00"]},
+                    sample_posts=[
+                        f"Share an insight about {p}"
+                        for p in pillars[:3]
+                    ],
+                )
+            )
+
+    return CampaignPreviewResponse(campaigns=fallback[:safe_count])
 
 
 @router.get("/screenshot")
@@ -172,6 +278,55 @@ async def serve_brand_image(filename: str):
         raise HTTPException(status_code=500, detail=f"Failed to serve image: {str(e)}")
 
 
+@router.get("/media-library")
+async def get_media_library(org_id: Optional[str] = None, user_id: Optional[str] = None):
+    """Get all scraped images for media library"""
+    db = get_db()
+    
+    query = {}
+    if org_id:
+        query["org_id"] = org_id
+    elif user_id:
+        # Get all organizations for this user
+        orgs = await db.organizations.find(
+            {"created_by": user_id},
+            {"id": 1, "_id": 0}
+        ).to_list(length=100)
+        org_ids = [org["id"] for org in orgs]
+        query["$or"] = [
+            {"org_id": {"$in": org_ids}},
+            {"user_id": user_id}
+        ]
+    else:
+        return []
+    
+    images = await db.user_images.find(
+        query,
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(length=500)
+    
+    # Convert backend URLs to full URLs
+    import os
+    base_url = os.environ.get("BACKEND_URL", "https://mandi.media")
+    if not base_url.startswith("http"):
+        base_url = f"https://{base_url}"
+    # Remove trailing slash if present
+    if base_url.endswith('/'):
+        base_url = base_url[:-1]
+    
+    for img in images:
+        if img.get("backend_url") and img["backend_url"].startswith("/api/brand/images/"):
+            img["url"] = f"{base_url}{img['backend_url']}"
+        elif img.get("original_url"):
+            img["url"] = img["original_url"]
+        else:
+            # Fallback: try to construct URL from filename
+            if img.get("filename"):
+                img["url"] = f"{base_url}/api/brand/images/{img['filename']}"
+    
+    return images
+
+
 @router.get("/proxy-image")
 async def proxy_image(image_url: str):
     """Proxy external images to avoid CORS issues (fallback for non-stored images)"""
@@ -196,15 +351,6 @@ async def proxy_image(image_url: str):
     except Exception as e:
         print(f"[ERROR] Image proxy failed for {image_url}: {e}")
         raise HTTPException(status_code=500, detail=f"Image proxy failed: {str(e)}")
-
-
-def get_db():
-    from motor.motor_asyncio import AsyncIOMotorClient
-    import os
-
-    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-    return client[os.environ["DB_NAME"]]
-
 
 class BrandDiscoveryRequest(BaseModel):
     url: str = Field(..., description="Public website URL for the organization")
@@ -236,10 +382,48 @@ class CampaignSuggestion(BaseModel):
     focus: Optional[str] = None
 
 
+class CampaignPreviewBrandContext(BaseModel):
+    """
+    Minimal brand context required to generate campaign previews when an organization
+    has not been created yet (onboarding flow).
+    """
+    # Brand Identity
+    brand_tone: List[str] = Field(default_factory=list)
+    brand_voice: Optional[str] = "professional"
+    brand_colors: List[str] = Field(default_factory=list)
+    brand_images: List[str] = Field(default_factory=list)
+    brand_fonts: List[str] = Field(default_factory=list)
+    key_messages: List[str] = Field(default_factory=list)
+    value_propositions: List[str] = Field(default_factory=list)
+
+    # Brand DNA (optional)
+    brand_story: Optional[str] = None
+    brand_personality: List[str] = Field(default_factory=list)
+    core_values: List[str] = Field(default_factory=list)
+    target_audience_description: Optional[str] = None
+    unique_selling_points: List[str] = Field(default_factory=list)
+
+    # Audience & Strategy
+    target_audience: Dict = Field(default_factory=dict)
+    content_pillars: List[str] = Field(default_factory=list)
+    suggested_campaigns: List[Dict] = Field(default_factory=list)
+
+    @field_validator("target_audience", mode="before")
+    @classmethod
+    def coerce_target_audience(cls, v):
+        # Some clients incorrectly send a string description here; coerce it to {} to avoid 422s.
+        if v is None:
+            return {}
+        if isinstance(v, dict):
+            return v
+        return {}
+
+
 class CampaignPreviewRequest(BaseModel):
-    org_id: str
+    org_id: Optional[str] = None
     count: int = 3
     suggestions: Optional[List[CampaignSuggestion]] = None
+    brand_context: Optional[CampaignPreviewBrandContext] = None
 
 
 class CampaignPreview(BaseModel):
@@ -1065,7 +1249,7 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
                 
                 # Try to get API key from user settings if org_id provided
                 api_key = None
-                provider = "openrouter"
+                provider = "openai"
                 
                 if org_id:
                     try:
@@ -1082,9 +1266,9 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
                 
                 # Fallback to environment variables
                 if not api_key:
-                    api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
+                    api_key = os.environ.get('OPENAI_API_KEY')
                     if api_key:
-                        provider = "openai" if os.environ.get('OPENAI_API_KEY') else "openrouter"
+                        provider = "openai"
                 
                 # Final fallback: try system settings
                 if not api_key:
@@ -1184,28 +1368,122 @@ Return ONLY the JSON object, no markdown formatting or explanation."""
         )
 
 
-async def _prepare_generator(org_id: str) -> tuple[Optional[CampaignGenerator], Optional[str]]:
+async def _generate_campaign_suggestions_from_dna(
+    generator: CampaignGenerator,
+    brand_analysis: BrandAnalysis,
+    count: int = 3
+) -> List[CampaignSuggestion]:
+    """Generate campaign suggestions from brand DNA using OpenAI"""
+    import json
+    
+    prompt = f"""Based on this brand analysis, generate {count} LinkedIn campaign suggestions.
+
+BRAND ANALYSIS:
+- Brand Voice: {brand_analysis.brand_voice}
+- Brand Tone: {', '.join(brand_analysis.brand_tone[:5]) if brand_analysis.brand_tone else 'professional'}
+- Key Messages: {', '.join(brand_analysis.key_messages[:5]) if brand_analysis.key_messages else 'Brand messaging'}
+- Value Propositions: {', '.join(brand_analysis.value_propositions[:3]) if brand_analysis.value_propositions else 'Value proposition'}
+- Content Pillars: {', '.join(brand_analysis.content_pillars[:6]) if brand_analysis.content_pillars else 'Industry insights'}
+- Brand Story: {brand_analysis.brand_story[:200] if brand_analysis.brand_story else 'Premium brand'}
+- Target Audience: {brand_analysis.target_audience_description[:150] if brand_analysis.target_audience_description else 'Professional audience'}
+- Core Values: {', '.join(brand_analysis.core_values[:5]) if brand_analysis.core_values else 'Excellence'}
+
+Generate {count} campaign suggestions, each with:
+- name: A compelling campaign name (2-5 words)
+- description: 2-3 sentence description of what the campaign will achieve
+- focus: Primary focus area (e.g., "Thought Leadership", "Product Education", "Community Building")
+
+Return ONLY valid JSON array:
+[
+  {{"name": "Campaign Name 1", "description": "Description 1", "focus": "Focus 1"}},
+  {{"name": "Campaign Name 2", "description": "Description 2", "focus": "Focus 2"}},
+  ...
+]
+
+NO markdown, ONLY the JSON array."""
+    
+    try:
+        response = await generator.llm.generate_completion(prompt, temperature=0.7)
+        
+        # Clean and parse response
+        response_text = response.strip()
+        if response_text.startswith("```json"):
+            response_text = response_text[7:]
+        if response_text.startswith("```"):
+            response_text = response_text[3:]
+        if response_text.endswith("```"):
+            response_text = response_text[:-3]
+        
+        suggestions_data = json.loads(response_text.strip())
+        
+        if not isinstance(suggestions_data, list):
+            suggestions_data = [suggestions_data]
+        
+        suggestions = []
+        for item in suggestions_data[:count]:
+            suggestions.append(
+                CampaignSuggestion(
+                    name=item.get("name", "Campaign Concept"),
+                    description=item.get("description", ""),
+                    focus=item.get("focus", "General")
+                )
+            )
+        
+        print(f"[BRAND] Generated {len(suggestions)} campaign suggestions from brand DNA")
+        return suggestions
+        
+    except Exception as e:
+        import traceback
+        print(f"[BRAND] Failed to generate campaign suggestions from DNA: {e}")
+        traceback.print_exc()
+        # Fallback to generic suggestions based on content pillars
+        suggestions = []
+        pillars = brand_analysis.content_pillars[:count] if brand_analysis.content_pillars else ["Thought Leadership", "Industry Insights", "Best Practices"]
+        for i, pillar in enumerate(pillars[:count], 1):
+            suggestions.append(
+                CampaignSuggestion(
+                    name=f"{pillar} Campaign",
+                    description=f"Engage your audience with insights and content focused on {pillar.lower()}.",
+                    focus=pillar
+                )
+            )
+        return suggestions
+
+
+async def _prepare_generator(org_id: Optional[str] = None, user_id: Optional[str] = None) -> tuple[Optional[CampaignGenerator], Optional[str]]:
+    """
+    Prepare CampaignGenerator with API keys.
+    ALWAYS uses system API keys from admin dashboard - users never enter API keys.
+    """
     db = get_db()
-    org = await db.organizations.find_one({"id": org_id}, {"_id": 0})
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
-
-    user_id = org.get("created_by")
-    if not user_id:
-        raise HTTPException(
-            status_code=400, detail="Organization has no associated creator"
-        )
-
-    settings = await db.user_settings.find_one({"user_id": user_id}, {"_id": 0})
-    api_key, provider = get_api_key_and_provider(settings, decrypt_value)
-
+    
+    # If org_id is provided, get user_id from organization
+    if org_id:
+        org = await db.organizations.find_one({"id": org_id}, {"_id": 0})
+        if org:
+            user_id = org.get("created_by")
+    
+    # ALWAYS use system API keys from admin dashboard - users never enter API keys
+    from ..routes.drafts import get_system_api_key
+    
+    # Try to get any available system API key
+    api_key, provider = await get_system_api_key("any")
+    
     if not api_key:
-        from ..routes.drafts import get_system_api_key
-
-        api_key, provider = await get_system_api_key("any")
-
-    if not api_key:
-        return None, user_id
+        # Get user_id for error message if available
+        error_user = user_id
+        if not error_user and org_id:
+            org = await db.organizations.find_one({"id": org_id}, {"_id": 0})
+            if org:
+                error_user = org.get("created_by")
+        
+        return None, "No system API keys configured in admin dashboard. Please configure API keys in Admin Dashboard > API Keys."
+    
+    # Get user_id for return value if needed
+    if not user_id and org_id:
+        org = await db.organizations.find_one({"id": org_id}, {"_id": 0})
+        if org:
+            user_id = org.get("created_by")
 
     return CampaignGenerator(api_key=api_key, provider=provider), user_id
 
@@ -1223,14 +1501,67 @@ async def discover_brand(request: BrandDiscoveryRequest):
 @router.post("/campaign-previews", response_model=CampaignPreviewResponse)
 async def generate_campaign_previews(request: CampaignPreviewRequest):
     db = get_db()
-    
-    # Check if brand analysis exists and is up-to-date
-    analysis_doc = await db.brand_analysis.find_one(
-        {"org_id": request.org_id}, {"_id": 0}
-    )
+    org_id = request.org_id
+
+    # Support onboarding: allow generating previews before an organization exists.
+    analysis_doc = None
+    if org_id:
+        # Check if brand analysis exists and is up-to-date
+        analysis_doc = await db.brand_analysis.find_one({"org_id": org_id}, {"_id": 0})
+        # If org_id exists but no analysis found, and brand_context is provided, use it
+        if not analysis_doc and request.brand_context:
+            print(f"[CAMPAIGN-PREVIEWS] No analysis found for org_id={org_id}, using provided brand_context")
+            if hasattr(request.brand_context, 'model_dump'):
+                analysis_doc = request.brand_context.model_dump(exclude_none=True)
+            elif isinstance(request.brand_context, dict):
+                analysis_doc = request.brand_context.copy()
+            else:
+                analysis_doc = dict(request.brand_context) if request.brand_context else {}
+            analysis_doc["org_id"] = org_id
+    else:
+        # No org_id (onboarding flow) - use brand_context if provided
+        if request.brand_context:
+            print(f"[CAMPAIGN-PREVIEWS] Using brand_context for onboarding (no org_id)")
+            # Handle both Pydantic model and dict (from frontend)
+            if hasattr(request.brand_context, 'model_dump'):
+                analysis_doc = request.brand_context.model_dump(exclude_none=True)
+            elif isinstance(request.brand_context, dict):
+                analysis_doc = request.brand_context.copy()
+            else:
+                # Fallback: try to convert to dict
+                analysis_doc = dict(request.brand_context) if request.brand_context else {}
+            analysis_doc["org_id"] = "onboarding_temp"
+            print(f"[CAMPAIGN-PREVIEWS] Brand context keys: {list(analysis_doc.keys())}")
+            print(f"[CAMPAIGN-PREVIEWS] Brand voice: {analysis_doc.get('brand_voice')}")
+            print(f"[CAMPAIGN-PREVIEWS] Content pillars: {analysis_doc.get('content_pillars')}")
+            print(f"[CAMPAIGN-PREVIEWS] Key messages count: {len(analysis_doc.get('key_messages', []))}")
+        else:
+            # Be resilient: if frontend resumes mid-onboarding and loses analysisData,
+            # still generate previews from suggestions/defaults rather than failing 422.
+            print(f"[CAMPAIGN-PREVIEWS] WARNING: No brand_context provided, using defaults")
+            analysis_doc = {
+                "org_id": "onboarding_temp",
+                "brand_voice": "professional",
+                "brand_tone": [],
+                "brand_colors": [],
+                "brand_images": [],
+                "brand_fonts": [],
+                "key_messages": [],
+                "value_propositions": [],
+                "target_audience_description": None,
+                "unique_selling_points": [],
+                "target_audience": {
+                    "job_titles": [],
+                    "industries": [],
+                    "interests": [],
+                    "pain_points": [],
+                },
+                "content_pillars": [],
+                "suggested_campaigns": [],
+            }
     
     # Check if materials have been added/updated since last analysis
-    if analysis_doc:
+    if analysis_doc and org_id:
         analysis_updated_at = analysis_doc.get('updated_at')
         if isinstance(analysis_updated_at, str):
             from dateutil import parser
@@ -1238,7 +1569,7 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
         
         # Get the most recent material update
         latest_material = await db.organization_materials.find(
-            {"org_id": request.org_id},
+            {"org_id": org_id},
             {"_id": 0, "updated_at": 1, "created_at": 1}
         ).sort("updated_at", -1).limit(1).to_list(length=1)
         
@@ -1256,7 +1587,7 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
                     print(f"[CAMPAIGN-PREVIEWS] Materials updated after analysis. Material: {material_updated}, Analysis: {analysis_updated_at}")
         
         # Also check if new materials were added (by comparing counts)
-        material_count = await db.organization_materials.count_documents({"org_id": request.org_id})
+        material_count = await db.organization_materials.count_documents({"org_id": org_id})
         analyzed_material_ids = analysis_doc.get('materials_analyzed', [])
         if material_count > len(analyzed_material_ids):
             needs_reanalysis = True
@@ -1268,10 +1599,10 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
             try:
                 from .organization_materials import analyze_materials
                 # Call the analyze function (it's an async function)
-                await analyze_materials(request.org_id)
+                await analyze_materials(org_id)
                 # Re-fetch the updated analysis
                 analysis_doc = await db.brand_analysis.find_one(
-                    {"org_id": request.org_id}, {"_id": 0}
+                    {"org_id": org_id}, {"_id": 0}
                 )
                 if not analysis_doc:
                     raise HTTPException(
@@ -1290,119 +1621,54 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
         )
 
     brand_analysis = BrandAnalysis(**analysis_doc)
-    generator, user_id = await _prepare_generator(request.org_id)
+
+    # Prepare generator: always use system API keys from admin dashboard
+    generator, user_id = await _prepare_generator(org_id=org_id)
 
     if generator is None:
-        # Fallback: use suggested campaigns without LLM
-        fallback = []
-        suggestions = request.suggestions or []
-        if not suggestions:
-            # Campaign 1: Thought Leadership
-            fallback.append(
-                CampaignPreview(
-                    id=f"campaign_fallback_1",
-                    name="Thought Leadership Q1",
-                    description="Establish your brand as an industry authority through deep-dive insights and expert commentary.",
-                    focus="Brand Authority",
-                    content_pillars=brand_analysis.content_pillars[:4],
-                    target_audience=brand_analysis.target_audience if isinstance(brand_analysis.target_audience, dict) else brand_analysis.target_audience.model_dump() if hasattr(brand_analysis.target_audience, 'model_dump') else {},
-                    tone_voice=brand_analysis.brand_voice,
-                    posting_schedule={
-                        "frequency": "daily",
-                        "time_slots": ["08:00", "12:00", "17:00"],
-                    },
-                    sample_posts=[
-                        f"Share a contrarian take on {brand_analysis.content_pillars[0] if brand_analysis.content_pillars else 'industry trends'}",
-                        f"Break down a complex topic related to {brand_analysis.content_pillars[1] if len(brand_analysis.content_pillars) > 1 else 'innovation'}",
-                        "Highlight a recent customer success story"
-                    ],
-                )
-            )
-            
-            # Campaign 2: Educational Series
-            fallback.append(
-                CampaignPreview(
-                    id=f"campaign_fallback_2",
-                    name="Industry Masterclass",
-                    description="Educate your audience with actionable tips, how-to guides, and best practices.",
-                    focus="Audience Education",
-                    content_pillars=brand_analysis.content_pillars[:4],
-                    target_audience=brand_analysis.target_audience if isinstance(brand_analysis.target_audience, dict) else brand_analysis.target_audience.model_dump() if hasattr(brand_analysis.target_audience, 'model_dump') else {},
-                    tone_voice="informative",
-                    posting_schedule={
-                        "frequency": "daily",
-                        "time_slots": ["09:00", "13:00", "18:00"],
-                    },
-                    sample_posts=[
-                        "5 tips for better results with...",
-                        "How to solve common challenge X",
-                        "Checklist for success"
-                    ],
-                )
-            )
-            
-            # Campaign 3: Community Engagement
-            fallback.append(
-                CampaignPreview(
-                    id=f"campaign_fallback_3",
-                    name="Community Spotlight",
-                    description="Focus on building relationships, highlighting community members, and sparking conversations.",
-                    focus="Engagement",
-                    content_pillars=brand_analysis.content_pillars[:4],
-                    target_audience=brand_analysis.target_audience if isinstance(brand_analysis.target_audience, dict) else brand_analysis.target_audience.model_dump() if hasattr(brand_analysis.target_audience, 'model_dump') else {},
-                    tone_voice="conversational",
-                    posting_schedule={
-                        "frequency": "daily",
-                        "time_slots": ["10:00", "14:00", "19:00"],
-                    },
-                    sample_posts=[
-                        "Poll: What's your biggest challenge?",
-                        "Spotlight on a team member",
-                        "Question of the day"
-                    ],
-                )
-            )
-        else:
-            for suggestion in suggestions[: request.count]:
-                fallback.append(
-                    CampaignPreview(
-                        id=f"campaign_fallback_{len(fallback) + 1}",
-                        name=suggestion.name,
-                        description=suggestion.description,
-                        focus=suggestion.focus,
-                        content_pillars=brand_analysis.content_pillars[:4],
-                        target_audience=brand_analysis.target_audience if isinstance(brand_analysis.target_audience, dict) else brand_analysis.target_audience.model_dump() if hasattr(brand_analysis.target_audience, 'model_dump') else {},
-                        tone_voice=brand_analysis.brand_voice,
-                        posting_schedule={
-                            "frequency": "daily",
-                            "time_slots": ["08:00", "12:00", "17:00"],
-                        },
-                        sample_posts=[
-                            f"Share an insight about {pillar}"
-                            for pillar in brand_analysis.content_pillars[:3]
-                        ],
-                    )
-                )
-        return CampaignPreviewResponse(campaigns=fallback[: request.count])
+        return _fallback_campaign_previews(
+            brand_analysis=brand_analysis,
+            suggestions=(request.suggestions or []),
+            count=request.count,
+        )
 
     suggestions = request.suggestions or []
     if not suggestions:
-        for item in brand_analysis.suggested_campaigns[: request.count]:
-            suggestions.append(
-                CampaignSuggestion(
-                    name=item.get("name", "Campaign Concept"),
-                    description=item.get("description"),
-                    focus=item.get("focus"),
+        # First try to get suggestions from brand_analysis.suggested_campaigns
+        if brand_analysis.suggested_campaigns:
+            for item in brand_analysis.suggested_campaigns[: request.count]:
+                suggestions.append(
+                    CampaignSuggestion(
+                        name=item.get("name", "Campaign Concept"),
+                        description=item.get("description"),
+                        focus=item.get("focus"),
+                    )
                 )
-            )
+        
+        # If still no suggestions, generate them from brand DNA using OpenAI
+        if not suggestions and generator:
+            print(f"[BRAND] No campaign suggestions found, generating from brand DNA...")
+            try:
+                generated_suggestions = await _generate_campaign_suggestions_from_dna(
+                    generator=generator,
+                    brand_analysis=brand_analysis,
+                    count=request.count
+                )
+                suggestions.extend(generated_suggestions)
+            except Exception as e:
+                import traceback
+                print(f"[BRAND] Failed to generate suggestions from DNA: {e}")
+                traceback.print_exc()
+                # Continue with empty suggestions - will use fallback if needed
 
     campaigns: List[CampaignPreview] = []
     errors = []
     
     # Ensure we have enough suggestions
     if len(suggestions) < request.count:
-        # Generate additional suggestions if needed
         needed = request.count - len(suggestions)
+        
+        # Try to get more from brand_analysis.suggested_campaigns
         if brand_analysis.suggested_campaigns and len(brand_analysis.suggested_campaigns) > len(suggestions):
             for item in brand_analysis.suggested_campaigns[len(suggestions):len(suggestions) + needed]:
                 suggestions.append(
@@ -1412,13 +1678,26 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
                         focus=item.get("focus"),
                     )
                 )
+        
+        # If still not enough and we have a generator, generate more from DNA
+        if len(suggestions) < request.count and generator:
+            try:
+                additional_needed = request.count - len(suggestions)
+                generated_suggestions = await _generate_campaign_suggestions_from_dna(
+                    generator=generator,
+                    brand_analysis=brand_analysis,
+                    count=additional_needed
+                )
+                suggestions.extend(generated_suggestions[:additional_needed])
+            except Exception as e:
+                print(f"[BRAND] Failed to generate additional suggestions: {e}")
     
     for idx, suggestion in enumerate(suggestions[: request.count], 1):
         try:
             print(f"[BRAND] Generating campaign {idx}/{request.count}: {suggestion.name}")
             campaign: Campaign = await generator.generate_campaign_from_analysis(
-                org_id=request.org_id,
-                created_by=user_id,
+                org_id=brand_analysis.org_id,
+                created_by=user_id or "onboarding_temp",
                 brand_analysis=brand_analysis,
                 campaign_name=suggestion.name,
                 focus_area=suggestion.focus,
@@ -1457,10 +1736,13 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
             # Continue to next campaign instead of stopping
 
     if not campaigns:
-        error_detail = "Failed to generate any campaign previews."
-        if errors:
-            error_detail += f" Errors: {'; '.join(errors)}"
-        raise HTTPException(status_code=500, detail=error_detail)
+        # Never hard-fail onboarding on transient LLM issues. Return deterministic previews.
+        print(f"[BRAND] WARNING: Campaign preview generation failed; returning fallback. Errors: {'; '.join(errors) if errors else 'None'}")
+        return _fallback_campaign_previews(
+            brand_analysis=brand_analysis,
+            suggestions=suggestions,
+            count=request.count,
+        )
     
     if len(campaigns) < request.count:
         print(f"[BRAND] WARNING: Only generated {len(campaigns)}/{request.count} campaigns. Errors: {'; '.join(errors) if errors else 'None'}")
@@ -1484,7 +1766,7 @@ async def generate_post_previews(request: PostPreviewRequest):
         )
 
     brand_analysis = BrandAnalysis(**analysis_doc)
-    generator, _ = await _prepare_generator(request.org_id)
+    generator, _ = await _prepare_generator(org_id=request.org_id)
 
     if generator is None:
         fallback_posts = [
@@ -1505,5 +1787,92 @@ async def generate_post_previews(request: PostPreviewRequest):
         ]
 
     return PostPreviewResponse(posts=ideas[: request.count])
+
+
+@router.post("/generate-post")
+async def generate_post_with_campaign_generator(request: GeneratePostRequest):
+    """
+    Generate a single LinkedIn post using CampaignGenerator with 8-part viral format.
+    This ensures all posts follow the Linked Coach templates and brand DNA.
+    """
+    db = get_db()
+    
+    # Get campaign
+    campaign_doc = await db.campaigns.find_one({"id": request.campaign_id}, {"_id": 0})
+    if not campaign_doc:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    
+    # Get brand analysis
+    brand_analysis_doc = None
+    if request.org_id:
+        brand_analysis_doc = await db.brand_analysis.find_one({"org_id": request.org_id}, {"_id": 0})
+    
+    if not brand_analysis_doc and request.brand_context:
+        # Use provided brand context (for onboarding)
+        from ..models.organization_materials import BrandAnalysis
+        # Convert brand_context dict to BrandAnalysis format
+        brand_analysis_doc = {
+            "org_id": request.org_id or "onboarding_temp",
+            "brand_voice": request.brand_context.get("brand_voice", "professional"),
+            "key_messages": request.brand_context.get("key_messages", []),
+            "value_propositions": request.brand_context.get("value_propositions", []),
+            "content_pillars": request.brand_context.get("content_pillars", []),
+            "target_audience": request.brand_context.get("target_audience", {}),
+            "brand_story": request.brand_context.get("brand_story", ""),
+            "brand_personality": request.brand_context.get("brand_personality", []),
+            "core_values": request.brand_context.get("core_values", [])
+        }
+    
+    if not brand_analysis_doc:
+        raise HTTPException(status_code=404, detail="Brand analysis not found. Please complete brand discovery first.")
+    
+    brand_analysis = BrandAnalysis(**brand_analysis_doc)
+    campaign = Campaign(**campaign_doc)
+    
+    # Prepare generator - use user_id from request if org_id is None (onboarding)
+    generator, error = await _prepare_generator(
+        org_id=request.org_id or campaign.org_id,
+        user_id=request.user_id if not request.org_id else None
+    )
+    if not generator:
+        raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {error}. Please configure API keys in Settings.")
+    
+    # Generate post with excluded types to avoid consecutive same style
+    excluded_types = request.excluded_types or []
+    post_ideas = await generator.generate_post_ideas(
+        campaign=campaign,
+        brand_analysis=brand_analysis,
+        count=1,
+        excluded_types=excluded_types
+    )
+    
+    if not post_ideas or len(post_ideas) == 0:
+        raise HTTPException(status_code=500, detail="Failed to generate post")
+    
+    # Determine post type used
+    import hashlib
+    from datetime import datetime
+    day_of_year = datetime.utcnow().timetuple().tm_yday
+    post_types = [
+        "How to/The Secret to",
+        "The Rant",
+        "Polarisation",
+        "Data Driven",
+        "There Are 3 Things"
+    ]
+    available_types = [t for t in post_types if t not in excluded_types]
+    if not available_types:
+        available_types = post_types
+    
+    post_type_index = day_of_year % len(available_types)
+    selected_type = available_types[post_type_index]
+    
+    return {
+        "content": post_ideas[0],
+        "post_type": selected_type,
+        "generation_prompt": f"Generated using 8-part viral format with {selected_type} template",
+        "content_pillar": campaign.content_pillars[0] if campaign.content_pillars else "General",
+        "content_type": "text"
+    }
 
 

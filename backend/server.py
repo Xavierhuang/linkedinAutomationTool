@@ -1,4 +1,6 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -85,6 +87,28 @@ async def lifespan(app: FastAPI):
 
 # Create the main app without a prefix
 app = FastAPI(lifespan=lifespan)
+
+# Log request validation errors to help debug 422s in production (e.g. malformed JSON bodies)
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    try:
+        body_bytes = await request.body()
+        body_text = body_bytes.decode("utf-8", errors="replace")
+    except Exception:
+        body_text = "<unable to read body>"
+
+    logging.getLogger("validation").warning(
+        "422 Validation error on %s %s | errors=%s | body=%s",
+        request.method,
+        request.url.path,
+        exc.errors(),
+        body_text[:4000],
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors()},
+    )
 
 # Add CORS middleware FIRST, before any routes
 app.add_middleware(
@@ -336,6 +360,7 @@ from linkedpilot.routes.organization_materials import router as org_materials_ro
 # Import Admin and Billing routers
 from linkedpilot.routes.admin import router as admin_router
 from linkedpilot.routes.billing import router as billing_router
+from linkedpilot.routes.text_editor import router as text_editor_router
 
 api_router.include_router(org_router)
 api_router.include_router(campaign_router)
@@ -353,6 +378,7 @@ api_router.include_router(user_prefs_router)
 api_router.include_router(org_materials_router)
 api_router.include_router(admin_router)
 api_router.include_router(billing_router)
+api_router.include_router(text_editor_router)
 
 # Include the router in the main app
 app.include_router(api_router)

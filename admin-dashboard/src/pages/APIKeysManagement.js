@@ -21,8 +21,6 @@ const APIKeysManagement = () => {
   const [availableModels, setAvailableModels] = useState({ text_models: {}, image_models: {} });
   const [keys, setKeys] = useState({
     openai_api_key: '',
-    openrouter_api_key: '',
-    anthropic_api_key: '',
     google_ai_api_key: '',
     linkedin_client_id: '',
     linkedin_client_secret: '',
@@ -36,8 +34,6 @@ const APIKeysManagement = () => {
   });
   const [showKeys, setShowKeys] = useState({
     openai_api_key: false,
-    openrouter_api_key: false,
-    anthropic_api_key: false,
     google_ai_api_key: false,
     linkedin_client_id: false,
     linkedin_client_secret: false,
@@ -148,22 +144,6 @@ const APIKeysManagement = () => {
       description: 'GPT models for content generation',
       keys: [
         { id: 'openai_api_key', label: 'API Key', placeholder: 'sk-...' }
-      ]
-    },
-    {
-      id: 'openrouter',
-      name: 'OpenRouter',
-      description: 'Access multiple AI models through one API',
-      keys: [
-        { id: 'openrouter_api_key', label: 'API Key', placeholder: 'sk-or-v1-...' }
-      ]
-    },
-    {
-      id: 'anthropic',
-      name: 'Anthropic',
-      description: 'Claude models for content generation',
-      keys: [
-        { id: 'anthropic_api_key', label: 'API Key', placeholder: 'sk-ant-...' }
       ]
     },
     {
@@ -508,12 +488,6 @@ const APIKeysManagement = () => {
                     <p style={{ fontWeight: 600, marginBottom: '4px' }}>How to get {activeProvider.name} API keys:</p>
                     {activeProvider.id === 'openai' && (
                       <p>Visit <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>OpenAI Platform</a> to create an API key. You'll need an OpenAI account with billing set up.</p>
-                    )}
-                    {activeProvider.id === 'openrouter' && (
-                      <p>Visit <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>OpenRouter</a> to create an API key. OpenRouter gives you access to multiple AI models (GPT-4, Claude, Gemini, etc.) through one unified API.</p>
-                    )}
-                    {activeProvider.id === 'anthropic' && (
-                      <p>Visit <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>Anthropic Console</a> to create an API key for Claude models. You'll need an Anthropic account with billing configured.</p>
                     )}
                     {activeProvider.id === 'google' && (
                       <p>Visit <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', fontWeight: 500, color: tokens.colors.accent.lime }}>Google AI Studio</a> to create an API key for Gemini models.</p>

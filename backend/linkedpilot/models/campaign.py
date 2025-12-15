@@ -46,7 +46,7 @@ class CampaignDuration(BaseModel):
 
 class Campaign(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    org_id: str
+    org_id: Optional[str] = None  # Allow None for onboarding
     name: str
     description: Optional[str] = None
     

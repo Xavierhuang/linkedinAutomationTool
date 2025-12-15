@@ -8,7 +8,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import axios from 'axios';
-import TextOverlayModal from './TextOverlayModalKonva';
+import TextOverlayModalKonva from './TextOverlayModalKonva';
 import { useThemeTokens } from '@/hooks/useThemeTokens';
 
 import { FloatingChatInput } from './conversation/FloatingChatInput';
@@ -34,13 +34,42 @@ const BeeBotDraftsView = ({ orgId }) => {
   if (!tokens) {
     return null; // Or return a loading state
   }
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: 'Hi! I\'m your AI content assistant. Tell me what kind of LinkedIn post you\'d like to create.',
-      timestamp: new Date()
+  // Persist messages in sessionStorage to survive navigation
+  const getInitialMessages = () => {
+    try {
+      const saved = sessionStorage.getItem(`beeBotMessages_${orgId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Convert timestamp strings back to Date objects
+        return parsed.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+      }
+    } catch (e) {
+      console.warn('Failed to load saved messages:', e);
     }
-  ]);
+    return [
+      {
+        role: 'assistant',
+        content: 'Hi! I\'m your AI content assistant. Tell me what kind of LinkedIn post you\'d like to create.',
+        timestamp: new Date()
+      }
+    ];
+  };
+
+  const [messages, setMessages] = useState(getInitialMessages);
+
+  // Save messages to sessionStorage whenever they change
+  useEffect(() => {
+    if (orgId && messages.length > 0) {
+      try {
+        sessionStorage.setItem(`beeBotMessages_${orgId}`, JSON.stringify(messages));
+      } catch (e) {
+        console.warn('Failed to save messages:', e);
+      }
+    }
+  }, [messages, orgId]);
   const [hasProcessedInitialMessage, setHasProcessedInitialMessage] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -52,7 +81,8 @@ const BeeBotDraftsView = ({ orgId }) => {
   const [selectedPost, setSelectedPost] = useState(null);
   const [generateWithImage, setGenerateWithImage] = useState(true);
   const [uploadedImage, setUploadedImage] = useState(null);
-  const [imageModel, setImageModel] = useState('gemini-stock');
+  // Always use Gemini 3 Pro Image Preview for image generation
+  const imageModel = 'google/gemini-3-pro-image-preview';
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [scheduleData, setScheduleData] = useState({
     scheduled_for: '',
@@ -62,8 +92,12 @@ const BeeBotDraftsView = ({ orgId }) => {
   const [selectedAuthor, setSelectedAuthor] = useState(null);
   const [linkedinConnected, setLinkedinConnected] = useState(false);
   const [linkedinConnecting, setLinkedinConnecting] = useState(false);
+  const [linkedinProfile, setLinkedinProfile] = useState(null);
+  const [userProfileImageError, setUserProfileImageError] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewData, setPreviewData] = useState(null);
+  const [editingTextIndex, setEditingTextIndex] = useState(null);
+  const [editingTextContent, setEditingTextContent] = useState('');
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   
@@ -86,10 +120,7 @@ const BeeBotDraftsView = ({ orgId }) => {
     }
   }, [messages]);
 
-  // Text overlay editing
-  const [showTextOverlayModal, setShowTextOverlayModal] = useState(false);
-  const [selectedImageForEdit, setSelectedImageForEdit] = useState(null);
-  const [selectedMessageForTextOverlay, setSelectedMessageForTextOverlay] = useState(null);
+  // Text overlay editing (now uses standalone page)
   const [imageOverlays, setImageOverlays] = useState({}); // Store overlay elements by image URL
   
   // Load overlay data from messages when component mounts or messages change
@@ -142,6 +173,12 @@ const BeeBotDraftsView = ({ orgId }) => {
       ];
       
       setMessages(initialMessages);
+      // Clear saved messages when starting new conversation
+      try {
+        sessionStorage.removeItem(`beeBotMessages_${orgId}`);
+      } catch (e) {
+        console.warn('Failed to clear saved messages:', e);
+      }
       
       // Automatically send the initial message after state is updated
       // Use setTimeout to ensure messages state is updated first
@@ -373,11 +410,21 @@ const BeeBotDraftsView = ({ orgId }) => {
 
         const data = response.data;
 
+        // Validate response structure
+        if (!data || typeof data !== 'object') {
+          throw new Error('Invalid response format from server');
+        }
+
+        if (!data.type || !data.content) {
+          console.error('Invalid response structure:', data);
+          throw new Error('Response missing required fields (type or content)');
+        }
+
         // Remove loading indicator and add response
         if (data.type === 'question') {
-        setMessages(prev => prev.slice(0, -1).concat({
-          role: 'assistant',
-            content: data.content,
+          setMessages(prev => prev.slice(0, -1).concat({
+            role: 'assistant',
+            content: data.content || 'I need more information. What would you like to post about?',
             timestamp: new Date()
           }));
         } else if (data.type === 'draft') {
@@ -385,26 +432,53 @@ const BeeBotDraftsView = ({ orgId }) => {
           const hashtagMatch = data.content.match(/#\w+/g);
           const hashtags = hashtagMatch || [];
 
-          setMessages(prev => prev.slice(0, -1).concat({
+          // Ensure image_url is a string, not an array
+          const imageUrl = data.image_url && typeof data.image_url === 'string' ? data.image_url : null;
+          
+          // Ensure text_overlays is an array
+          const textOverlaysArray = Array.isArray(data.text_overlays) ? data.text_overlays : [];
+          
+          const newMessage = {
             role: 'assistant',
             content: data.content,
             timestamp: new Date(),
             isPost: true,
             hashtags: hashtags,
-            image: data.image_url || null,  // Include generated image if available
+            image: imageUrl,  // Include generated image if available
+            textOverlays: textOverlaysArray.length > 0 ? textOverlaysArray : null,  // Include editable text overlays if extracted
             postData: {
               content: data.content,
               hashtags: hashtags,
-              image: data.image_url || null
+              image: imageUrl
             }
+          };
+
+          // If text overlays were extracted, store them for the image
+          if (imageUrl && textOverlaysArray.length > 0) {
+            setImageOverlays(prev => ({
+              ...prev,
+              [imageUrl]: textOverlaysArray
+            }));
+            console.log(`[TEXT OVERLAYS] Extracted ${textOverlaysArray.length} editable text elements from generated image`);
+          }
+
+          setMessages(prev => prev.slice(0, -1).concat(newMessage));
+        } else {
+          // Unknown type - treat as question
+          console.warn('Unknown response type:', data.type);
+          setMessages(prev => prev.slice(0, -1).concat({
+            role: 'assistant',
+            content: data.content || 'I received an unexpected response. Please try again.',
+            timestamp: new Date()
           }));
         }
       }
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error in chat:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Sorry, I encountered an error. Please try again.';
       setMessages(prev => prev.slice(0, -1).concat({
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: errorMessage,
         timestamp: new Date(),
         isError: true
       }));
@@ -951,7 +1025,7 @@ const BeeBotDraftsView = ({ orgId }) => {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col relative overflow-hidden bg-card">
+      <div className="flex-1 flex flex-col relative overflow-hidden">
         {/* View Drafts Button - Top Right */}
         <div className="absolute top-4 right-4 z-40">
           <button
@@ -1019,129 +1093,473 @@ const BeeBotDraftsView = ({ orgId }) => {
         )}
 
         {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 min-h-0">
-          {messages.map((message, index) => (
-            <div key={index} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              {/* Avatar - Assistant */}
-              {message.role === 'assistant' && (
+        <div className="flex-1 overflow-y-auto px-4 md:px-6 lg:px-8 py-4 md:py-6 min-h-0" style={{ maxWidth: '100%', width: '100%' }}>
+          <div style={{ maxWidth: '800px', margin: '0 auto', width: '100%' }}>
+            {messages.map((message, index) => {
+              const isLast = index === messages.length - 1;
+              const nextMessage = messages[index + 1];
+              const noTail = !isLast && nextMessage?.role === message.role;
+              
+              return (
                 <div 
-                  className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center shadow-lg"
-                  style={{ backgroundColor: tokens.colors.accent.lime }}
+                  key={index} 
+                  className={`flex gap-2 mb-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  style={{ marginBottom: noTail ? '2px' : '15px', position: 'relative', zIndex: 1 }}
                 >
-                  <Bot style={{ color: tokens.colors.text.inverse }} className="w-4 h-4" />
-                </div>
-              )}
-
-              <div
-                className="
-                  max-w-[85%] md:max-w-[70%] p-4 text-sm leading-relaxed relative bg-muted text-foreground border border-border
-                "
-                style={{
-                  backgroundColor: message.role === 'user' 
-                    ? tokens.colors.accent.lime 
-                    : cardBg,
-                  color: message.role === 'user' ? tokens.colors.text.inverse : cardText,
-                  borderRadius: tokens.radius.xl,
-                  boxShadow: tokens.shadow.subtle,
-                  border: message.role === 'user' ? 'none' : `1px solid ${cardBorderColor}`,
-                  position: 'relative'
-                }}
-              >
-                {/* Tail pointer for assistant messages - pointing left toward avatar */}
-                {message.role === 'assistant' && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      bottom: '-6px',
-                      left: '20px',
-                      width: '12px',
-                      height: '12px',
-                      backgroundColor: cardBg,
-                      transform: 'rotate(45deg)'
-                    }}
-                  />
-                )}
-                {/* Tail pointer for user messages - pointing right */}
-                {message.role === 'user' && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      bottom: '-6px',
-                      right: '16px',
-                      width: 0,
-                      height: 0,
-                      borderStyle: 'solid',
-                      borderWidth: '0 0 12px 12px',
-                      borderColor: `transparent transparent ${tokens.colors.accent.lime} transparent`,
-                      transform: 'rotate(-45deg)'
-                    }}
-                  />
-                )}
-                {/* Loading State */}
-                {message.isLoading ? (
-                  <div className="flex items-center gap-1.5 px-1">
-                    <div className="flex items-end gap-1">
-                      <div 
-                        className="w-2 h-2 rounded-full bg-foreground/70"
-                        style={{
-                          animation: 'bounce 0.8s ease-in-out infinite',
-                          animationDelay: '0s'
-                        }}
-                      />
-                      <div 
-                        className="w-2 h-2 rounded-full bg-foreground/70"
-                        style={{
-                          animation: 'bounce 0.8s ease-in-out infinite',
-                          animationDelay: '0.15s'
-                        }}
-                      />
-                      <div 
-                        className="w-2 h-2 rounded-full bg-foreground/70"
-                        style={{
-                          animation: 'bounce 0.8s ease-in-out infinite',
-                          animationDelay: '0.3s'
-                        }}
-                      />
+                  {/* Avatar - Assistant */}
+                  {message.role === 'assistant' && (
+                    <div 
+                      className="flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center relative"
+                      style={{ 
+                        backgroundColor: tokens.colors.accent.lime,
+                        zIndex: 20,
+                        position: 'relative'
+                      }}
+                    >
+                      <Bot style={{ color: tokens.colors.text.inverse }} className="w-4 h-4 md:w-5 md:h-5" />
                     </div>
-                  </div>
-                        ) : (
-                          <>
-                    {/* Text Content */}
-                    <div className="whitespace-pre-wrap font-light">{message.content}</div>
+                  )}
+
+                  <div
+                    className="relative"
+                    style={{
+                      maxWidth: message.isPost && message.image ? '100%' : 'min(75%, 500px)',
+                      minWidth: '120px',
+                      width: message.isPost && message.image ? '100%' : 'fit-content',
+                      alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
+                      zIndex: 2,
+                      position: 'relative'
+                    }}
+                  >
+                    <div
+                      className="px-4 py-2.5 md:px-5 md:py-3 text-sm md:text-base leading-relaxed relative shadow-sm"
+                      style={{
+                        backgroundColor: message.role === 'user' 
+                          ? tokens.colors.accent.lime 
+                          : '#e5e5ea',
+                        color: '#000000',
+                        borderRadius: '18px',
+                        wordWrap: 'break-word',
+                        wordBreak: 'break-word',
+                        overflowWrap: 'break-word',
+                        whiteSpace: 'pre-wrap',
+                        position: 'relative',
+                        fontWeight: 400,
+                        zIndex: 2
+                      }}
+                    >
+                    {/* Loading State - inside bubble */}
+                    {message.isLoading ? (
+                      <div className="flex items-center gap-1.5 py-1">
+                        <div className="flex items-end gap-1">
+                          <div 
+                            className="w-2 h-2 rounded-full"
+                            style={{
+                              backgroundColor: message.role === 'user' ? '#000000' : '#000000',
+                              opacity: 0.6,
+                              animation: 'bounce 0.8s ease-in-out infinite',
+                              animationDelay: '0s'
+                            }}
+                          />
+                          <div 
+                            className="w-2 h-2 rounded-full"
+                            style={{
+                              backgroundColor: message.role === 'user' ? '#000000' : '#000000',
+                              opacity: 0.6,
+                              animation: 'bounce 0.8s ease-in-out infinite',
+                              animationDelay: '0.15s'
+                            }}
+                          />
+                          <div 
+                            className="w-2 h-2 rounded-full"
+                            style={{
+                              backgroundColor: message.role === 'user' ? '#000000' : '#000000',
+                              opacity: 0.6,
+                              animation: 'bounce 0.8s ease-in-out infinite',
+                              animationDelay: '0.3s'
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Post Layout: 2 columns on desktop when image exists, single column on mobile */}
+                        {message.isPost && message.image ? (
+                          <div 
+                            className="flex flex-col md:flex-row gap-4 md:gap-6 w-full p-4 rounded-lg"
+                            style={{
+                              backgroundColor: tokens.isDark ? '#FFFFFF' : 'transparent',
+                              borderRadius: tokens.radius.md
+                            }}
+                          >
+                            {/* Left Column: Text Content */}
+                            <div className="flex-1 flex flex-col min-w-0">
+                              {editingTextIndex === index ? (
+                                <div className="flex flex-col gap-2">
+                                  <textarea
+                                    value={editingTextContent}
+                                    onChange={(e) => setEditingTextContent(e.target.value)}
+                                    className="w-full p-3 rounded-lg resize-none"
+                                    style={{
+                                      backgroundColor: tokens.colors.background.input,
+                                      color: tokens.colors.text.primary,
+                                      border: `1px solid ${tokens.colors.border.default}`,
+                                      borderRadius: tokens.radius.md,
+                                      fontFamily: tokens.typography.fontFamily.sans,
+                                      fontSize: '14px',
+                                      lineHeight: '1.5',
+                                      minHeight: '120px'
+                                    }}
+                                    autoFocus
+                                  />
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      onClick={() => {
+                                        setMessages(prev => prev.map((msg, i) => 
+                                          i === index 
+                                            ? { ...msg, content: editingTextContent, postData: { ...msg.postData, content: editingTextContent } }
+                                            : msg
+                                        ));
+                                        setEditingTextIndex(null);
+                                        setEditingTextContent('');
+                                      }}
+                                      style={{
+                                        backgroundColor: tokens.colors.accent.lime,
+                                        color: tokens.colors.text.inverse
+                                      }}
+                                    >
+                                      Save
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => {
+                                        setEditingTextIndex(null);
+                                        setEditingTextContent('');
+                                      }}
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div 
+                                    className="whitespace-pre-wrap relative group" 
+                                    style={{ 
+                                      color: '#000000',
+                                      fontFamily: tokens.typography.fontFamily.sans,
+                                      wordWrap: 'break-word',
+                                      wordBreak: 'break-word',
+                                      overflowWrap: 'break-word',
+                                      whiteSpace: 'pre-wrap',
+                                      fontSize: '15px',
+                                      lineHeight: '1.6'
+                                    }}
+                                  >
+                                    {message.content}
+                                    {message.role === 'assistant' && !message.isError && message.isPost && (
+                                      <button
+                                        onClick={() => {
+                                          setEditingTextIndex(index);
+                                          setEditingTextContent(message.content);
+                                        }}
+                                        className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded"
+                                        style={{
+                                          backgroundColor: tokens.colors.background.layer2,
+                                          color: tokens.colors.text.secondary
+                                        }}
+                                        title="Edit text"
+                                      >
+                                        <Edit className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Hashtags */}
+                                  {message.hashtags?.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${tokens.colors.border.default}` }}>
+                                      {message.hashtags.map((tag, i) => (
+                                        <span key={i} style={{ color: tokens.colors.accent.lime, fontSize: '12px', fontWeight: 600, opacity: 0.8 }}>
+                                          #{tag.replace(/^#/, '')}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
                             
-                    {/* Image Attachment */}
-                            {message.image && (
-                      <div className="mt-4 rounded-xl overflow-hidden border border-border group relative">
+                            {/* Right Column: Image */}
+                            <div className="flex-shrink-0 md:w-1/2 lg:w-2/5">
+                              <div className="rounded-xl overflow-hidden group relative" style={{ borderRadius: tokens.radius.lg }}>
                                 <img 
                                   src={message.image} 
                                   alt="Generated" 
-                          className="w-full h-auto object-cover"
-                        />
-                        <button
-                                  onClick={() => {
-                                    setSelectedImageForEdit(message.image);
-                                    setSelectedMessageForTextOverlay(message);
-                                    setShowTextOverlayModal(true);
+                                  className="w-full h-auto object-cover"
+                                  style={{ borderRadius: tokens.radius.lg }}
+                                />
+                                <button
+                                  onClick={async () => {
+                                    const imageUrl = message.image;
+                                    const elements = message.textOverlays || imageOverlays[imageUrl] || [];
+                                    console.log('[BeeBotDraftsView] Edit Image clicked:', {
+                                      imageUrl,
+                                      elementsCount: elements.length,
+                                      elements: elements
+                                    });
+                                    
+                                    if (!imageUrl) {
+                                      console.error('[BeeBotDraftsView] No image URL found');
+                                      return;
+                                    }
+                                    
+                                navigate('/text-editor', {
+                                  state: {
+                                    image_url: imageUrl,
+                                    elements: elements,
+                                    campaign_data: null,
+                                    org_id: orgId,
+                                    referrer: location.pathname + location.search // Store current page to return to
+                                  }
+                                });
+                                    
+                                    axios.post(
+                                      `${BACKEND_URL}/api/text-editor/sessions`,
+                                      {
+                                        image_url: imageUrl,
+                                        elements: elements,
+                                        campaign_data: { org_id: orgId }
+                                      }
+                                    ).then(sessionResponse => {
+                                      const token = sessionResponse.data.token;
+                                      console.log('[BeeBotDraftsView] Created session token in background:', token);
+                                      navigate(`/text-editor?token=${token}`, { replace: true });
+                                    }).catch(error => {
+                                      console.warn('[BeeBotDraftsView] Failed to create session (non-critical):', error);
+                                    });
                                   }}
-                          className="absolute bottom-3 right-3 bg-background/70 hover:bg-background px-3 py-1.5 rounded-lg text-xs font-medium transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2 border border-border"
-                        >
-                          <Edit className="w-3 h-3" /> Edit Image
-                        </button>
+                                  className="absolute bottom-3 right-3 px-3 py-1.5 rounded-lg text-xs font-medium transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2"
+                                  style={{
+                                    backgroundColor: tokens.colors.background.app + 'E6',
+                                    color: tokens.colors.text.primary,
+                                    backdropFilter: 'blur(8px)'
+                                  }}
+                                >
+                                  <Edit className="w-3 h-3" /> Edit Image
+                                </button>
                               </div>
-                            )}
-                            
-                    {/* Hashtags */}
-                    {message.hashtags?.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
-                        {message.hashtags.map((tag, i) => (
-                          <span key={i} style={{ color: tokens.colors.accent.lime, fontSize: '12px' }}>#{tag.replace(/^#/, '')}</span>
-                                ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Single Column Layout: Text Only or Regular Messages */}
+                            {message.isPost && !message.image ? (
+                              <div 
+                                className="p-4 rounded-lg"
+                                style={{
+                                  backgroundColor: tokens.isDark ? '#FFFFFF' : 'transparent',
+                                  borderRadius: tokens.radius.md
+                                }}
+                              >
+                                {editingTextIndex === index ? (
+                                  <div className="flex flex-col gap-2">
+                                    <textarea
+                                      value={editingTextContent}
+                                      onChange={(e) => setEditingTextContent(e.target.value)}
+                                      className="w-full p-3 rounded-lg resize-none"
+                                      style={{
+                                        backgroundColor: tokens.colors.background.input,
+                                        color: tokens.colors.text.primary,
+                                        border: `1px solid ${tokens.colors.border.default}`,
+                                        borderRadius: tokens.radius.md,
+                                        fontFamily: tokens.typography.fontFamily.sans,
+                                        fontSize: '14px',
+                                        lineHeight: '1.5',
+                                        minHeight: '120px'
+                                      }}
+                                      autoFocus
+                                    />
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        onClick={() => {
+                                          setMessages(prev => prev.map((msg, i) => 
+                                            i === index 
+                                              ? { ...msg, content: editingTextContent, postData: { ...msg.postData, content: editingTextContent } }
+                                              : msg
+                                          ));
+                                          setEditingTextIndex(null);
+                                          setEditingTextContent('');
+                                        }}
+                                        style={{
+                                          backgroundColor: tokens.colors.accent.lime,
+                                          color: tokens.colors.text.inverse
+                                        }}
+                                      >
+                                        Save
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => {
+                                          setEditingTextIndex(null);
+                                          setEditingTextContent('');
+                                        }}
+                                      >
+                                        Cancel
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div 
+                                      className="whitespace-pre-wrap relative group" 
+                                      style={{ 
+                                        color: '#000000',
+                                        fontFamily: message.role === 'user' ? 'inherit' : 'inherit',
+                                        wordWrap: 'break-word',
+                                        wordBreak: 'break-word',
+                                        overflowWrap: 'break-word',
+                                        whiteSpace: 'pre-wrap'
+                                      }}
+                                    >
+                                      {message.content}
+                                      {message.role === 'assistant' && !message.isError && message.isPost && (
+                                        <button
+                                          onClick={() => {
+                                            setEditingTextIndex(index);
+                                            setEditingTextContent(message.content);
+                                          }}
+                                          className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded"
+                                          style={{
+                                            backgroundColor: tokens.colors.background.layer2,
+                                            color: tokens.colors.text.secondary
+                                          }}
+                                          title="Edit text"
+                                        >
+                                          <Edit className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                    
+                                    {/* Hashtags */}
+                                    {message.hashtags?.length > 0 && (
+                                      <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${message.role === 'user' ? 'rgba(0,0,0,0.1)' : 'rgba(0,0,0,0.1)'}` }}>
+                                        {message.hashtags.map((tag, i) => (
+                                          <span key={i} style={{ color: message.role === 'user' ? '#000000' : tokens.colors.accent.lime, fontSize: '12px', fontWeight: 600, opacity: 0.8 }}>
+                                            #{tag.replace(/^#/, '')}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </>
+                                )}
                               </div>
+                            ) : (
+                              <>
+                                {editingTextIndex === index && message.isPost ? (
+                                  <div className="flex flex-col gap-2">
+                                    <textarea
+                                      value={editingTextContent}
+                                      onChange={(e) => setEditingTextContent(e.target.value)}
+                                      className="w-full p-3 rounded-lg resize-none"
+                                      style={{
+                                        backgroundColor: tokens.colors.background.input,
+                                        color: tokens.colors.text.primary,
+                                        border: `1px solid ${tokens.colors.border.default}`,
+                                        borderRadius: tokens.radius.md,
+                                        fontFamily: tokens.typography.fontFamily.sans,
+                                        fontSize: '14px',
+                                        lineHeight: '1.5',
+                                        minHeight: '120px'
+                                      }}
+                                      autoFocus
+                                    />
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        onClick={() => {
+                                          setMessages(prev => prev.map((msg, i) => 
+                                            i === index 
+                                              ? { ...msg, content: editingTextContent, postData: { ...msg.postData, content: editingTextContent } }
+                                              : msg
+                                          ));
+                                          setEditingTextIndex(null);
+                                          setEditingTextContent('');
+                                        }}
+                                        style={{
+                                          backgroundColor: tokens.colors.accent.lime,
+                                          color: tokens.colors.text.inverse
+                                        }}
+                                      >
+                                        Save
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => {
+                                          setEditingTextIndex(null);
+                                          setEditingTextContent('');
+                                        }}
+                                      >
+                                        Cancel
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div 
+                                      className="whitespace-pre-wrap relative group" 
+                                      style={{ 
+                                        color: '#000000',
+                                        fontFamily: message.role === 'user' ? 'inherit' : 'inherit',
+                                        wordWrap: 'break-word',
+                                        wordBreak: 'break-word',
+                                        overflowWrap: 'break-word',
+                                        whiteSpace: 'pre-wrap'
+                                      }}
+                                    >
+                                      {message.content}
+                                      {message.role === 'assistant' && !message.isError && message.isPost && !message.image && (
+                                        <button
+                                          onClick={() => {
+                                            setEditingTextIndex(index);
+                                            setEditingTextContent(message.content);
+                                          }}
+                                          className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded"
+                                          style={{
+                                            backgroundColor: tokens.colors.background.layer2,
+                                            color: tokens.colors.text.secondary
+                                          }}
+                                          title="Edit text"
+                                        >
+                                          <Edit className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                    
+                                    {/* Hashtags */}
+                                    {message.hashtags?.length > 0 && (
+                                      <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${message.role === 'user' ? 'rgba(0,0,0,0.1)' : 'rgba(0,0,0,0.1)'}` }}>
+                                        {message.hashtags.map((tag, i) => (
+                                          <span key={i} style={{ color: message.role === 'user' ? '#000000' : tokens.colors.accent.lime, fontSize: '12px', fontWeight: 600, opacity: 0.8 }}>
+                                            #{tag.replace(/^#/, '')}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </>
                             )}
+                          </>
+                        )}
 
-                    {/* Actions (Assistant Only - Post Generated) */}
-                    {message.role === 'assistant' && !message.isError && message.isPost && (
-                      <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
+                        {/* Actions (Assistant Only - Post Generated) */}
+                        {message.role === 'assistant' && !message.isError && message.isPost && (
+                          <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${tokens.colors.border.default}` }}>
                                 <Button
                           size="sm"
                           variant="ghost"
@@ -1197,18 +1615,50 @@ const BeeBotDraftsView = ({ orgId }) => {
                           </>
                         )}
                       </div>
+                    </div>
 
-              {/* Avatar - User */}
-              {message.role === 'user' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-[#88D9E7] to-[#5AB9D1] flex items-center justify-center shadow-lg">
-                  <User className="w-4 h-4 text-black" />
+                    {/* Avatar - User */}
+                    {message.role === 'user' && (() => {
+                      const pictureUrl = linkedinProfile?.picture || linkedinProfile?.pictureUrl || linkedinProfile?.picture_url || linkedinProfile?.profilePicture;
+                      const profilePicture = pictureUrl ? `${BACKEND_URL}/api/settings/linkedin-profile-picture?user_id=${user.id}` : null;
+                      
+                      return (
+                        <div 
+                          className="flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-full relative overflow-hidden"
+                          style={{
+                            zIndex: 20,
+                            position: 'relative',
+                            backgroundColor: '#0A66C2'
+                          }}
+                        >
+                          {linkedinConnected && profilePicture && !userProfileImageError ? (
+                            <img 
+                              src={profilePicture}
+                              alt="Profile"
+                              className="w-full h-full object-cover"
+                              onError={() => {
+                                console.warn('Failed to load LinkedIn profile picture:', profilePicture);
+                                setUserProfileImageError(true);
+                              }}
+                              onLoad={() => {
+                                setUserProfileImageError(false);
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <User className="w-4 h-4 md:w-5 md:h-5 text-white" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
-                )}
-              </div>
-            ))}
+                );
+              })}
             <div ref={messagesEndRef} />
             {/* Spacer to ensure page is always scrollable */}
             <div className="h-[200px]" />
+          </div>
         </div>
 
         {/* Floating Input Area */}
@@ -1273,26 +1723,6 @@ const BeeBotDraftsView = ({ orgId }) => {
                 </div>
               )}
             
-              {/* Divider */}
-              <div className="w-px h-4 bg-border shrink-0" />
-
-              {/* Model Selection */}
-              <div className="relative flex-1 min-w-0 max-w-[220px]">
-                <Select
-                  value={imageModel}
-                  onValueChange={setImageModel}
-                >
-                  <SelectTrigger className="w-full h-8 bg-transparent border-none text-xs text-muted-foreground hover:text-foreground focus:ring-0 focus:ring-offset-0 px-0 shadow-none justify-start gap-2">
-                    <SelectValue placeholder="Select Model" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-card border border-border text-foreground min-w-[220px]">
-                    <SelectItem value="gemini-stock" className="text-xs focus:bg-muted focus:text-foreground cursor-pointer">Gemini 2.5 Flash + Stock</SelectItem>
-                    <SelectItem value="google/gemini-2.5-flash-image" className="text-xs focus:bg-muted focus:text-foreground cursor-pointer">Gemini 2.5 Flash Only</SelectItem>
-                    <SelectItem value="stock" className="text-xs focus:bg-muted focus:text-foreground cursor-pointer">Stock Photos Only</SelectItem>
-                    <SelectItem value="ai_horde" className="text-xs focus:bg-muted focus:text-foreground cursor-pointer">AI Horde (Slow)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
 
             {/* Right Side: Image Toggle */}
@@ -1472,35 +1902,6 @@ const BeeBotDraftsView = ({ orgId }) => {
         </div>
       )}
       
-      <TextOverlayModal
-        isOpen={showTextOverlayModal}
-        onClose={() => setShowTextOverlayModal(false)}
-        imageUrl={selectedImageForEdit}
-        initialElements={selectedMessageForTextOverlay?.textOverlays || imageOverlays[selectedImageForEdit] || []}
-        campaignData={selectedMessageForTextOverlay}
-        onApply={(newImageUrl, elements) => {
-          const oldImageUrl = selectedImageForEdit;
-          setSelectedImageForEdit(newImageUrl);
-          
-          setMessages(prev => prev.map(msg => {
-            if (msg.image === oldImageUrl) {
-              return {
-                ...msg, 
-                image: newImageUrl,
-                textOverlays: elements || []
-              };
-            }
-            return msg;
-          }));
-          
-          setImageOverlays(prev => {
-            const newOverlays = { ...prev };
-            delete newOverlays[oldImageUrl];
-            newOverlays[newImageUrl] = elements || [];
-            return newOverlays;
-          });
-        }}
-      />
     </div>
   );
 };

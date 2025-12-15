@@ -30,7 +30,7 @@ class ImageGenerateRequest(PydanticBaseModel):
     user_id: str  # Add user_id to fetch API key
     org_id: Optional[str] = None  # Organization ID for prompt logging and brand DNA
     campaign_id: Optional[str] = None  # Campaign ID for campaign context
-    model: str = "gemini-2.5-flash-image"  # Image model to use (default: Gemini 2.5 Flash Image)
+    model: str = "gemini-3-pro-image-preview"  # Image model to use (default: Gemini 3 Pro Image Preview)
     session_id: Optional[str] = None  # Session ID for WebSocket progress updates
     draft_id: Optional[str] = None  # Draft ID for prompt history tracking
 
@@ -38,7 +38,7 @@ class DraftChatRequest(PydanticBaseModel):
     messages: List[Dict[str, str]]
     org_id: Optional[str] = None
     user_id: str
-    generate_with_image: Optional[bool] = False  # Flag to trigger image generation
+    generate_with_image: Optional[bool] = True  # Flag to trigger image generation (default: always generate)
 
 
 router = APIRouter(prefix="/drafts", tags=["drafts"])
@@ -94,7 +94,7 @@ async def get_system_api_key(key_type: str = "any") -> tuple:
     """Get system-wide API key from admin-managed settings
     
     Args:
-        key_type: Type of key to prioritize ("google_ai", "openrouter", "openai", "anthropic", or "any")
+        key_type: Type of key to prioritize ("google_ai", "openai", or "any")
     
     Returns:
         Tuple of (api_key, provider) or (None, None)
@@ -115,15 +115,11 @@ async def get_system_api_key(key_type: str = "any") -> tuple:
     
     # Priority order based on key_type
     if key_type == "google_ai" or key_type == "google_ai_studio":
-        key_priority = ['google_ai_api_key', 'openrouter_api_key', 'openai_api_key', 'anthropic_api_key']
-    elif key_type == "openrouter":
-        key_priority = ['openrouter_api_key', 'google_ai_api_key', 'anthropic_api_key', 'openai_api_key']
+        key_priority = ['google_ai_api_key', 'openai_api_key']
     elif key_type == "openai":
-        key_priority = ['openai_api_key', 'anthropic_api_key', 'openrouter_api_key', 'google_ai_api_key']
-    elif key_type == "anthropic":
-        key_priority = ['anthropic_api_key', 'openrouter_api_key', 'openai_api_key', 'google_ai_api_key']
+        key_priority = ['openai_api_key', 'google_ai_api_key']
     else:  # "any"
-        key_priority = ['openai_api_key', 'google_ai_api_key', 'anthropic_api_key', 'openrouter_api_key']
+        key_priority = ['openai_api_key', 'google_ai_api_key']
     
     # Try keys in priority order
     api_key_field = None
@@ -133,10 +129,6 @@ async def get_system_api_key(key_type: str = "any") -> tuple:
             api_key_field = key_field
             if key_field == 'google_ai_api_key':
                 provider = 'google_ai_studio'
-            elif key_field == 'openrouter_api_key':
-                provider = 'openrouter'
-            elif key_field == 'anthropic_api_key':
-                provider = 'anthropic'
             else:
                 provider = 'openai'
             print(f"   [SUCCESS] Found system {key_field}")
@@ -186,7 +178,7 @@ async def get_user_api_key(user_id: str, key_type: str = "any") -> tuple:
     
     Args:
         user_id: User ID to lookup
-        key_type: Type of key to prioritize ("google_ai", "openrouter", "openai", or "any")
+        key_type: Type of key to prioritize ("google_ai", "openai", or "any")
     
     Returns:
         Tuple of (api_key, provider) or (None, None)
@@ -208,15 +200,11 @@ async def get_user_api_key(user_id: str, key_type: str = "any") -> tuple:
     
     # Priority order based on key_type
     if key_type == "google_ai" or key_type == "google_ai_studio":
-        key_priority = ['google_ai_api_key', 'openrouter_api_key', 'openai_api_key', 'anthropic_api_key']
-    elif key_type == "openrouter":
-        key_priority = ['openrouter_api_key', 'google_ai_api_key', 'anthropic_api_key', 'openai_api_key']
+        key_priority = ['google_ai_api_key', 'openai_api_key']
     elif key_type == "openai":
-        key_priority = ['openai_api_key', 'anthropic_api_key', 'openrouter_api_key', 'google_ai_api_key']
-    elif key_type == "anthropic":
-        key_priority = ['anthropic_api_key', 'openrouter_api_key', 'openai_api_key', 'google_ai_api_key']
+        key_priority = ['openai_api_key', 'google_ai_api_key']
     else:  # "any"
-        key_priority = ['openai_api_key', 'google_ai_api_key', 'anthropic_api_key', 'openrouter_api_key']
+        key_priority = ['openai_api_key', 'google_ai_api_key']
     
     # Try keys in priority order
     api_key_field = None
@@ -226,10 +214,6 @@ async def get_user_api_key(user_id: str, key_type: str = "any") -> tuple:
             api_key_field = key_field
             if key_field == 'google_ai_api_key':
                 provider = 'google_ai_studio'
-            elif key_field == 'openrouter_api_key':
-                provider = 'openrouter'
-            elif key_field == 'anthropic_api_key':
-                provider = 'anthropic'
             else:
                 provider = 'openai'
             print(f"   [SUCCESS] Found {key_field}")
@@ -351,10 +335,9 @@ async def generate_draft_content(request: DraftGenerateRequest):
     # Multi-provider fallback: Use configured default first, then fallback providers
     providers_to_try = []
     
+    # ALWAYS use system API keys from admin dashboard - users never enter API keys
     # Priority 1: Use configured default model
     default_key, _ = await get_system_api_key(default_provider)
-    if not default_key:
-        default_key, _ = await get_user_api_key(request.created_by, default_provider)
     if default_key:
         providers_to_try.append((default_provider, default_model))
         print(f"   [SUCCESS] Added default model: {default_provider}:{default_model}")
@@ -363,34 +346,15 @@ async def generate_draft_content(request: DraftGenerateRequest):
     # Google AI Studio
     if default_provider != "google_ai_studio":
         google_key, _ = await get_system_api_key("google_ai_studio")
-        if not google_key:
-            google_key, _ = await get_user_api_key(request.created_by, "google_ai_studio")
         if google_key:
             providers_to_try.append(("google_ai_studio", "gemini-2.5-flash"))
     
     # OpenAI
     if default_provider != "openai":
         openai_key, _ = await get_system_api_key("openai")
-        if not openai_key:
-            openai_key, _ = await get_user_api_key(request.created_by, "openai")
         if openai_key:
             providers_to_try.append(("openai", "gpt-4o"))
     
-    # Anthropic
-    if default_provider != "anthropic":
-        anthropic_key, _ = await get_system_api_key("anthropic")
-        if not anthropic_key:
-            anthropic_key, _ = await get_user_api_key(request.created_by, "anthropic")
-        if anthropic_key:
-            providers_to_try.append(("anthropic", "claude-3-5-sonnet"))
-    
-    # OpenRouter
-    if default_provider != "openrouter":
-        openrouter_key, _ = await get_system_api_key("openrouter")
-        if not openrouter_key:
-            openrouter_key, _ = await get_user_api_key(request.created_by, "openrouter")
-        if openrouter_key:
-            providers_to_try.append(("openrouter", "anthropic/claude-3.5-sonnet"))
     
     content_data = None
     last_error = None
@@ -591,10 +555,10 @@ async def fetch_stock_image(request: ImageGenerateRequest):
 @router.post("/generate-image")
 async def generate_image_for_draft(request: ImageGenerateRequest):
     """
-    Generate image for a draft with Gemini 2.5 Flash Image as default and Stock as fallback:
-    1. Gemini 2.5 Flash Image (google/gemini-2.5-flash-image) - Default Primary
+    Generate image for a draft with Gemini 3 Pro Image Preview as default and Stock as fallback:
+    1. Gemini 3 Pro Image Preview (google/gemini-3-pro-image-preview) - Default Primary
     2. Stock Photos (Unsplash/Pexels) - Primary Fallback
-    3. OpenRouter (for Gemini models) - Secondary Fallback
+    3. Google AI Studio (for Gemini models) - Secondary Fallback
     4. AI Horde (free) - Last resort
     """
     print(f"\n{'='*60}")
@@ -608,7 +572,7 @@ async def generate_image_for_draft(request: ImageGenerateRequest):
     
     # Helper function to log prompt and return response
     async def log_and_return_result(result_data: dict, success: bool = True):
-        """Log the prompt to database after successful generation"""
+        """Log the prompt to database after successful generation and generate text overlay suggestions"""
         if request.org_id and request.user_id:
             try:
                 from linkedpilot.utils.prompt_logger import log_prompt
@@ -629,6 +593,37 @@ async def generate_image_for_draft(request: ImageGenerateRequest):
                 print(f"[PROMPT_LOG] Logged image prompt history")
             except Exception as log_error:
                 print(f"[WARNING] Failed to log prompt: {log_error}")
+        
+        # Generate text overlay suggestions if using Gemini 3 Pro Image Preview (supports text)
+        if result_data.get('url') and ('gemini-3-pro-image-preview' in str(result_data.get('model', '')).lower() or 'gemini-3-pro' in str(result_data.get('model', '')).lower()):
+            try:
+                print(f"[TEXT_OVERLAY] Generating editable text overlay suggestions for Gemini 3 Pro image...")
+                # Import here to avoid circular dependency
+                from ..utils.gemini_overlay_agent import GeminiOverlayAgent
+                from ..routes.drafts import get_system_api_key
+                
+                # Get API key for Gemini overlay agent
+                api_key, _ = await get_system_api_key("google_ai_studio")
+                if api_key:
+                    agent = GeminiOverlayAgent(api_key=api_key)
+                    overlay_result = await agent.generate_overlay(
+                        image_url=result_data.get('url'),
+                        post_content=request.prompt or request.topic or '',
+                        call_to_action='',
+                        brand_info=''
+                    )
+                    result_data['text_overlay'] = overlay_result.get('elements', [])
+                    result_data['text_overlay_template_id'] = overlay_result.get('template_id')
+                    print(f"[TEXT_OVERLAY] Generated {len(result_data.get('text_overlay', []))} editable text overlay elements")
+                else:
+                    print(f"[WARNING] No API key for text overlay generation")
+                    result_data['text_overlay'] = []
+            except Exception as overlay_error:
+                print(f"[WARNING] Failed to generate text overlay suggestions: {overlay_error}")
+                import traceback
+                traceback.print_exc()
+                # Don't fail the request if overlay generation fails
+                result_data['text_overlay'] = []
         
         return result_data
     
@@ -717,15 +712,13 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
     
     # Priority 1: Use configured default image model
     # Check if default model is Google AI Studio or matches image_model
-    if image_model == default_img_model or image_model in ['gemini-stock', 'google/gemini-2.5-flash-image', 'gemini-2.5-flash-image', 'gemini-2.0-flash-exp'] or image_model is None:
+    if image_model == default_img_model or image_model in ['gemini-stock', 'google/gemini-3-pro-image-preview', 'gemini-3-pro-image-preview', 'gemini-2.5-flash-image', 'gemini-2.0-flash-exp'] or image_model is None:
         print(f"[IMAGE] Priority 1: Attempting {default_img_provider} with {default_img_model}...")
         
         # Try to get API key for configured provider
         system_api_key, provider = await get_system_api_key(default_img_provider)
         
-        if not system_api_key:
-            system_api_key, provider = await get_user_api_key(request.user_id, default_img_provider)
-        
+        # ALWAYS use system API keys from admin dashboard - users never enter API keys
         if system_api_key:
             try:
                 image_adapter = ImageAdapter(
@@ -753,19 +746,17 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
             print(f"[WARNING] No {default_img_provider} API key found, trying fallback providers...")
     
     # Fallback 1: Google AI Studio (if not already tried)
-    if default_img_provider != "google_ai_studio" and (image_model in ['gemini-stock', 'google/gemini-2.5-flash-image', 'gemini-2.5-flash-image'] or image_model is None):
+    if default_img_provider != "google_ai_studio" and (image_model in ['gemini-stock', 'google/gemini-3-pro-image-preview', 'gemini-3-pro-image-preview', 'google/gemini-2.5-flash-image', 'gemini-2.5-flash-image'] or image_model is None):
         print(f"[IMAGE] Fallback 1: Trying Google AI Studio...")
+        # ALWAYS use system API keys from admin dashboard - users never enter API keys
         system_api_key, provider = await get_system_api_key("google_ai_studio")
-        
-        if not system_api_key:
-            system_api_key, provider = await get_user_api_key(request.user_id, "google_ai_studio")
         
         if system_api_key:
             try:
                 image_adapter = ImageAdapter(
                     api_key=system_api_key,
                     provider="google_ai_studio",
-                    model="gemini-2.5-flash-image"
+                    model="gemini-3-pro-image-preview"
                 )
                 
                 image_data = await image_adapter.generate_image(enhanced_prompt, request.style)
@@ -777,7 +768,7 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
                     "url": image_data.get('url'),
                     "image_base64": image_data.get('image_base64'),
                     "prompt": enhanced_prompt,
-                    "model": "gemini-2.5-flash-image",
+                    "model": "gemini-3-pro-image-preview",
                     "provider": "Google AI Studio"
                 })
             except Exception as e:
@@ -863,68 +854,9 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
             raise
         except Exception as e:
             print(f"[ERROR] Stock image fallback failed: {e}")
-            # Fallback to OpenRouter if stock fails (for non-HTTPException errors)
+            # Fallback to Google AI Studio if stock fails (for non-HTTPException errors)
             pass
             
-    # Priority 3: OpenRouter (Fallback for Gemini if direct Google AI Studio failed)
-    # Try OpenRouter as fallback for Gemini models only
-    if image_model in ['google/gemini-2.5-flash-image', 'gemini-2.5-flash-image'] or (image_model is None and default_img_model in ['gemini-2.5-flash-image', 'google/gemini-2.5-flash-image']):
-        print(f"[IMAGE] Priority 4: Trying OpenRouter as last resort...")
-        openrouter_key, _ = await get_system_api_key("openrouter")
-        
-        if not openrouter_key:
-            openrouter_key, _ = await get_user_api_key(request.user_id, "openrouter")
-        
-        if openrouter_key:
-            try:
-                image_adapter = ImageAdapter(
-                    api_key=openrouter_key,
-                    provider="openrouter",
-                    model="google/gemini-2.5-flash-image"  # OpenRouter format
-                )
-                
-                image_data = await image_adapter.generate_image(enhanced_prompt, request.style)
-                
-                print(f"[SUCCESS] Image generated via OpenRouter!")
-                print(f"{'='*60}\n")
-                
-                return await log_and_return_result({
-                    "url": image_data.get('url'),
-                    "image_base64": image_data.get('image_base64'),
-                    "prompt": enhanced_prompt,
-                    "model": "google/gemini-2.5-flash-image",
-                    "provider": "OpenRouter"
-                })
-            except Exception as e:
-                print(f"[WARNING] OpenRouter failed: {e}")
-        else:
-            print(f"[WARNING] No OpenRouter API key found")
-    
-    # Priority 5: AI Horde (free, crowdsourced) - Absolute last resort
-    if image_model in ['ai_horde', 'gemini-stock', 'stock', 'google/gemini-2.5-flash-image', 'gemini-2.5-flash-image', 'gemini-2.0-flash-exp'] or image_model is None:
-        print(f"[IMAGE] Using AI Horde (free, crowdsourced - last resort)")
-        image_adapter = ImageAdapter(
-            api_key="0000000000",
-            provider="ai_horde",
-            model="stable_diffusion_xl"
-        )
-        
-        try:
-            image_data = await image_adapter.generate_image(enhanced_prompt, request.style)
-            print(f"[SUCCESS] AI Horde image generated!")
-            print(f"{'='*60}\n")
-            
-            return await log_and_return_result({
-                "url": image_data.get('url'),
-                "prompt": enhanced_prompt,
-                "model": "AI Horde (Stable Diffusion XL)",
-                "provider": "AI Horde",
-                "cost": "$0.00",
-                "wait_time": image_data.get('wait_time', 0),
-                "note": f"Free crowdsourced generation completed in {image_data.get('wait_time', 0)} seconds"
-            })
-        except Exception as e:
-            print(f"[ERROR] AI Horde failed: {e}")
             print(f"{'='*60}\n")
             raise HTTPException(
                 status_code=500,
@@ -1213,8 +1145,8 @@ async def generate_carousel_draft(request: DraftGenerateRequest):
     llm = LLMAdapter(api_key=user_api_key)
     image_adapter = ImageAdapter(
         api_key=user_api_key,
-        provider="openrouter",
-        model="google/gemini-2.5-flash-image"
+        provider="google_ai_studio",
+        model="gemini-3-pro-image-preview"
     )
     
     # Generate carousel content
@@ -1769,7 +1701,7 @@ async def generate_images_for_draft(draft_id: str, provider: str = "google_ai_st
     image_adapter = ImageAdapter(
         api_key=system_api_key,
         provider=provider,
-        model="gemini-2.5-flash-image"
+        model="gemini-3-pro-image-preview"
     )
     content_preview = draft['content'].get('body', '')
     # Extract hook for cinematic generation
@@ -1936,29 +1868,26 @@ async def chat_draft(request: DraftChatRequest):
     print(f"   Messages: {len(request.messages)}")
     print(f"   Generate with image: {request.generate_with_image}")
     
-    # Get default model setting (reuse text draft setting)
-    default_model_setting = await get_default_model_setting('text_draft_content')
-    default_provider, default_model = parse_model_setting(default_model_setting)
+    # Chat endpoint ALWAYS uses OpenAI for text generation
+    # Images use Google AI Studio (handled separately below)
+    provider = "openai"
+    model = "gpt-4o"
     
-    # Try to get API key
-    system_api_key, provider = await get_system_api_key(default_provider)
-    if not system_api_key:
-        system_api_key, provider = await get_user_api_key(request.user_id, default_provider)
+    # Get OpenAI API key
+    # ALWAYS use system API keys from admin dashboard - users never enter API keys
+    system_api_key, _ = await get_system_api_key("openai")
     
     if not system_api_key:
-        # Fallback to OpenAI if default not found
-        system_api_key, provider = await get_system_api_key("openai")
-        default_model = "gpt-4o"
+        print(f"   [ERROR] No OpenAI API key found")
+        raise HTTPException(status_code=500, detail="No OpenAI API key configured")
         
-    if not system_api_key:
-        print(f"   [ERROR] No API keys found")
-        raise HTTPException(status_code=500, detail="No API keys configured")
+    print(f"   [INFO] Using OpenAI ({model}) for chat text generation")
         
     try:
         llm = LLMAdapter(
             api_key=system_api_key,
             provider=provider,
-            model=default_model
+            model=model
         )
         
         response = await llm.chat_with_context(
@@ -1968,7 +1897,7 @@ async def chat_draft(request: DraftChatRequest):
         
         print(f"   [SUCCESS] Chat response: {response.get('type')}")
         
-        # If draft was generated and image generation is requested, generate image
+        # Generate image by default (default is True in model)
         if response.get('type') == 'draft' and request.generate_with_image:
             print(f"   [IMAGE] Generating image for draft...")
             try:
@@ -1996,9 +1925,8 @@ async def chat_draft(request: DraftChatRequest):
                         print(f"   [WARNING] Failed to fetch brand DNA: {brand_error}")
                 
                 # Get OpenAI key for prompt optimization
+                # ALWAYS use system API keys from admin dashboard - users never enter API keys
                 system_openai_key, _ = await get_system_api_key("openai")
-                if not system_openai_key:
-                    system_openai_key, _ = await get_user_api_key(request.user_id, "openai")
                 
                 # Optimize image prompt with brand DNA
                 enhanced_prompt = post_content[:200]  # Default to post content
@@ -2019,29 +1947,389 @@ async def chat_draft(request: DraftChatRequest):
                         print(f"   [WARNING] Prompt optimization failed: {opt_error}")
                 
                 # Generate image using Gemini 3 Pro Image Preview
-                google_api_key, _ = await get_system_api_key("google_ai_studio")
-                if not google_api_key:
-                    google_api_key, _ = await get_user_api_key(request.user_id, "google_ai_studio")
+                # ALWAYS use system API keys from admin dashboard - users never enter API keys
+                print(f"   [IMAGE] Step 1: Retrieving Google AI Studio API key...")
+                google_api_key, provider = await get_system_api_key("google_ai_studio")
                 
                 if google_api_key:
-                    image_adapter = ImageAdapter(
-                        api_key=google_api_key,
-                        provider="google_ai_studio",
-                        model="gemini-3-pro-image-preview"  # Use Gemini 3 Pro Image Preview
-                    )
+                    print(f"   [IMAGE] Step 2: API key found (length: {len(google_api_key)}, starts with: {google_api_key[:10]}...)")
+                    print(f"   [IMAGE] Step 3: Initializing ImageAdapter with Gemini 3 Pro Image Preview...")
                     
-                    image_result = await image_adapter.generate_image(
-                        prompt=enhanced_prompt,
-                        style="professional",
-                        size="1024x1024"  # 1K resolution for Gemini 3 Pro
-                    )
-                    
-                    # Add image URL to response
-                    response['image_url'] = image_result.get('url')
-                    response['image_prompt'] = enhanced_prompt
-                    print(f"   [SUCCESS] Image generated successfully!")
+                    try:
+                        image_adapter = ImageAdapter(
+                            api_key=google_api_key,
+                            provider="google_ai_studio",
+                            model="gemini-3-pro-image-preview"  # Use Gemini 3 Pro Image Preview
+                        )
+                        
+                        print(f"   [IMAGE] Step 4: Generating image with prompt: {enhanced_prompt[:100]}...")
+                        image_result = await image_adapter.generate_image(
+                            prompt=enhanced_prompt,
+                            style="professional",
+                            size="1024x1024"  # 1K resolution for Gemini 3 Pro
+                        )
+                        
+                        if image_result and image_result.get('url'):
+                            # Add image URL to response
+                            response['image_url'] = image_result.get('url')
+                            response['image_prompt'] = enhanced_prompt
+                            print(f"   [SUCCESS] Image generated successfully! URL: {image_result.get('url')[:50]}...")
+                            
+                            # Extract text from generated image and create editable overlays
+                            try:
+                                print(f"   [TEXT EXTRACTION] Extracting text from generated image...")
+                                from ..utils.gemini_overlay_agent import GeminiOverlayAgent
+                                
+                                # Get image base64 from URL (if it's a data URL)
+                                image_url = image_result.get('url')
+                                image_base64 = None
+                                if image_url.startswith('data:image'):
+                                    # Extract base64 from data URL
+                                    image_base64 = image_url.split(',')[1] if ',' in image_url else None
+                                elif image_result.get('image_base64'):
+                                    image_base64 = image_result.get('image_base64')
+                                
+                                if image_base64:
+                                    # Initialize variables
+                                    tesseract_elements = None
+                                    extracted_elements = None
+                                    
+                                    # Get image dimensions first for percentage calculations
+                                    try:
+                                        image_bytes = base64.b64decode(image_base64)
+                                        img_for_dimensions = Image.open(io.BytesIO(image_bytes))
+                                        img_width, img_height = img_for_dimensions.size
+                                        print(f"   [TEXT EXTRACTION] Image dimensions: {img_width}x{img_height} pixels")
+                                    except Exception as dim_error:
+                                        print(f"   [WARNING] Could not get image dimensions: {dim_error}")
+                                        img_width, img_height = 1200, 627
+                                    
+                                    # Use Tesseract OCR for precise text coordinate extraction
+                                    try:
+                                        from ..utils.tesseract_extractor import extract_text_with_tesseract
+                                        
+                                        print(f"   [TEXT EXTRACTION] Using Tesseract OCR for precise text coordinates...")
+                                        
+                                        # Extract text with Tesseract
+                                        tesseract_results = extract_text_with_tesseract(image_base64)
+                                        
+                                        # Store Tesseract results for coordinate merging, but always use Gemini Vision for font detection
+                                        if tesseract_results and len(tesseract_results) > 0:
+                                            print(f"   [TESSERACT] Found {len(tesseract_results)} text elements with coordinates")
+                                            for i, elem in enumerate(tesseract_results):
+                                                print(f"   [TESSERACT] Element {i+1}: '{elem.get('text', '')[:50]}' at ({elem.get('bbox', {}).get('x', 0)}, {elem.get('bbox', {}).get('y', 0)})")
+                                            tesseract_elements = tesseract_results
+                                            print(f"   [TEXT EXTRACTION] Will use Gemini Vision for font/styling detection and merge with Tesseract coordinates...")
+                                        else:
+                                            print(f"   [TESSERACT] No text found (or empty result), using Gemini Vision only...")
+                                    except Exception as tesseract_error:
+                                        print(f"   [WARNING] Tesseract extraction failed: {tesseract_error}")
+                                        import traceback
+                                        traceback.print_exc()
+                                        tesseract_elements = None
+                                    
+                                    # Always use Gemini Vision for font/styling detection (even if Tesseract found text)
+                                    # Gemini Vision provides better font detection than Tesseract
+                                    # Use Gemini Vision to extract text from image
+                                    vision_llm = LLMAdapter(
+                                        api_key=google_api_key,
+                                        provider="google_ai_studio",
+                                        model="gemini-2.5-flash"
+                                    )
+                                    
+                                    # Get image dimensions for accurate bounding box calculation
+                                    try:
+                                        # Decode base64 to get image bytes
+                                        image_bytes = base64.b64decode(image_base64)
+                                        img_for_dimensions = Image.open(io.BytesIO(image_bytes))
+                                        img_width, img_height = img_for_dimensions.size
+                                        print(f"   [TEXT EXTRACTION] Image dimensions: {img_width}x{img_height} pixels")
+                                    except Exception as dim_error:
+                                        print(f"   [WARNING] Could not get image dimensions: {dim_error}")
+                                        # Fallback to standard LinkedIn post dimensions
+                                        img_width, img_height = 1200, 627
+                                    
+                                    # Always use Gemini Vision for font detection
+                                    extraction_prompt = f"""Analyze this LinkedIn post image and extract ALL visible text elements with PIXEL-PERFECT bounding boxes.
+
+IMAGE DIMENSIONS: {img_width}x{img_height} pixels
+
+CRITICAL REQUIREMENTS FOR PRECISE TEXT EXTRACTION:
+1. Use a GRID-BASED coordinate system aligned to the image dimensions
+2. Measure positions relative to the EXACT image boundaries (0,0) to ({img_width},{img_height})
+3. Consider the image's visual composition:
+   - Identify busy/active regions (faces, complex backgrounds) - text may be positioned to avoid these
+   - Identify empty/clear spaces - text may be positioned in these areas
+   - Note visual hierarchy and focal points
+4. Extract EVERY piece of baked-in text with PIXEL-PERFECT accuracy
+
+POSITIONING METHODOLOGY:
+- Use a grid system: Divide image into a {img_width//10}x{img_height//10} grid for reference
+- Measure bounding boxes in PIXELS first, then convert to percentages
+- The bounding box MUST exactly match the text boundaries (no gaps, minimal padding)
+- For multi-line text, include the entire block in ONE bounding box
+
+For each text element, provide:
+1. The exact text content (preserve line breaks with \\n)
+2. PRECISE bounding box in PIXELS (measure from image edges):
+   - bbox.x: Left edge X coordinate (0 to {img_width}) - measure from left edge
+   - bbox.y: Top edge Y coordinate (0 to {img_height}) - measure from top edge  
+   - bbox.width: Width in pixels - measure from left edge of first character to right edge of last character
+   - bbox.height: Height in pixels - measure from top of tallest character to bottom including descenders and line spacing
+3. Bounding box in PERCENTAGES (calculate precisely):
+   - x_percent = (bbox.x / {img_width}) * 100
+   - y_percent = (bbox.y / {img_height}) * 100
+   - width_percent = (bbox.width / {img_width}) * 100
+   - height_percent = (bbox.height / {img_height}) * 100
+4. EXACT font size in pixels (measure the actual rendered text height - this is critical!)
+   - Measure from baseline to cap height (top of capital letters)
+   - For multi-line text, divide bbox height by number of lines and line_height
+   - Example: If bbox height is 80px, 2 lines, line_height 1.2 → font_size ≈ 80 / (2 * 1.2) ≈ 33px
+5. Font family/name (identify the EXACT font style - this is critical for premium fonts):
+   - Premium fonts commonly used: Montserrat, Playfair Display, Raleway, Lato, Oswald, Bebas Neue, Barlow, Inter, Space Grotesk, DM Sans, Plus Jakarta Sans, Manrope, Outfit, Work Sans, Nunito, Rubik, Source Sans Pro, Merriweather, Libre Baskerville, Cormorant Garamond
+   - Common fonts: Arial, Helvetica, Times, Georgia, Roboto, Poppins, Open Sans
+   - Look for distinctive characteristics: serif vs sans-serif, weight, letter spacing, geometric vs humanist
+   - If the font looks premium/modern, identify it specifically (don't default to Poppins)
+   - Return the EXACT font name as it appears in Google Fonts (e.g., "Montserrat", "Playfair Display", "Raleway")
+   - Only default to "Poppins" if you truly cannot identify the font
+6. Text alignment (left, center, right) - observe how text aligns within its bounding box
+7. EXACT color in hex format (sample the actual text color)
+8. Font weight (400=normal, 700=bold) - estimate from appearance
+9. Line height (1.0-2.0) - measure spacing between lines if multi-line
+10. Letter spacing in pixels (usually 0, but measure if text appears spaced)
+11. Background color if text has a visible background (hex or "transparent")
+12. Shadow properties if visible:
+    - shadow_blur: Blur radius in pixels
+    - shadow_offset_x: Horizontal offset in pixels
+    - shadow_offset_y: Vertical offset in pixels
+    - shadow_color: Shadow color in hex
+13. Confidence score (0.0 to 1.0) - use 0.8+ for clear text
+
+CRITICAL ACCURACY REQUIREMENTS:
+- Measure bounding boxes using pixel coordinates relative to image origin (0,0) at top-left
+- The bounding box should tightly fit the text (minimal padding, no gaps)
+- For multi-line text, the bounding box should encompass ALL lines
+- Position (x_percent, y_percent) is the TOP-LEFT corner of the bounding box
+- Width and height must be accurate to within 2-3 pixels
+
+VISUAL COMPOSITION ANALYSIS:
+- Note if text is positioned to avoid busy regions (faces, complex patterns)
+- Note if text is positioned in empty/clear spaces
+- Note the visual relationship between text and main image elements
+
+Return as JSON array:
+[
+  {{
+    "text": "exact text content\\nwith line breaks",
+    "bbox": {{
+      "x": 120,
+      "y": 45,
+      "width": 580,
+      "height": 95
+    }},
+    "bbox_percent": {{
+      "x_percent": 10.0,
+      "y_percent": 7.18,
+      "width_percent": 48.33,
+      "height_percent": 15.15
+    }},
+    "font_size": 64,
+    "font_weight": 700,
+    "text_align": "left",
+    "color": "#FFFFFF",
+    "line_height": 1.2,
+    "letter_spacing": 0,
+    "shadow_enabled": true,
+    "shadow_blur": 8,
+    "shadow_offset_x": 0,
+    "shadow_offset_y": 3,
+    "shadow_color": "#000000",
+    "background_color": "transparent",
+    "confidence": 0.95,
+    "is_baked_in": true
+  }}
+]"""
+                                    
+                                    vision_response = await vision_llm.generate_completion_with_image(
+                                        prompt=extraction_prompt,
+                                        image_base64=image_base64,
+                                        temperature=0.1
+                                    )
+                                    
+                                    # Parse extracted text elements
+                                    import json
+                                    import re
+                                    
+                                    # Extract JSON from response
+                                    json_match = re.search(r'\[.*\]', vision_response, re.DOTALL)
+                                    if json_match:
+                                        extracted_elements = json.loads(json_match.group())
+                                    else:
+                                        extracted_elements = []
+                                    
+                                    print(f"   [TEXT EXTRACTION] Gemini Vision extraction complete: {len(extracted_elements) if extracted_elements else 0} elements")
+                                    
+                                    # Process extracted elements (from Gemini Vision, optionally enhanced with Tesseract coordinates)
+                                    if extracted_elements:
+                                        
+                                        # If we have Tesseract elements, merge coordinates with Gemini Vision font detection
+                                        if tesseract_elements and len(tesseract_elements) > 0 and extracted_elements:
+                                            print(f"   [TEXT EXTRACTION] Merging Tesseract coordinates with Gemini Vision font detection...")
+                                            # Create a map of text to Tesseract elements for coordinate matching
+                                            tesseract_map = {}
+                                            for t_elem in tesseract_elements:
+                                                text_key = t_elem.get('text', '').strip().lower()
+                                                tesseract_map[text_key] = t_elem
+                                            
+                                            # Enhance Gemini Vision elements with Tesseract coordinates if text matches
+                                            for gemini_elem in extracted_elements:
+                                                gemini_text = gemini_elem.get('text', '').strip().lower()
+                                                # Try exact match first
+                                                if gemini_text in tesseract_map:
+                                                    t_elem = tesseract_map[gemini_text]
+                                                    # Use Tesseract's precise coordinates but keep Gemini's font/styling
+                                                    gemini_elem['bbox'] = t_elem.get('bbox', gemini_elem.get('bbox', {}))
+                                                    gemini_elem['bbox_percent'] = t_elem.get('bbox_percent', gemini_elem.get('bbox_percent', {}))
+                                                    print(f"   [MERGE] Enhanced '{gemini_elem.get('text', '')[:30]}' with Tesseract coordinates, font: {gemini_elem.get('font_name', 'unknown')}")
+                                                else:
+                                                    # Try partial match (in case of minor text differences)
+                                                    for t_key, t_elem in tesseract_map.items():
+                                                        if t_key in gemini_text or gemini_text in t_key:
+                                                            gemini_elem['bbox'] = t_elem.get('bbox', gemini_elem.get('bbox', {}))
+                                                            gemini_elem['bbox_percent'] = t_elem.get('bbox_percent', gemini_elem.get('bbox_percent', {}))
+                                                            print(f"   [MERGE] Enhanced '{gemini_elem.get('text', '')[:30]}' with Tesseract coordinates (partial match), font: {gemini_elem.get('font_name', 'unknown')}")
+                                                            break
+                                        
+                                        # Convert to editable overlay format with bounding boxes
+                                        editable_overlays = []
+                                        for elem in extracted_elements:
+                                            # Prefer bounding box percentages if available, fallback to center position
+                                            bbox_percent = elem.get('bbox_percent', {})
+                                            bbox_pixels = elem.get('bbox', {})
+                                            
+                                            # Calculate position from bounding box (use top-left corner)
+                                            if bbox_percent:
+                                                x_percent = bbox_percent.get('x_percent', elem.get('x_percent', 15))
+                                                y_percent = bbox_percent.get('y_percent', elem.get('y_percent', 25))
+                                                width_percent = bbox_percent.get('width_percent', 0)
+                                                height_percent = bbox_percent.get('height_percent', 0)
+                                            elif bbox_pixels:
+                                                # Convert pixel bbox to percentages
+                                                x_percent = (bbox_pixels.get('x', 0) / img_width) * 100 if img_width > 0 else 15
+                                                y_percent = (bbox_pixels.get('y', 0) / img_height) * 100 if img_height > 0 else 25
+                                                width_percent = (bbox_pixels.get('width', 600) / img_width) * 100 if img_width > 0 else 50
+                                                height_percent = (bbox_pixels.get('height', 100) / img_height) * 100 if img_height > 0 else 10
+                                            else:
+                                                # Fallback to center position (old format)
+                                                x_percent = elem.get('x_percent', 15)
+                                                y_percent = elem.get('y_percent', 25)
+                                                width_percent = 50  # Default width
+                                                height_percent = 10  # Default height
+                                            
+                                            # Calculate width and height in pixels from percentages
+                                            width_pixels = int((width_percent / 100) * img_width) if width_percent > 0 else 600
+                                            height_pixels = int((height_percent / 100) * img_height) if height_percent > 0 else 100
+                                            
+                                            # Calculate font size from bounding box height if not provided or seems wrong
+                                            # Font size is approximately: bbox_height / (line_height * line_count)
+                                            extracted_font_size = elem.get('font_size')
+                                            text_content = elem.get('text', '')
+                                            line_count = text_content.count('\n') + 1 if text_content else 1
+                                            line_height = elem.get('line_height', 1.2)
+                                            
+                                            # If font size not provided or seems unreasonable, calculate from bbox height
+                                            if not extracted_font_size or extracted_font_size < 10 or extracted_font_size > 500:
+                                                # Calculate font size from bounding box height
+                                                # For single line: font_size ≈ bbox_height / line_height
+                                                # For multi-line: font_size ≈ bbox_height / (line_height * line_count)
+                                                calculated_font_size = height_pixels / (line_height * line_count)
+                                                font_size = max(12, min(200, int(calculated_font_size)))  # Clamp to reasonable range
+                                                print(f"   [FONT SIZE] Calculated from bbox: {font_size}px (bbox_height={height_pixels}px, lines={line_count}, line_height={line_height})")
+                                            else:
+                                                font_size = int(extracted_font_size)
+                                                print(f"   [FONT SIZE] Using extracted: {font_size}px")
+                                            
+                                            # Filter very low-confidence detections (lower threshold to include more text)
+                                            confidence = elem.get('confidence', 1.0)
+                                            if confidence < 0.3:
+                                                print(f"   [SKIP] Very low confidence text detection ({confidence:.2f}): {elem.get('text', '')[:30]}")
+                                                continue
+                                            
+                                            # Log all detected text for debugging
+                                            text_preview = text_content[:50]
+                                            font_name = elem.get('font_name', 'Poppins')
+                                            print(f"   [DETECTED] Text: '{text_preview}' | Font: {font_name} {font_size}px | Confidence: {confidence:.2f} | Size: {width_percent:.1f}% x {height_percent:.1f}%")
+                                            
+                                            # Use extracted styling or defaults - prioritize matching baked-in text exactly
+                                            editable_overlays.append({
+                                                "text": text_content,
+                                                "position": [x_percent, y_percent],  # Top-left corner as percentage - EXACT position
+                                                "bbox": {
+                                                    "x": bbox_pixels.get('x', int((x_percent / 100) * img_width)),
+                                                    "y": bbox_pixels.get('y', int((y_percent / 100) * img_height)),
+                                                    "width": width_pixels,
+                                                    "height": height_pixels
+                                                },
+                                                "bbox_percent": {
+                                                    "x_percent": x_percent,
+                                                    "y_percent": y_percent,
+                                                    "width_percent": width_percent,
+                                                    "height_percent": height_percent
+                                                },
+                                                "font_size": font_size,  # Use calculated or extracted font size
+                                                "font_name": elem.get('font_name', 'Poppins'),  # Use extracted font or default
+                                                "font_weight": elem.get('font_weight', 700),  # Use extracted weight
+                                                "font_style": "normal",
+                                                "text_decoration": "none",
+                                                "text_align": elem.get('text_align', 'left'),  # Use extracted alignment
+                                                "color": elem.get('color', '#FFFFFF'),  # Use extracted color
+                                                "stroke_width": 0,
+                                                "stroke_color": "#000000",
+                                                "width": width_pixels,  # Use calculated width - must cover baked-in text
+                                                "height": height_pixels,  # Use calculated height - must cover baked-in text
+                                                "rotation": 0,
+                                                "line_height": elem.get('line_height', 1.2),  # Use extracted line height
+                                                "letter_spacing": elem.get('letter_spacing', 0),  # Use extracted spacing
+                                                "opacity": 100,
+                                                "shadow_enabled": elem.get('shadow_enabled', True),  # Use extracted shadow settings
+                                                "shadow_color": elem.get('shadow_color', '#000000'),
+                                                "shadow_blur": elem.get('shadow_blur', 10),
+                                                "shadow_offset_x": elem.get('shadow_offset_x', 0),
+                                                "shadow_offset_y": elem.get('shadow_offset_y', 2),
+                                                "background_color": elem.get('background_color', 'transparent'),  # May need background to cover baked-in text
+                                                "background_opacity": 100,
+                                                "confidence": confidence,
+                                                "is_baked_in": elem.get('is_baked_in', True),  # Mark as baked-in text
+                                                "replace_baked_text": True  # Flag to indicate this should replace baked-in text visually
+                                            })
+                                    
+                                    if editable_overlays:
+                                        response['text_overlays'] = editable_overlays
+                                        print(f"   [SUCCESS] Extracted {len(editable_overlays)} editable text elements from image!")
+                                    else:
+                                        print(f"   [WARNING] No text elements extracted from image")
+                                        
+                                else:
+                                    print(f"   [WARNING] Could not extract base64 from image URL for text extraction")
+                                    
+                            except Exception as extract_error:
+                                print(f"   [WARNING] Text extraction failed: {extract_error}")
+                                import traceback
+                                traceback.print_exc()
+                                # Don't fail the whole request if text extraction fails
+                                
+                        else:
+                            print(f"   [ERROR] Image generation returned no URL. Result: {image_result}")
+                            response['image_error'] = "Image generation returned no URL"
+                    except Exception as adapter_error:
+                        print(f"   [ERROR] ImageAdapter error: {adapter_error}")
+                        import traceback
+                        traceback.print_exc()
+                        response['image_error'] = f"ImageAdapter error: {str(adapter_error)}"
                 else:
-                    print(f"   [WARNING] No Google AI Studio API key found, skipping image generation")
+                    print(f"   [ERROR] No Google AI Studio API key found!")
+                    print(f"   [ERROR] Please configure Google AI API key in Admin Dashboard > API Keys")
+                    response['image_error'] = "Google AI Studio API key not configured in admin dashboard"
                     
             except Exception as img_error:
                 print(f"   [ERROR] Image generation failed: {img_error}")

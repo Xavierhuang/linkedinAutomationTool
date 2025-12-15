@@ -34,12 +34,11 @@ class ApiKeysRequest(BaseModel):
     linkedin_client_secret: Optional[str] = ''
     linkedin_redirect_uri: Optional[str] = ''
     canva_api_key: Optional[str] = ''
-    openrouter_api_key: Optional[str] = ''
     google_ai_api_key: Optional[str] = ''
     unsplash_access_key: Optional[str] = ''
     pexels_api_key: Optional[str] = ''
     text_model: Optional[str] = 'gpt-4o'
-    image_model: Optional[str] = 'mock-gemini-2.5-flash-image'
+    image_model: Optional[str] = 'mock-gemini-3-pro-image-preview'
 
 
 class ApiKeysResponse(BaseModel):
@@ -48,12 +47,11 @@ class ApiKeysResponse(BaseModel):
     linkedin_client_secret: str = ''
     linkedin_redirect_uri: str = ''
     canva_api_key: str = ''
-    openrouter_api_key: str = ''
     google_ai_api_key: str = ''
     unsplash_access_key: str = ''
     pexels_api_key: str = ''
     text_model: str = 'gpt-4o'
-    image_model: str = 'mock-gemini-2.5-flash-image'
+    image_model: str = 'mock-gemini-3-pro-image-preview'
 
 
 def encrypt_value(value: str) -> str:
@@ -99,12 +97,11 @@ async def get_api_keys(user_id: str = Query(...)):
             linkedin_client_secret=decrypted_linkedin_secret,
             linkedin_redirect_uri=decrypt_value(settings.get('linkedin_redirect_uri', '')),
             canva_api_key=decrypt_value(settings.get('canva_api_key', '')),
-            openrouter_api_key=decrypt_value(settings.get('openrouter_api_key', '')),
             google_ai_api_key=decrypt_value(settings.get('google_ai_api_key', '')),
             unsplash_access_key=decrypt_value(settings.get('unsplash_access_key', '')),
             pexels_api_key=decrypt_value(settings.get('pexels_api_key', '')),
             text_model=settings.get('text_model', 'gpt-4o'),
-            image_model=settings.get('image_model', 'mock-gemini-2.5-flash-image')
+            image_model=settings.get('image_model', 'mock-gemini-3-pro-image-preview')
         )
         
         print(f"[GET API KEYS] Response linkedin_client_id: {response.linkedin_client_id[:20] if response.linkedin_client_id else 'EMPTY'}...")
@@ -136,8 +133,6 @@ async def save_api_keys(request: ApiKeysRequest):
             encrypted_data["linkedin_redirect_uri"] = encrypt_value(request.linkedin_redirect_uri)
         if request.canva_api_key:
             encrypted_data["canva_api_key"] = encrypt_value(request.canva_api_key)
-        if request.openrouter_api_key:
-            encrypted_data["openrouter_api_key"] = encrypt_value(request.openrouter_api_key)
         if request.google_ai_api_key:
             encrypted_data["google_ai_api_key"] = encrypt_value(request.google_ai_api_key)
         if request.unsplash_access_key:
@@ -147,7 +142,7 @@ async def save_api_keys(request: ApiKeysRequest):
         
         # Always update these
         encrypted_data["text_model"] = request.text_model or 'gpt-4o'
-        encrypted_data["image_model"] = request.image_model or 'google/gemini-2.5-flash-image'
+        encrypted_data["image_model"] = request.image_model or 'google/gemini-3-pro-image-preview'
         encrypted_data["user_id"] = request.user_id
         
         from datetime import datetime, timezone

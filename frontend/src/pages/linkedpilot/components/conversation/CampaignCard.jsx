@@ -119,6 +119,44 @@ const EditableField = ({
   );
 };
 
+const SamplePostAccordion = ({ post, index }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const postPreview = post.length > 150 ? post.substring(0, 150) + '...' : post;
+  
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden transition-all hover:bg-white/10">
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-6 py-4 flex items-center justify-between gap-4 text-left"
+      >
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <span className="text-xs font-semibold text-white/60 uppercase tracking-wider flex-shrink-0">
+            Post {index + 1}
+          </span>
+          <span className="text-sm text-white/70 truncate">
+            {isExpanded ? post : postPreview}
+          </span>
+        </div>
+        <div className="flex-shrink-0">
+          {isExpanded ? (
+            <ChevronUp className="h-5 w-5 text-white/60" />
+          ) : (
+            <ChevronDown className="h-5 w-5 text-white/60" />
+          )}
+        </div>
+      </button>
+      {isExpanded && (
+        <div className="px-6 pb-4 pt-0 border-t border-white/10">
+          <p className="text-base text-white/90 leading-relaxed whitespace-pre-wrap pt-4">
+            {post}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const EditablePillars = ({ pillars, onSave }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editPillars, setEditPillars] = useState(pillars?.join(', ') || '');
@@ -432,27 +470,15 @@ const CampaignCard = ({ campaign, onAction, disabled, onUpdate, orgId, userId, f
             />
           </section>
 
-          {/* Sample Posts */}
+          {/* Sample Posts - Accordion Style */}
           {campaign.sample_posts && campaign.sample_posts.length > 0 && (
             <section>
               <h3 className="text-lg font-semibold text-white mb-4 pb-2 border-b border-white/10">
                 Sample Posts
               </h3>
-              <div className="space-y-4">
+              <div className="space-y-2">
                 {campaign.sample_posts.map((post, index) => (
-                  <div
-                    key={index}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-6"
-                  >
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">
-                        Day {index + 1}
-                      </span>
-                    </div>
-                    <p className="text-base text-white/90 leading-relaxed whitespace-pre-wrap">
-                      {post}
-                    </p>
-                  </div>
+                  <SamplePostAccordion key={index} post={post} index={index} />
                 ))}
               </div>
             </section>

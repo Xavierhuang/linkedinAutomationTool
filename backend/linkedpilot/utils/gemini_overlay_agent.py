@@ -22,8 +22,9 @@ class GeminiOverlayAgent:
     
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv('GOOGLE_AI_API_KEY')
-        # Use Gemini 3 Pro for advanced multimodal understanding and design grid knowledge
-        self.llm = LLMAdapter(api_key=self.api_key, provider="google_ai_studio", model="gemini-3-pro")
+        # Use Gemini 2.5 Flash for fast multimodal understanding and design grid knowledge
+        # Note: gemini-3-pro doesn't exist, using gemini-2.5-flash instead
+        self.llm = LLMAdapter(api_key=self.api_key, provider="google_ai_studio", model="gemini-2.5-flash")
     
     def _extract_compelling_text(self, post_content: str, role: str = "headline") -> str:
         """

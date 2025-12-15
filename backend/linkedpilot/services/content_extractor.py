@@ -366,9 +366,9 @@ class ContentExtractor:
             # Determine mime type
             mime_type = mimetypes.guess_type(file_path)[0] or 'image/jpeg'
             
-            # Use OpenRouter with vision model
+            # Use OpenAI with vision model
             from ..adapters.llm_adapter import LLMAdapter
-            llm = LLMAdapter(api_key=api_key, provider="openrouter")
+            llm = LLMAdapter(api_key=api_key, provider="openai")
             
             prompt = """Analyze this image and extract:
 1. What the image shows (products, people, branding, etc.)

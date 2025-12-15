@@ -1,6 +1,6 @@
 """
 AI Content Generation Service for LinkedIn Campaigns
-Supports multiple providers: OpenRouter (default), OpenAI, Claude, Gemini
+Supports multiple providers: OpenAI (default), Google AI Studio (Gemini)
 """
 
 import httpx
@@ -14,7 +14,7 @@ class AIContentGenerator:
     def __init__(
         self, 
         api_key: Optional[str] = None,
-        provider: str = "openrouter",  # openrouter, openai, claude, gemini
+ provider: str = "openai",  # openai, google_ai_studio
         model: Optional[str] = None
     ):
         self.provider = provider
@@ -22,25 +22,15 @@ class AIContentGenerator:
         self.model = model
         
         # Set up provider configurations
-        if provider == "openrouter":
-            self.api_key = api_key or os.getenv('OPENROUTER_API_KEY')
-            self.base_url = "https://openrouter.ai/api/v1"
-            self.model = model or os.getenv('CONTENT_GENERATION_MODEL', 'anthropic/claude-3.5-sonnet')
-            
-        elif provider == "openai":
+        if provider == "openai":
             self.api_key = api_key or os.getenv('OPENAI_API_KEY')
             self.base_url = "https://api.openai.com/v1"
             self.model = model or 'gpt-4o'
             
-        elif provider == "claude":
-            self.api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
-            self.base_url = "https://api.anthropic.com/v1"
-            self.model = model or 'claude-3-5-sonnet-20241022'
-            
-        elif provider == "gemini":
+        elif provider == "google_ai_studio" or provider == "gemini":
             self.api_key = api_key or os.getenv('GOOGLE_AI_API_KEY')
             self.base_url = "https://generativelanguage.googleapis.com/v1beta"
-            self.model = model or 'gemini-1.5-pro'
+            self.model = model or 'gemini-2.5-pro'
         
         # Fallback to mock if no API key
         self.mock_mode = not self.api_key
@@ -213,8 +203,6 @@ Generate the LinkedIn post now:"""
         try:
             if self.provider == "openrouter" or self.provider == "openai":
                 return await self._generate_openai_compatible(prompt)
-            elif self.provider == "claude":
-                return await self._generate_claude(prompt)
             elif self.provider == "gemini":
                 return await self._generate_gemini(prompt)
             else:
@@ -226,7 +214,7 @@ Generate the LinkedIn post now:"""
             return await self._generate_with_fallback(prompt)
 
     async def _generate_openai_compatible(self, prompt: str) -> str:
-        """Generate using OpenAI API format (works for OpenRouter and OpenAI)"""
+        """Generate using OpenAI API format"""
         
         async with httpx.AsyncClient(timeout=60.0) as client:
             headers = {
@@ -234,10 +222,6 @@ Generate the LinkedIn post now:"""
                 "Content-Type": "application/json"
             }
             
-            # Add OpenRouter-specific headers
-            if self.provider == "openrouter":
-                headers["HTTP-Referer"] = "https://linkedin-pilot.app"
-                headers["X-Title"] = "LinkedIn Pilot"
             
             response = await client.post(
                 f"{self.base_url}/chat/completions",
@@ -326,7 +310,7 @@ Generate the LinkedIn post now:"""
     async def _generate_with_fallback(self, prompt: str) -> str:
         """Try fallback providers if primary fails (NO MOCK - requires API keys)"""
         
-        fallback_order = ['openrouter', 'openai', 'claude', 'gemini']
+        fallback_order = ['openai', 'google_ai_studio']
         
         for provider in fallback_order:
             if provider == self.provider:

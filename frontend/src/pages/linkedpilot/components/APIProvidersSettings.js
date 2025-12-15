@@ -11,16 +11,14 @@ const APIProvidersSettings = ({
   apiProvider,
   setApiProvider 
 }) => {
-  const [activeTab, setActiveTab] = useState('openrouter');
+  const [activeTab, setActiveTab] = useState('openai');
   
   const toggleKeyVisibility = (keyName) => {
     setShowKeys({ ...showKeys, [keyName]: !showKeys[keyName] });
   };
 
   const tabs = [
-    { id: 'openrouter', label: 'OpenRouter', recommended: true },
-    { id: 'openai', label: 'OpenAI' },
-    { id: 'claude', label: 'Claude' },
+    { id: 'openai', label: 'OpenAI', recommended: true },
     { id: 'gemini', label: 'Gemini' },
     { id: 'stock_images', label: 'Stock Images' },
     { id: 'canva', label: 'Canva' },
@@ -73,43 +71,6 @@ const APIProvidersSettings = ({
 
       {/* Tab Content */}
       <div className="api-settings pt-4">
-        {activeTab === 'openrouter' && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Key className="w-4 h-4 text-gray-600" />
-              <h3 className="text-sm font-semibold text-gray-900">OpenRouter API Key</h3>
-            </div>
-            <p className="text-xs text-gray-600 mb-3">
-              OpenRouter provides access to multiple AI models including Claude, GPT-4, and more.
-              <a 
-                href="https://openrouter.ai/keys" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-800 underline ml-1"
-              >
-                Get your API key
-              </a>
-            </p>
-            <div className="relative">
-              <Input
-                type={showKeys.openrouter_api_key ? 'text' : 'password'}
-                value={apiKeys.openrouter_api_key || ''}
-                onChange={(e) => setApiKeys({ ...apiKeys, openrouter_api_key: e.target.value })}
-                placeholder="sk-or-v1-..."
-                className="pr-10"
-                style={{ color: '#1A1A1A', backgroundColor: '#FFFFFF' }}
-              />
-              <button
-                type="button"
-                onClick={() => toggleKeyVisibility('openrouter_api_key')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-              >
-                {showKeys.openrouter_api_key ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-        )}
-
         {activeTab === 'openai' && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-2">
@@ -142,43 +103,6 @@ const APIProvidersSettings = ({
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
               >
                 {showKeys.openai_api_key ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'claude' && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Key className="w-4 h-4 text-gray-600" />
-              <h3 className="text-sm font-semibold text-gray-900">Anthropic Claude API Key</h3>
-            </div>
-            <p className="text-xs text-gray-600 mb-3">
-              For Claude models directly from Anthropic.
-              <a 
-                href="https://console.anthropic.com/settings/keys" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-800 underline ml-1"
-              >
-                Get your API key
-              </a>
-            </p>
-            <div className="relative">
-              <Input
-                type={showKeys.anthropic_api_key ? 'text' : 'password'}
-                value={apiKeys.anthropic_api_key || ''}
-                onChange={(e) => setApiKeys({ ...apiKeys, anthropic_api_key: e.target.value })}
-                placeholder="sk-ant-..."
-                className="pr-10"
-                style={{ color: '#1A1A1A', backgroundColor: '#FFFFFF' }}
-              />
-              <button
-                type="button"
-                onClick={() => toggleKeyVisibility('anthropic_api_key')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-              >
-                {showKeys.anthropic_api_key ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
@@ -357,18 +281,13 @@ const APIProvidersSettings = ({
             <div>
               <Label className="text-gray-700 mb-2 block text-sm">Text Generation Model</Label>
               <select
-                value={apiKeys.text_model || 'anthropic/claude-3.5-sonnet'}
+                value={apiKeys.text_model || 'openai/gpt-4-turbo'}
                 onChange={(e) => setApiKeys({ ...apiKeys, text_model: e.target.value })}
                 className="w-full h-10 rounded-md border border-gray-300 bg-white text-gray-900 px-3 py-2 text-sm"
                 style={{ color: '#1A1A1A', backgroundColor: '#FFFFFF' }}
               >
-                <optgroup label="Claude (Anthropic)">
-                  <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet (Recommended)</option>
-                  <option value="anthropic/claude-3-opus">Claude 3 Opus</option>
-                  <option value="anthropic/claude-3-sonnet">Claude 3 Sonnet</option>
-                </optgroup>
                 <optgroup label="GPT (OpenAI)">
-                  <option value="openai/gpt-4-turbo">GPT-4 Turbo</option>
+                  <option value="openai/gpt-4-turbo">GPT-4 Turbo (Recommended)</option>
                   <option value="openai/gpt-4">GPT-4</option>
                   <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo</option>
                 </optgroup>
@@ -400,7 +319,7 @@ const APIProvidersSettings = ({
       {/* Info Box */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
         <p className="text-sm text-blue-900">
-          <strong>Tip:</strong> OpenRouter is recommended as it provides access to all models through a single API key.
+          <strong>Tip:</strong> Configure OpenAI and Google AI API keys for content generation.
         </p>
       </div>
     </div>

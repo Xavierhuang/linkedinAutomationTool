@@ -16,12 +16,15 @@ import {
   Target,
   Calendar,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Linkedin,
   Palette,
   Type,
   Image as ImageIcon,
   Edit3,
-  CheckCircle2
+  CheckCircle2,
+  LogOut
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,8 +37,66 @@ import CampaignConfigModal from '../CampaignConfigModal';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
+const SamplePostAccordion = ({ post, index, tokens }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const postPreview = post.length > 150 ? post.substring(0, 150) + '...' : post;
+  
+  return (
+    <div
+      className="rounded-xl border overflow-hidden transition-all hover:opacity-90"
+      style={{
+        backgroundColor: tokens.colors.background.layer2,
+        borderColor: tokens.colors.border.default,
+        borderRadius: tokens.radius.xl
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-6 py-4 flex items-center justify-between gap-4 text-left"
+        style={{ color: tokens.colors.text.primary }}
+      >
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <span 
+            className="text-xs font-semibold uppercase tracking-wider flex-shrink-0"
+            style={{ color: tokens.colors.text.secondary }}
+          >
+            Post {index + 1}
+          </span>
+          <span 
+            className="text-sm truncate"
+            style={{ color: tokens.colors.text.secondary }}
+          >
+            {isExpanded ? post : postPreview}
+          </span>
+        </div>
+        <div className="flex-shrink-0">
+          {isExpanded ? (
+            <ChevronUp className="h-5 w-5" style={{ color: tokens.colors.text.secondary }} />
+          ) : (
+            <ChevronDown className="h-5 w-5" style={{ color: tokens.colors.text.secondary }} />
+          )}
+        </div>
+      </button>
+      {isExpanded && (
+        <div 
+          className="px-6 pb-4 pt-0 border-t"
+          style={{ borderColor: tokens.colors.border.default }}
+        >
+          <p 
+            className="text-sm leading-relaxed whitespace-pre-wrap pt-4"
+            style={{ color: tokens.colors.text.primary }}
+          >
+            {post}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const OnboardingFlow = () => {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -72,6 +133,9 @@ const OnboardingFlow = () => {
   const [description, setDescription] = useState('');
   const [files, setFiles] = useState([]);
   const [orgId, setOrgId] = useState(null);
+  
+  // Temporary storage for organization data (created only on completion)
+  const [pendingOrgData, setPendingOrgData] = useState(null); // Stores brand analysis, materials, etc. until org is created
 
   // Step 3: Brand Identity Review
   const [analysisData, setAnalysisData] = useState(null);
@@ -101,11 +165,50 @@ const OnboardingFlow = () => {
   // Theme tokens for theme-aware styling
   const tokens = useThemeTokens();
 
-  // State Persistence - Load from localStorage and IndexedDB
+  // State Persistence - Load from backend (per user) and localStorage/IndexedDB
   useEffect(() => {
     const loadState = async () => {
-      // Load essential data from localStorage
-    const savedState = localStorage.getItem('onboardingState');
+      if (!user || !user.id) {
+        console.log('No user found, skipping onboarding progress load');
+        return;
+      }
+
+      try {
+        // First, try to load from backend (user-specific) with timeout
+        const token = localStorage.getItem('token');
+        const progressResponse = await Promise.race([
+          axios.get(`${BACKEND_URL}/api/user-preferences/onboarding-progress`, {
+            params: { user_id: user.id },
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
+        ]);
+        
+        if (progressResponse.data) {
+          const progress = progressResponse.data;
+          console.log('✅ Loaded onboarding progress from backend:', progress);
+          
+          // Restore state from backend
+          if (progress.orgId) setOrgId(progress.orgId);
+          if (progress.completedSteps) setCompletedSteps(progress.completedSteps);
+          if (progress.savedCampaignId) setSavedCampaignId(progress.savedCampaignId);
+          if (progress.websiteUrl) setWebsiteUrl(progress.websiteUrl);
+          if (progress.description) setDescription(progress.description);
+          if (progress.current_step) {
+            // Restore step and update hash
+            setStep(progress.current_step);
+            window.location.hash = `step${progress.current_step}`;
+          }
+        }
+      } catch (error) {
+        // Silently fail and fall back to localStorage - don't block UI
+        if (error.message !== 'Timeout') {
+          console.warn('Failed to load onboarding progress from backend, trying localStorage:', error);
+        }
+        
+        // Fallback to localStorage (user-specific key)
+        const userSpecificKey = `onboardingState_${user.id}`;
+        const savedState = localStorage.getItem(userSpecificKey);
     if (savedState) {
       try {
         const parsed = JSON.parse(savedState);
@@ -114,9 +217,15 @@ const OnboardingFlow = () => {
         if (parsed.savedCampaignId) setSavedCampaignId(parsed.savedCampaignId);
         if (parsed.websiteUrl) setWebsiteUrl(parsed.websiteUrl);
         if (parsed.description) setDescription(parsed.description);
+                  if (parsed.pendingOrgData) setPendingOrgData(parsed.pendingOrgData);
+                  if (parsed.current_step) {
+                    setStep(parsed.current_step);
+                    window.location.hash = `step${parsed.current_step}`;
+                  }
       } catch (e) {
           console.error('Failed to load onboarding state from localStorage:', e);
-          localStorage.removeItem('onboardingState');
+            localStorage.removeItem(userSpecificKey);
+          }
         }
       }
       
@@ -199,8 +308,9 @@ const OnboardingFlow = () => {
     if (orgId) {
       // When orgId is set, ensure we don't have stale campaign data
       // This handles the case where orgId changes from one onboarding to another
-      const savedOrgId = localStorage.getItem('onboardingState') 
-        ? JSON.parse(localStorage.getItem('onboardingState'))?.orgId 
+      const userSpecificKey = user ? `onboardingState_${user.id}` : 'onboardingState';
+      const savedOrgId = localStorage.getItem(userSpecificKey) 
+        ? JSON.parse(localStorage.getItem(userSpecificKey))?.orgId 
         : null;
       
       if (savedOrgId && savedOrgId !== orgId) {
@@ -213,12 +323,42 @@ const OnboardingFlow = () => {
     }
   }, [orgId]);
 
-  // Save state on change with increased capacity using IndexedDB for large data
+  // Save state on change - Save to backend (per user) and localStorage/IndexedDB
+  // Use debouncing to prevent excessive API calls
   useEffect(() => {
-    const saveState = async () => {
+    if (!user || !user.id) {
+      return;
+    }
+
+    // Debounce the save operation
+    const timeoutId = setTimeout(async () => {
       try {
-        // Save essential data to localStorage
+        // Save to backend (user-specific)
+        try {
+          const token = localStorage.getItem('token');
+          await axios.post(`${BACKEND_URL}/api/user-preferences/onboarding-progress`, {
+            current_step: step,
+            completed_steps: completedSteps,
+            org_id: orgId,
+            website_url: websiteUrl,
+            description: description,
+            saved_campaign_id: savedCampaignId
+          }, {
+            params: { user_id: user.id },
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          });
+          console.log('✅ Saved onboarding progress to backend');
+        } catch (backendError) {
+          // Silently fail - don't spam console with network errors
+          if (backendError.code !== 'ERR_NETWORK' && backendError.code !== 'ERR_INTERNET_DISCONNECTED') {
+            console.warn('Failed to save onboarding progress to backend:', backendError);
+          }
+        }
+
+        // Also save to localStorage as backup (user-specific key)
+        const userSpecificKey = `onboardingState_${user.id}`;
         const essentialState = {
+          current_step: step,
       orgId,
       completedSteps,
       savedCampaignId,
@@ -233,8 +373,8 @@ const OnboardingFlow = () => {
         
         const essentialString = JSON.stringify(essentialState);
         
-        // Save essential data to localStorage (should be small)
-        localStorage.setItem('onboardingState', essentialString);
+        // Save essential data to localStorage (user-specific)
+        localStorage.setItem(userSpecificKey, essentialString);
         
         // Save large objects to IndexedDB if available
         if (typeof indexedDB !== 'undefined') {
@@ -314,15 +454,17 @@ const OnboardingFlow = () => {
         if (error.name === 'QuotaExceededError' || error.code === 22) {
           console.warn('LocalStorage quota exceeded, saving minimal data only');
           try {
-            // Clear old onboarding state
-            localStorage.removeItem('onboardingState');
+            // Clear old onboarding state (user-specific)
+            const userSpecificKey = `onboardingState_${user.id}`;
+            localStorage.removeItem(userSpecificKey);
             // Save only the most essential data
             const minimalState = {
+              current_step: step,
               orgId,
               completedSteps,
               savedCampaignId
             };
-            localStorage.setItem('onboardingState', JSON.stringify(minimalState));
+            localStorage.setItem(userSpecificKey, JSON.stringify(minimalState));
           } catch (retryError) {
             console.error('Failed to save onboarding state:', retryError);
           }
@@ -330,10 +472,11 @@ const OnboardingFlow = () => {
           console.error('Error saving onboarding state:', error);
         }
       }
-    };
+    }, 1000); // Debounce: wait 1 second after last change before saving
     
-    saveState();
-  }, [orgId, completedSteps, analysisData, brandInfo, campaignPreviews, generatedCampaign, savedCampaignId, topics, websiteUrl, description]);
+    // Cleanup: cancel timeout if dependencies change before timeout completes
+    return () => clearTimeout(timeoutId);
+  }, [user, step, orgId, completedSteps, analysisData, brandInfo, campaignPreviews, generatedCampaign, savedCampaignId, topics, websiteUrl, description]);
 
   // Track if we're programmatically updating step to prevent hashchange handler from interfering
   const isProgrammaticUpdate = useRef(false);
@@ -643,134 +786,167 @@ const OnboardingFlow = () => {
         }
       }
 
-      // Step 2: Create NEW Organization for this brand analysis
-      setLoadingMessage('Creating organization from brand...');
-      organization = await createOrganizationFromBrand(
-        normalizedUrl,
-        discoveredBrand?.title
-      );
-      setOrgId(organization.id);
-      console.log('Organization created with ID:', organization.id);
-      
-      // Clear old campaign previews when creating a new organization
-      // This ensures we don't show campaigns from previous onboarding
-      setCampaignPreviews([]);
-      setGeneratedCampaign(null);
-      setSelectedCampaign(null);
-      setTopics([]);
-      console.log('🔄 Cleared old campaign data for new organization');
-
-      // Step 2.5: Save brand DNA if available
-      if (discoveredBrand && organization.id) {
-        try {
-          const brandDnaData = {
+      // Step 2: Store brand analysis data temporarily (organization will be created on completion)
+      // Don't create organization yet - save all data temporarily
+      const brandDnaData = discoveredBrand ? {
             brand_story: discoveredBrand.brand_story,
             brand_personality: discoveredBrand.brand_personality || [],
             core_values: discoveredBrand.core_values || [],
             target_audience_description: discoveredBrand.target_audience_description,
             unique_selling_points: discoveredBrand.unique_selling_points || [],
             key_messages: discoveredBrand.key_messages || [],
-          };
-          
-          // Only save if we have brand DNA data
-          if (brandDnaData.brand_story || brandDnaData.brand_personality?.length > 0) {
-            setLoadingMessage('Saving brand DNA...');
-            await axios.post(`${BACKEND_URL}/api/organization-materials/save-brand-dna`, brandDnaData, {
-              params: { org_id: organization.id }
-            });
-            console.log('✅ Brand DNA saved to database');
-          }
-        } catch (err) {
-          console.error('Failed to save brand DNA (non-critical):', err);
-          // Don't fail the whole flow if brand DNA save fails
-        }
-      }
+      } : null;
 
-      // Step 3: Add website as material and extract content
-      let materialId = null;
-      if (normalizedUrl) {
-        setLoadingMessage('Adding website materials...');
-        const addMaterialRes = await axios.post(`${BACKEND_URL}/api/organization-materials/add-url`, null, {
-          params: {
-            org_id: organization.id,
-            url: normalizedUrl,
-            material_type: 'website'
-          }
-        });
-
-        materialId = addMaterialRes.data?.id;
-
-        // Step 4: Extract content explicitly (deep extraction)
-        if (materialId) {
-          setLoadingMessage('Extracting content from website...');
-          try {
-            await axios.post(`${BACKEND_URL}/api/organization-materials/extract-content/${materialId}`);
-          } catch (err) {
-            console.error('Content extraction failed:', err);
-          }
-        }
-      }
-
-      // Step 5: Upload additional files
-      if (files.length > 0) {
-        setLoadingMessage('Processing uploaded documents...');
-        for (const file of files) {
-          const formData = new FormData();
-          formData.append('org_id', organization.id);
-          formData.append('file', file);
-          await axios.post(`${BACKEND_URL}/api/organization-materials/upload`, formData);
-        }
-      }
-
-      // Step 6: Add description as material
-      if (description) {
-        setLoadingMessage('Processing business description...');
-        const blob = new Blob([description], { type: 'text/plain' });
-        const formData = new FormData();
-        formData.append('org_id', organization.id);
-        formData.append('file', blob, 'business_description.txt');
-        await axios.post(`${BACKEND_URL}/api/organization-materials/upload`, formData);
-      }
-
-      // Step 7: Run AI Brand Analysis
-      setLoadingMessage('Analyzing brand with AI...');
-      const analyzeRes = await axios.post(`${BACKEND_URL}/api/organization-materials/analyze`, null, {
-        params: { org_id: organization.id }
+      // Store pending organization data (will be created when onboarding completes)
+      setPendingOrgData({
+        websiteUrl: normalizedUrl,
+        brandTitle: discoveredBrand?.title,
+        brandDna: brandDnaData,
+        description: description, // Store description to upload when org is created
+        files: files.map(f => ({ name: f.name, size: f.size, type: f.type })), // Store file metadata
+        fileObjects: files // Keep file objects for later upload
       });
+      
+      console.log('✅ Brand analysis data stored temporarily (organization will be created on completion)');
+      
+      // Clear old campaign previews when starting new brand analysis
+      setCampaignPreviews([]);
+      setGeneratedCampaign(null);
+      setSelectedCampaign(null);
+      setTopics([]);
+      console.log('🔄 Cleared old campaign data for new brand analysis');
 
-      // Step 8: Merge brand discovery + analysis data
-      const analysis = analyzeRes.data;
-      setAnalysisData(analysis);
+      // Step 6: Run AI Brand Analysis (without organization - will be saved when org is created)
+      // Note: We can't upload description or run analysis without an org_id, so we'll do this when org is created
+      // For now, use the brand discovery data directly
+      let analysis = null;
+      
+      // If we have brand discovery data, create a basic analysis object from it
+      if (discoveredBrand) {
+        const pillarCandidates = []
+          .concat(discoveredBrand.keyword_summary || [])
+          .concat(discoveredBrand.key_messages || [])
+          .concat(discoveredBrand.unique_selling_points || []);
+        const contentPillars = Array.from(
+          new Set(
+            pillarCandidates
+              .map((x) => String(x || '').trim())
+              .filter((x) => x.length > 0)
+          )
+        ).slice(0, 6);
+
+        analysis = {
+          // Fields aligned to backend BrandAnalysis model
+          brand_tone: discoveredBrand.tone_keywords || [],
+          brand_voice: 'professional',
+          brand_colors: discoveredBrand.color_palette || [],
+          brand_images: discoveredBrand.imagery || [],
+          brand_fonts: discoveredBrand.font_families || [],
+          key_messages: discoveredBrand.key_messages || [],
+          value_propositions: discoveredBrand.unique_selling_points || [],
+
+          brand_story: discoveredBrand.brand_story,
+          brand_personality: discoveredBrand.brand_personality || [],
+          core_values: discoveredBrand.core_values || [],
+          target_audience_description: discoveredBrand.target_audience_description,
+          unique_selling_points: discoveredBrand.unique_selling_points || [],
+
+          target_audience: {
+            job_titles: [],
+            industries: [],
+            interests: [],
+            pain_points: []
+          },
+          content_pillars: contentPillars,
+          suggested_campaigns: []
+        };
+        setAnalysisData(analysis);
+        console.log('✅ Created analysis data from brand discovery');
+        // PIPELINE FIX: Immediately save analysisData to ensure it persists
+        // This ensures Step 3 has data even if user refreshes
+        if (typeof indexedDB !== 'undefined') {
+          try {
+            const dbName = 'onboardingStateDB';
+            const request = indexedDB.open(dbName, 1);
+            request.onsuccess = (event) => {
+              const db = event.target.result;
+              if (db.objectStoreNames.contains('analysisData')) {
+                const transaction = db.transaction(['analysisData'], 'readwrite');
+                const store = transaction.objectStore('analysisData');
+                store.put(analysis, 'current');
+                console.log('[PIPELINE] Saved analysisData to IndexedDB immediately');
+              }
+            };
+          } catch (e) {
+            console.warn('[PIPELINE] Failed to save analysisData to IndexedDB:', e);
+          }
+        }
+      } else {
+        // Fallback: Create basic analysis data when domain doesn't exist or discovery fails
+        // Use description and allow user to fill in details manually
+        console.log('[DEBUG] Brand discovery failed or domain not found - creating fallback analysis data');
+        console.log('[DEBUG] Using description and manual input for brand analysis');
+        
+        // Extract basic info from description if available
+        const descriptionText = description || '';
+        const words = descriptionText.split(/\s+/).filter(w => w.length > 3);
+        const contentPillars = words.slice(0, 4).map(w => w.charAt(0).toUpperCase() + w.slice(1));
+        
+        analysis = {
+          brand_tone: ['professional', 'authentic'],
+          brand_voice: 'professional',
+          brand_colors: [],
+          brand_images: [],
+          brand_fonts: [],
+          key_messages: descriptionText ? [descriptionText.substring(0, 100)] : ['Your brand message'],
+          value_propositions: descriptionText ? [descriptionText.substring(0, 80)] : ['Your value proposition'],
+          brand_story: descriptionText || null,
+          brand_personality: ['professional'],
+          core_values: [],
+          target_audience_description: null,
+          unique_selling_points: [],
+          target_audience: {
+            job_titles: [],
+            industries: [],
+            interests: [],
+            pain_points: []
+          },
+          content_pillars: contentPillars.length > 0 ? contentPillars : ['Brand Content', 'Thought Leadership'],
+          suggested_campaigns: []
+        };
+        setAnalysisData(analysis);
+        console.log('✅ Created fallback analysis data (domain not found or discovery failed)');
+      }
 
       // Create brand info object for BrandIdentityCard
-      if (discoveredBrand) {
-        const brandCardData = {
-          title: discoveredBrand.title || organization.name,
-          description: analysis?.key_messages?.slice(0, 2).join(' • ') || discoveredBrand.description || 'Brand summary',
-          colorPalette: discoveredBrand.color_palette || [],
-          fontFamilies: discoveredBrand.font_families || [],
-          imagery: discoveredBrand.imagery || [],
-          toneKeywords: analysis?.brand_tone || discoveredBrand.tone_keywords || [],
-          keywordSummary: discoveredBrand.keyword_summary || [],
-          contentExcerpt: analysis?.value_propositions?.slice(0, 2).join(' • ') || discoveredBrand.content_excerpt,
-          normalizedUrl: discoveredBrand.normalized_url || normalizedUrl,
-          websiteUrl: normalizedUrl,
-        };
-        setBrandInfo(brandCardData);
-        console.log('📊 Brand Info for Card:', {
-          title: brandCardData.title,
-          colors: brandCardData.colorPalette.length,
-          fonts: brandCardData.fontFamilies.length,
-          images: brandCardData.imagery.length,
-          websiteUrl: brandCardData.websiteUrl
-        });
+      // Always create brandInfo, even if discovery failed
+      const brandCardData = {
+        title: discoveredBrand?.title || (normalizedUrl ? new URL(normalizedUrl).hostname.replace('www.', '') : 'My Brand'),
+        description: analysis?.key_messages?.slice(0, 2).join(' • ') || discoveredBrand?.description || description?.substring(0, 100) || 'Brand summary',
+        colorPalette: discoveredBrand?.color_palette || [],
+        fontFamilies: discoveredBrand?.font_families || [],
+        imagery: discoveredBrand?.imagery || [],
+        toneKeywords: analysis?.brand_tone || discoveredBrand?.tone_keywords || ['professional'],
+        keywordSummary: discoveredBrand?.keyword_summary || [],
+        contentExcerpt: analysis?.value_propositions?.slice(0, 2).join(' • ') || discoveredBrand?.content_excerpt || description?.substring(0, 80),
+        normalizedUrl: discoveredBrand?.normalized_url || normalizedUrl,
+        websiteUrl: normalizedUrl,
+      };
+      setBrandInfo(brandCardData);
+      console.log('[DEBUG] Brand Info for Card:', {
+        title: brandCardData.title,
+        colors: brandCardData.colorPalette.length,
+        fonts: brandCardData.fontFamilies.length,
+        images: brandCardData.imagery.length,
+        websiteUrl: brandCardData.websiteUrl,
+        fromDiscovery: !!discoveredBrand
+      });
 
-        // Also set hero image and scraped images for backward compatibility
-        if (discoveredBrand.imagery?.length > 0) {
-          setHeroImage(discoveredBrand.imagery[0]);
-          setScrapedImages(discoveredBrand.imagery.slice(1));
-          console.log(`🖼️  Hero Image: ${discoveredBrand.imagery[0]}`);
-        }
+      // Also set hero image and scraped images for backward compatibility
+      if (discoveredBrand?.imagery?.length > 0) {
+        setHeroImage(discoveredBrand.imagery[0]);
+        setScrapedImages(discoveredBrand.imagery.slice(1));
+        console.log(`🖼️  Hero Image: ${discoveredBrand.imagery[0]}`);
       }
 
       setCompletedSteps(prev => ({ ...prev, step2: true }));
@@ -780,17 +956,100 @@ const OnboardingFlow = () => {
         updateStep(3, true); // Skip validation since we just completed step 2
       }, 300);
     } catch (error) {
-      console.error('Brand analysis failed:', error);
+      console.error('[DEBUG] Brand analysis failed:', error);
+      console.error('[DEBUG] Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        detail: error.response?.data?.detail
+      });
 
-      // Show detailed error message
+      // Even if brand discovery fails, create fallback analysis data so user can proceed
+      console.log('[DEBUG] Creating fallback analysis data after error');
+      const descriptionText = description || '';
+      const words = descriptionText.split(/\s+/).filter(w => w.length > 3);
+      const contentPillars = words.slice(0, 4).map(w => w.charAt(0).toUpperCase() + w.slice(1));
+      
+      const fallbackAnalysis = {
+        brand_tone: ['professional', 'authentic'],
+        brand_voice: 'professional',
+        brand_colors: [],
+        brand_images: [],
+        brand_fonts: [],
+        key_messages: descriptionText ? [descriptionText.substring(0, 100)] : ['Your brand message'],
+        value_propositions: descriptionText ? [descriptionText.substring(0, 80)] : ['Your value proposition'],
+        brand_story: descriptionText || null,
+        brand_personality: ['professional'],
+        core_values: [],
+        target_audience_description: null,
+        unique_selling_points: [],
+        target_audience: {
+          job_titles: [],
+          industries: [],
+          interests: [],
+          pain_points: []
+        },
+        content_pillars: contentPillars.length > 0 ? contentPillars : ['Brand Content', 'Thought Leadership'],
+        suggested_campaigns: []
+      };
+      setAnalysisData(fallbackAnalysis);
+      
+      // PIPELINE FIX: Immediately save fallback analysisData to ensure it persists
+      if (typeof indexedDB !== 'undefined') {
+        try {
+          const dbName = 'onboardingStateDB';
+          const request = indexedDB.open(dbName, 1);
+          request.onsuccess = (event) => {
+            const db = event.target.result;
+            if (db.objectStoreNames.contains('analysisData')) {
+              const transaction = db.transaction(['analysisData'], 'readwrite');
+              const store = transaction.objectStore('analysisData');
+              store.put(fallbackAnalysis, 'current');
+              console.log('[PIPELINE] Saved error fallback analysisData to IndexedDB immediately');
+            }
+          };
+        } catch (e) {
+          console.warn('[PIPELINE] Failed to save error fallback analysisData to IndexedDB:', e);
+        }
+      }
+      
+      // Create fallback brand info
+      const fallbackBrandInfo = {
+        title: normalizedUrl ? new URL(normalizedUrl).hostname.replace('www.', '') : 'My Brand',
+        description: descriptionText?.substring(0, 100) || 'Brand summary',
+        colorPalette: [],
+        fontFamilies: [],
+        imagery: [],
+        toneKeywords: ['professional'],
+        keywordSummary: [],
+        contentExcerpt: descriptionText?.substring(0, 80),
+        normalizedUrl: normalizedUrl,
+        websiteUrl: normalizedUrl,
+      };
+      setBrandInfo(fallbackBrandInfo);
+      
+      // Store pending org data even if discovery failed
+      setPendingOrgData({
+        websiteUrl: normalizedUrl,
+        brandTitle: null,
+        brandDna: null,
+        description: description,
+        files: files.map(f => ({ name: f.name, size: f.size, type: f.type })),
+        fileObjects: files
+      });
+      
+      setCompletedSteps(prev => ({ ...prev, step2: true }));
+      
+      // Show warning but allow user to proceed
       const errorMessage = error.response?.data?.detail || error.message || 'Unknown error occurred';
-      alert(`Brand analysis failed: ${errorMessage}\n\nPlease try again. If the issue persists, check that:\n1. The website URL is accessible\n2. MongoDB is running\n3. API keys are configured`);
-
-      // Reset to allow retry
-      setLoading(false);
-      setLoadingMessage('');
+      console.warn(`[DEBUG] Brand discovery failed, but allowing user to proceed with fallback data: ${errorMessage}`);
+      
+      // Don't block - allow user to proceed and edit manually in Step 3
+      setTimeout(() => {
+        updateStep(3, true);
+      }, 300);
     } finally {
       setLoading(false);
+      setLoadingMessage('');
       setIsProcessing(false);
     }
   };
@@ -801,12 +1060,38 @@ const OnboardingFlow = () => {
       return;
     }
 
-    // Validate orgId exists
-    if (!orgId) {
-      console.error('❌ generateCampaigns: orgId is missing');
-      alert('Organization ID is missing. Please go back to Step 2 and try again.');
+    // PIPELINE: Step 4 must use data from Step 3 (analysisData + pendingOrgData.brandDna from edits)
+    // Ensure we have data from previous step
+    if (!analysisData) {
+      console.error('❌ generateCampaigns: No brand analysis data from Step 2/3');
+      alert('Brand analysis data is missing. Please go back to Step 2 and analyze your brand first.');
       return;
     }
+    
+    // Merge Step 2 data (analysisData) with Step 3 edits (pendingOrgData.brandDna)
+    // This creates the complete brand DNA pipeline from previous steps
+    const mergedBrandData = {
+      ...analysisData,
+      // Override with Step 3 edits if they exist (user may have edited in Step 3)
+      ...(pendingOrgData?.brandDna ? {
+        brand_story: pendingOrgData.brandDna.brand_story || analysisData.brand_story,
+        brand_personality: pendingOrgData.brandDna.brand_personality || analysisData.brand_personality,
+        core_values: pendingOrgData.brandDna.core_values || analysisData.core_values,
+        brand_voice: pendingOrgData.brandDna.brand_voice || analysisData.brand_voice,
+        key_messages: pendingOrgData.brandDna.key_messages || analysisData.key_messages,
+        value_propositions: pendingOrgData.brandDna.value_propositions || analysisData.value_propositions,
+        content_pillars: pendingOrgData.brandDna.content_pillars || analysisData.content_pillars,
+        target_audience: pendingOrgData.brandDna.target_audience || analysisData.target_audience,
+        unique_selling_points: pendingOrgData.brandDna.unique_selling_points || analysisData.unique_selling_points
+      } : {})
+    };
+    
+    console.log('[PIPELINE] Step 4: Using merged brand data from Steps 2+3', {
+      hasAnalysisData: !!analysisData,
+      hasPendingOrgData: !!pendingOrgData,
+      hasBrandDnaEdits: !!pendingOrgData?.brandDna,
+      mergedDataKeys: Object.keys(mergedBrandData)
+    });
 
     setIsProcessing(true);
     setLoading(true);
@@ -818,9 +1103,10 @@ const OnboardingFlow = () => {
       setGeneratedCampaign(null);
       setSelectedCampaign(null);
       
-      console.log(`📊 Generating campaigns for org_id: ${orgId}`);
+      console.log(`📊 Generating campaigns (org will be created on completion)`);
       
       // Use the same endpoint as dashboard - generates full campaign previews
+      // For now, we'll generate campaigns without org_id (backend should handle this)
       const suggestions = Array.isArray(analysisData?.suggested_campaigns)
         ? analysisData.suggested_campaigns.map((item, index) => ({
           name: item.name || `Campaign ${index + 1}`,
@@ -829,18 +1115,49 @@ const OnboardingFlow = () => {
         }))
         : [];
 
+      // Generate campaigns without org_id (will be saved to org when created)
+      const brandContextPayload = analysisData ? {
+        brand_tone: analysisData.brand_tone || [],
+        brand_voice: analysisData.brand_voice || 'professional',
+        brand_colors: analysisData.brand_colors || [],
+        brand_images: analysisData.brand_images || [],
+        brand_fonts: analysisData.brand_fonts || [],
+        key_messages: analysisData.key_messages || [],
+        value_propositions: analysisData.value_propositions || [],
+        brand_story: analysisData.brand_story || null,
+        brand_personality: analysisData.brand_personality || [],
+        core_values: analysisData.core_values || [],
+        target_audience_description: (typeof analysisData.target_audience === 'string' && analysisData.target_audience)
+          ? analysisData.target_audience
+          : (analysisData.target_audience_description || null),
+        unique_selling_points: analysisData.unique_selling_points || [],
+        target_audience: (analysisData.target_audience && typeof analysisData.target_audience === 'object')
+          ? analysisData.target_audience
+          : {},
+        content_pillars: analysisData.content_pillars || [],
+        suggested_campaigns: analysisData.suggested_campaigns || []
+      } : null;
+
       const response = await axios.post(`${BACKEND_URL}/api/brand/campaign-previews`, {
-        org_id: orgId,
+        org_id: orgId || null, // May be null - backend should handle temporary generation
         count: 3,
         suggestions,
+        brand_context: brandContextPayload
       });
 
       const campaigns = response.data?.campaigns || [];
+      console.log('[DEBUG] Campaign generation result', {
+        campaignsCount: campaigns.length,
+        campaignNames: campaigns.map(c => c.name),
+        hasBrandContext: !!brandContextPayload,
+        brandContextKeys: brandContextPayload ? Object.keys(brandContextPayload) : null
+      });
+      
       if (campaigns.length === 0) {
         throw new Error('No campaign previews generated');
       }
 
-      console.log(`✅ Generated ${campaigns.length} campaigns for org_id: ${orgId}`);
+      console.log(`✅ Generated ${campaigns.length} campaigns`);
       console.log('Campaign names:', campaigns.map(c => c.name));
 
       setCampaignPreviews(campaigns);
@@ -870,8 +1187,17 @@ const OnboardingFlow = () => {
   };
 
   const approveCampaign = async () => {
+    console.log('[DEBUG] Step 4: approveCampaign called', {
+      hasGeneratedCampaign: !!generatedCampaign,
+      campaignName: generatedCampaign?.name,
+      hasAnalysisData: !!analysisData,
+      orgId,
+      userId: user?.id
+    });
+    
     // Prevent double-clicks
     if (isProcessing || loading) {
+      console.warn('[DEBUG] approveCampaign blocked - already processing');
       return;
     }
 
@@ -882,22 +1208,25 @@ const OnboardingFlow = () => {
     try {
       // Validate user and orgId
       if (!user || !user.id) {
-        console.error('❌ approveCampaign: User not found');
+        console.error('[DEBUG] approveCampaign: User not found');
         throw new Error('User session not found. Please refresh the page and try again.');
       }
 
-      if (!orgId) {
-        console.error('❌ approveCampaign: orgId is missing');
-        throw new Error('Organization ID is missing. Please go back to Step 2 and try again.');
-      }
+      // orgId may not exist yet - organization will be created on completion
+      // For now, we'll save campaign without org_id and update it later
 
       // Validate generatedCampaign exists
       if (!generatedCampaign) {
-        console.error('❌ approveCampaign: generatedCampaign is null/undefined');
+        console.error('[DEBUG] approveCampaign: generatedCampaign is null/undefined');
         throw new Error('No campaign selected. Please select a campaign first.');
       }
 
-      console.log('✅ approveCampaign: Saving campaign:', generatedCampaign.name);
+      console.log('[DEBUG] Step 4: Saving campaign', {
+        campaignName: generatedCampaign.name,
+        campaignId: generatedCampaign.id,
+        orgId,
+        hasContentPillars: !!generatedCampaign.content_pillars?.length
+      });
 
       // Convert tone_voice from preview format to enum format
       const toneVoiceMap = {
@@ -962,8 +1291,9 @@ const OnboardingFlow = () => {
         : (generatedCampaign.content_pillars ? [String(generatedCampaign.content_pillars)] : []);
 
       // Build campaign payload
+      // Note: org_id may be null - will be set when organization is created on completion
       const campaignPayload = {
-        org_id: orgId,
+        org_id: orgId || null, // Will be updated when org is created
         name: generatedCampaign.name || 'Untitled Campaign',
         description: generatedCampaign.description || '',
         target_audience: targetAudience,
@@ -979,7 +1309,7 @@ const OnboardingFlow = () => {
         include_images: true,
         use_ai_images: true,
         image_style: generatedCampaign.image_style || 'professional',
-        image_model: generatedCampaign.image_model || 'google/gemini-2.5-flash-image',
+        image_model: generatedCampaign.image_model || 'google/gemini-3-pro-image-preview',
         profile_type: 'personal',
         status: 'active',  // Set to 'active' so it appears in dashboard
         auto_post: false,
@@ -989,13 +1319,25 @@ const OnboardingFlow = () => {
       console.log('📤 Saving campaign with payload:', JSON.stringify(campaignPayload, null, 2));
 
       // Save the campaign directly using the campaigns endpoint
+      console.log('[DEBUG] Step 4: Saving campaign to backend', {
+        campaignName: campaignPayload.name,
+        hasOrgId: !!campaignPayload.org_id,
+        contentPillarsCount: campaignPayload.content_pillars?.length,
+        targetAudienceKeys: Object.keys(campaignPayload.target_audience || {})
+      });
       const response = await axios.post(`${BACKEND_URL}/api/campaigns`, campaignPayload);
 
+      console.log('[DEBUG] Step 4: Campaign saved successfully', {
+        campaignId: response.data.id || response.data._id,
+        campaignName: response.data.name,
+        orgId: response.data.org_id
+      });
       console.log('✅ Campaign saved successfully:', response.data);
 
       // Store the saved campaign ID
           const campaignId = response.data.id || response.data._id;
           setSavedCampaignId(campaignId);
+          console.log('[DEBUG] Step 4: Campaign ID stored', { campaignId });
           console.log('✅ Campaign ID stored:', campaignId);
           
           // Update generatedCampaign with the saved campaign ID
@@ -1074,9 +1416,17 @@ Generate 7 unique topics now:`;
           }
         }
 
+        console.log('[DEBUG] Step 4: Topics generated', {
+          topicsCount: generatedTopics.length,
+          topics: generatedTopics.map(t => ({ day: t.day, topic: t.topic?.substring(0, 50) }))
+        });
+        
         // Ensure we have exactly 7 topics, fallback if needed
         if (generatedTopics.length !== 7) {
-          console.warn(`Generated ${generatedTopics.length} topics, creating fallback topics`);
+          console.warn(`[DEBUG] Step 4: Generated ${generatedTopics.length} topics (expected 7), creating fallback topics`, {
+            contentPillars,
+            campaignName: generatedCampaign.name
+          });
           // Create smarter fallback based on content pillars
           generatedTopics = contentPillars.length > 0 
             ? Array(7).fill(null).map((_, i) => {
@@ -1162,14 +1512,62 @@ Generate 7 unique topics now:`;
     setGeneratingPosts(true);
 
     try {
-      // Build brand DNA context for post generation
-      const brandContext = {
-        brand_voice: analysisData?.brand_voice || 'professional',
-        key_messages: analysisData?.key_messages || [],
-        value_propositions: analysisData?.value_propositions || [],
-        content_pillars: generatedCampaign?.content_pillars || analysisData?.content_pillars || [],
-        target_audience: generatedCampaign?.target_audience || analysisData?.target_audience || {}
+      // PIPELINE: Step 5 must use data from previous steps in order:
+      // 1. Step 4: generatedCampaign (content_pillars, target_audience, tone_voice)
+      // 2. Step 3: pendingOrgData.brandDna (user edits from Step 3)
+      // 3. Step 2: analysisData (original brand discovery)
+      
+      // First, merge Step 2 and Step 3 data (same as Step 4 did)
+      const mergedBrandData = {
+        ...analysisData,
+        ...(pendingOrgData?.brandDna ? {
+          brand_story: pendingOrgData.brandDna.brand_story || analysisData?.brand_story,
+          brand_personality: pendingOrgData.brandDna.brand_personality || analysisData?.brand_personality,
+          core_values: pendingOrgData.brandDna.core_values || analysisData?.core_values,
+          brand_voice: pendingOrgData.brandDna.brand_voice || analysisData?.brand_voice,
+          key_messages: pendingOrgData.brandDna.key_messages || analysisData?.key_messages,
+          value_propositions: pendingOrgData.brandDna.value_propositions || analysisData?.value_propositions,
+          content_pillars: pendingOrgData.brandDna.content_pillars || analysisData?.content_pillars,
+          target_audience: pendingOrgData.brandDna.target_audience || analysisData?.target_audience,
+          unique_selling_points: pendingOrgData.brandDna.unique_selling_points || analysisData?.unique_selling_points
+        } : {})
       };
+      
+      // Build brand DNA context - prioritize Step 4 campaign data, then Step 3 edits, then Step 2 data
+      const brandContext = {
+        // Use campaign content_pillars from Step 4 (most specific), fallback to merged brand data
+        content_pillars: generatedCampaign?.content_pillars || mergedBrandData?.content_pillars || [],
+        // Use campaign target_audience from Step 4 (most specific), fallback to merged brand data
+        target_audience: generatedCampaign?.target_audience || mergedBrandData?.target_audience || {},
+        // Use merged brand data (Step 2 + Step 3 edits)
+        brand_voice: mergedBrandData?.brand_voice || 'professional',
+        key_messages: mergedBrandData?.key_messages || [],
+        value_propositions: mergedBrandData?.value_propositions || [],
+        brand_story: mergedBrandData?.brand_story || null,
+        brand_personality: mergedBrandData?.brand_personality || mergedBrandData?.brand_tone || [],
+        core_values: mergedBrandData?.core_values || []
+      };
+      
+      console.log('[PIPELINE] Step 5: Using data from previous steps', {
+        step4_campaign: !!generatedCampaign,
+        step4_campaignId: generatedCampaign?.id || savedCampaignId,
+        step4_contentPillars: generatedCampaign?.content_pillars?.length || 0,
+        step3_hasEdits: !!pendingOrgData?.brandDna,
+        step2_hasAnalysis: !!analysisData,
+        mergedBrandDataKeys: Object.keys(mergedBrandData),
+        finalBrandContextKeys: Object.keys(brandContext)
+      });
+      
+      console.log('[DEBUG] Step 5: Brand context for post generation', {
+        brandContextKeys: Object.keys(brandContext),
+        hasBrandStory: !!brandContext.brand_story,
+        hasPersonality: !!brandContext.brand_personality?.length,
+        hasCoreValues: !!brandContext.core_values?.length,
+        keyMessagesCount: brandContext.key_messages?.length,
+        contentPillarsCount: brandContext.content_pillars?.length,
+        hasAnalysisData: !!analysisData,
+        hasPendingOrgData: !!pendingOrgData
+      });
 
       // Build campaign context
       const campaignContext = {
@@ -1182,9 +1580,14 @@ Generate 7 unique topics now:`;
       // Generate 7 real posts using the approved topics
       const posts = [];
       const today = new Date();
+      let successfulPosts = 0;
+      let failedPosts = 0;
 
       // Initialize topics with loading state
-      setTopics(prevTopics => prevTopics.map(t => ({ ...t, loading: true, imageLoading: true })));
+      setTopics(prevTopics => prevTopics.map(t => ({ ...t, loading: true, imageLoading: true, error: false, errorMessage: null })));
+
+      // Update loading message for overall progress
+      setLoadingMessage(`Generating posts... (0/7)`);
 
       for (let i = 0; i < 7; i++) {
         const postDate = new Date(today);
@@ -1201,16 +1604,59 @@ Generate 7 unique topics now:`;
           // Use the approved topic as the base
           const enrichedTopic = `${topic.topic}\n\nBrand Context: ${brandContext.brand_voice} voice, focusing on ${brandContext.content_pillars.slice(0, 2).join(' and ')}. Key messages: ${brandContext.key_messages.slice(0, 2).join(', ')}. Campaign: ${campaignContext.campaign_name} - ${campaignContext.campaign_focus}.`;
 
-          // Generate draft content with enriched context
-          const draftResponse = await axios.post(`${BACKEND_URL}/api/drafts/generate`, {
-            org_id: orgId,
-            topic: enrichedTopic,
-            type: topic.type?.toLowerCase() || 'text',
-            tone: campaignContext.tone_voice,
-            created_by: user.id
+          // Generate post using CampaignGenerator with 8-part format
+          // Track excluded types to avoid consecutive days having same style
+          const excludedTypes = i > 0 && topics[i - 1]?.post_type ? [topics[i - 1].post_type] : [];
+          
+          // Ensure we have a campaign ID before generating posts
+          const campaignId = savedCampaignId || generatedCampaign?.id;
+          console.log(`[DEBUG] Post ${i + 1} generation check`, {
+            campaignId,
+            savedCampaignId,
+            generatedCampaignId: generatedCampaign?.id,
+            orgId,
+            hasBrandContext: !!brandContext,
+            brandContextKeys: Object.keys(brandContext || {})
+          });
+          if (!campaignId) {
+            throw new Error(`No campaign ID available. Campaign must be saved first.`);
+          }
+
+          // Update progress
+          setLoadingMessage(`Generating post ${i + 1}/7...`);
+          console.log(`🔄 Generating post ${i + 1}/7 using campaign ${campaignId}...`);
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1526',message:'Calling generate-post API',data:{postIndex:i+1,orgId:orgId||null,campaignId,brandContextKeys:Object.keys(brandContext),hasBrandStory:!!brandContext.brand_story,hasPersonality:!!brandContext.brand_personality?.length,hasCoreValues:!!brandContext.core_values?.length,userId:user.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          // #endregion
+          const postResponse = await axios.post(`${BACKEND_URL}/api/brand/generate-post`, {
+            org_id: orgId || null,
+            campaign_id: campaignId,
+            brand_context: brandContext,
+            excluded_types: excludedTypes,
+            user_id: user.id
+          });
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1533',message:'Post generated successfully',data:{postIndex:i+1,hasContent:!!postResponse.data?.content,postType:postResponse.data?.post_type,contentLength:postResponse.data?.content?.length,contentPreview:postResponse.data?.content?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          // #endregion
+          console.log(`[DEBUG] Post ${i + 1} generated`, {
+            hasContent: !!postResponse.data?.content,
+            postType: postResponse.data?.post_type,
+            contentLength: postResponse.data?.content?.length
           });
 
-          const draftContent = draftResponse.data;
+          const postData = postResponse.data;
+          const draftContent = {
+            content: postData.content,
+            body: postData.content,
+            hashtags: [],
+            post_type: postData.post_type
+          };
+          
+          // Store post type for next iteration
+          setTopics(prev => prev.map((t, idx) =>
+            idx === i ? { ...t, post_type: postData.post_type } : t
+          ));
 
           // Update topic with generated content immediately (remove text loading)
           setTopics(prev => prev.map((t, idx) =>
@@ -1218,16 +1664,16 @@ Generate 7 unique topics now:`;
           ));
           
           // Save the draft to database so we can schedule it
-          // Ensure we have the campaign ID
-          const campaignId = savedCampaignId || generatedCampaign?.id;
+          // campaignId is already defined above
           if (!campaignId) {
             console.warn(`⚠️ No campaign ID available for post ${i + 1}, saving draft without campaign_id`);
           }
           
           // Build draft payload according to Draft model requirements
+          // Note: org_id may be null - will be set when organization is created on completion
           const draftToSave = {
             id: `draft_${Date.now()}_${i}`,
-            org_id: orgId,
+            org_id: orgId || null, // Will be updated when org is created
             campaign_id: campaignId || null,  // Link to the saved campaign (null not undefined)
             author_id: user.id,  // Use author_id, not created_by
             mode: 'text',  // Use mode, not type (must be DraftMode enum: "text", "image", or "carousel")
@@ -1242,46 +1688,87 @@ Generate 7 unique topics now:`;
           console.log(`💾 Saving draft for post ${i + 1} with campaign_id:`, campaignId);
           console.log(`💾 Draft payload:`, draftToSave);
           
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1583',message:'Saving draft to backend',data:{postIndex:i+1,draftId:draftToSave.id,orgId:draftToSave.org_id,campaignId:draftToSave.campaign_id,authorId:draftToSave.author_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
           // Save draft
           const savedDraftResponse = await axios.post(`${BACKEND_URL}/api/drafts`, draftToSave);
           const savedDraft = savedDraftResponse.data;
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1585',message:'Draft saved successfully',data:{postIndex:i+1,savedDraftId:savedDraft.id,savedDraftOrgId:savedDraft.org_id,savedDraftCampaignId:savedDraft.campaign_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
           console.log(`✅ Draft saved for post ${i + 1}:`, savedDraft.id, savedDraft.campaign_id);
 
-          // Generate Image for the post - ALWAYS ensure an image is present
+          // Generate Image for the post - CRITICAL: Must use real AI-generated images
+          setLoadingMessage(`Generating image for post ${i + 1}/7...`);
           let imageUrl = null;
+          let imageGenerationFailed = false;
+          let imageError = null;
+          
           try {
+            console.log(`[IMAGE] Generating AI image for post ${i + 1}...`);
             const imageResponse = await axios.post(`${BACKEND_URL}/api/drafts/generate-image`, {
               prompt: draftContent.content || draftContent.body || topic.topic,
               topic: topic.topic,
               style: generatedCampaign?.image_style || 'professional',
               user_id: user.id,
               org_id: orgId,
-              model: generatedCampaign?.image_model || 'google/gemini-2.5-flash-image'
+              model: generatedCampaign?.image_model || 'google/gemini-3-pro-image-preview'
+            }, {
+              timeout: 60000 // 60 second timeout for image generation
             });
-            imageUrl = imageResponse.data.url;
-            console.log(`✅ AI image generated for post ${i + 1}`);
+            
+            if (imageResponse.data && imageResponse.data.url) {
+              imageUrl = imageResponse.data.url;
+              // Verify it's not a placeholder
+              if (!imageUrl.includes('unsplash.com/photo-1557804506') && !imageUrl.includes('placeholder')) {
+                console.log(`✅ Real AI image generated for post ${i + 1}: ${imageUrl.substring(0, 80)}...`);
+              } else {
+                console.warn(`⚠️ Image generation returned placeholder for post ${i + 1}`);
+                imageGenerationFailed = true;
+              }
+            } else {
+              throw new Error('Image generation returned no URL');
+            }
           } catch (imgError) {
-            console.error(`Failed to generate AI image for post ${i + 1}:`, imgError);
-            // Fallback to stock image if AI generation fails
+            imageGenerationFailed = true;
+            imageError = imgError;
+            console.error(`❌ Failed to generate AI image for post ${i + 1}:`, imgError);
+            console.error(`   Error details:`, imgError.response?.data || imgError.message);
+            
+            // Try stock image as fallback
             try {
+              console.log(`[IMAGE] Trying stock image fallback for post ${i + 1}...`);
               const stockResponse = await axios.post(`${BACKEND_URL}/api/drafts/fetch-stock-image`, {
                 prompt: topic.topic,
                 topic: topic.topic
+              }, {
+                timeout: 30000 // 30 second timeout for stock image
               });
-              imageUrl = stockResponse.data.url;
-              console.log(`✅ Stock image fetched for post ${i + 1}`);
+              
+              if (stockResponse.data && stockResponse.data.url) {
+                imageUrl = stockResponse.data.url;
+                console.log(`✅ Stock image fetched for post ${i + 1}: ${imageUrl.substring(0, 80)}...`);
+                imageGenerationFailed = false; // Stock image is acceptable
+              } else {
+                throw new Error('Stock image fetch returned no URL');
+              }
             } catch (stockError) {
-              console.error("Stock image fallback failed:", stockError);
-              // Final fallback: Use a placeholder image to ensure post always has an image
-              imageUrl = 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=1200&h=630&fit=crop';
-              console.warn(`⚠️ Using placeholder image for post ${i + 1}`);
+              console.error(`❌ Stock image fallback also failed for post ${i + 1}:`, stockError);
+              // Don't use placeholder - this is a real failure
+              imageGenerationFailed = true;
+              imageError = stockError;
             }
           }
 
-          // Ensure imageUrl is never null
-          if (!imageUrl) {
-            imageUrl = 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=1200&h=630&fit=crop';
-            console.warn(`⚠️ Image was null, using placeholder for post ${i + 1}`);
+          // CRITICAL: If image generation failed, mark post as failed
+          if (imageGenerationFailed || !imageUrl) {
+            throw new Error(`Image generation failed for post ${i + 1}: ${imageError?.message || 'Unknown error'}. Please check API keys configuration.`);
+          }
+          
+          // Verify image URL is valid
+          if (!imageUrl || imageUrl.trim() === '') {
+            throw new Error(`Invalid image URL for post ${i + 1}`);
           }
 
           // Update topic with generated image (remove image loading)
@@ -1329,16 +1816,33 @@ Generate 7 unique topics now:`;
 
           console.log(`📅 Scheduling post ${i + 1} for ${publishTime.toISOString()}`);
 
+          console.log(`[DEBUG] Creating scheduled post ${i + 1}`, {
+            draftId: savedDraft.id,
+            orgId: orgId || null,
+            publishTime: publishTime.toISOString(),
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+          });
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1675',message:'Creating scheduled post',data:{postIndex:i+1,draftId:savedDraft.id,orgId:orgId||null,publishTime:publishTime.toISOString(),timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
           const scheduledPost = await axios.post(`${BACKEND_URL}/api/scheduled-posts`, {
             id: `scheduled_${Date.now()}_${i}`,  // Unique ID for scheduled post
             draft_id: savedDraft.id,  // Use the saved draft ID
-            org_id: orgId,
+            org_id: orgId || null, // Will be updated when org is created
             publish_time: publishTime.toISOString(),
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',  // Use user's timezone
             status: 'scheduled',
             require_approval: false
           });
-          
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1684',message:'Scheduled post created',data:{postIndex:i+1,scheduledPostId:scheduledPost.data.id,scheduledOrgId:scheduledPost.data.org_id,scheduledDraftId:scheduledPost.data.draft_id,publishTime:scheduledPost.data.publish_time,status:scheduledPost.data.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          console.log(`[DEBUG] Scheduled post ${i + 1} created`, {
+            scheduledPostId: scheduledPost.data.id,
+            scheduledOrgId: scheduledPost.data.org_id,
+            scheduledDraftId: scheduledPost.data.draft_id,
+            publishTime: scheduledPost.data.publish_time
+          });
           console.log(`✅ Scheduled post ${i + 1} created:`, scheduledPost.data.id);
 
           posts.push({
@@ -1352,17 +1856,421 @@ Generate 7 unique topics now:`;
             imageUrl: imageUrl
           });
 
+          successfulPosts++;
+          setLoadingMessage(`Generated ${successfulPosts}/7 posts...`);
           console.log(`✅ Generated and scheduled post ${i + 1}/7: "${topic.topic}" at ${timeSlot}`);
         } catch (error) {
-          console.error(`Failed to generate post ${i + 1}:`, error);
+          failedPosts++;
+          console.error(`❌ Failed to generate post ${i + 1}:`, error);
+          console.error(`   Error details:`, error.response?.data || error.message);
+          
           // Mark loading as false even on error
           setTopics(prev => prev.map((t, idx) =>
-            idx === i ? { ...t, loading: false, imageLoading: false, error: true } : t
+            idx === i ? { 
+              ...t, 
+              loading: false, 
+              imageLoading: false, 
+              error: true, 
+              errorMessage: error.response?.data?.detail || error.message || 'Unknown error occurred'
+            } : t
           ));
+          
+          // Show user-friendly error message
+          const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
+          setLoadingMessage(`Error generating post ${i + 1}/7: ${errorMsg.substring(0, 50)}...`);
+          
+          // Don't continue if critical error (like no API keys)
+          if (error.response?.status === 500 && (error.response?.data?.detail?.includes('API key') || error.message?.includes('API key'))) {
+            throw new Error(`Post generation failed: ${errorMsg}. Please configure API keys in Admin Dashboard > API Keys.`);
+          }
+          
+          // If too many posts fail, stop and show error
+          if (failedPosts >= 3) {
+            throw new Error(`Too many posts failed to generate (${failedPosts} failed). Please check your API keys configuration and try again.`);
+          }
         }
       }
+      
+      // Validate that we have enough successful posts
+      if (successfulPosts < 4) {
+        throw new Error(`Only ${successfulPosts} out of 7 posts were generated successfully. Please check your API keys configuration and try again.`);
+      }
 
-      console.log('✅ All posts generated and scheduled:', posts);
+      // Final validation
+      const postsWithContent = posts.filter(p => p.draftContent && p.draftContent.content && p.draftContent.content.length > 50);
+      const postsWithImages = posts.filter(p => p.imageUrl && !p.imageUrl.includes('placeholder'));
+      const postsWithDrafts = posts.filter(p => p.draft?.id);
+      const postsWithScheduled = posts.filter(p => p.scheduled?.id);
+      
+      console.log('[DEBUG] Step 5: Post generation validation', {
+        totalPosts: posts.length,
+        successfulPosts,
+        failedPosts,
+        postsWithContent: postsWithContent.length,
+        postsWithImages: postsWithImages.length,
+        postsWithDrafts: postsWithDrafts.length,
+        postsWithScheduled: postsWithScheduled.length
+      });
+      
+      // CRITICAL VALIDATION: Ensure all posts are complete
+      if (posts.length < 4) {
+        throw new Error(`Only ${posts.length} posts were generated. At least 4 posts are required. Please check your API keys configuration.`);
+      }
+      
+      if (postsWithContent.length < posts.length) {
+        console.warn(`⚠️ Warning: ${posts.length - postsWithContent.length} posts missing content`);
+      }
+      
+      if (postsWithImages.length < posts.length) {
+        throw new Error(`Only ${postsWithImages.length} out of ${posts.length} posts have real images. Image generation failed. Please check your API keys configuration.`);
+      }
+      
+      if (postsWithDrafts.length < posts.length) {
+        throw new Error(`Only ${postsWithDrafts.length} out of ${posts.length} drafts were saved. Please try again.`);
+      }
+      
+      if (postsWithScheduled.length < posts.length) {
+        throw new Error(`Only ${postsWithScheduled.length} out of ${posts.length} posts were scheduled. Please try again.`);
+      }
+      
+      setLoadingMessage(`✅ Successfully generated ${posts.length} posts with real images!`);
+      console.log(`✅ Successfully generated ${posts.length} complete posts with brand DNA, campaign data, and real AI images`);
+
+      // NOW create the organization and update all data with org_id
+      let finalOrgId = orgId;
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1549',message:'Starting org creation check',data:{hasOrgId:!!finalOrgId,hasPendingOrgData:!!pendingOrgData,userId:user?.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
+      
+      if (!finalOrgId && pendingOrgData) {
+        setLoadingMessage('Creating organization...');
+        console.log('📦 Creating organization from pending data...');
+        
+        try {
+          const orgName = pendingOrgData.brandTitle ||
+            (pendingOrgData.websiteUrl ? new URL(pendingOrgData.websiteUrl).hostname.replace('www.', '') : null) ||
+            `${user.full_name}'s Organization`;
+
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1560',message:'Creating organization',data:{orgName,website:pendingOrgData.websiteUrl,userId:user.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+
+          const createRes = await axios.post(`${BACKEND_URL}/api/organizations`, {
+            name: orgName,
+            website: pendingOrgData.websiteUrl,
+            description: pendingOrgData.brandTitle ? `Organization for ${pendingOrgData.brandTitle}` : undefined,
+            created_by: user.id
+          });
+
+          finalOrgId = createRes.data.id;
+          setOrgId(finalOrgId);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1568',message:'Organization created successfully',data:{finalOrgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          console.log('✅ Organization created with ID:', finalOrgId);
+
+          // Save brand DNA if available
+          console.log('[DEBUG] Checking brand DNA to save', {
+            hasBrandDna: !!pendingOrgData.brandDna,
+            hasBrandStory: !!pendingOrgData.brandDna?.brand_story,
+            hasPersonality: !!pendingOrgData.brandDna?.brand_personality?.length,
+            finalOrgId,
+            brandDna: pendingOrgData.brandDna
+          });
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1572',message:'Checking brand DNA to save',data:{hasBrandDna:!!pendingOrgData.brandDna,hasBrandStory:!!pendingOrgData.brandDna?.brand_story,hasPersonality:!!pendingOrgData.brandDna?.brand_personality?.length,finalOrgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          if (pendingOrgData.brandDna && (pendingOrgData.brandDna.brand_story || pendingOrgData.brandDna.brand_personality?.length > 0)) {
+            setLoadingMessage('Saving brand DNA...');
+            console.log('[DEBUG] Saving brand DNA to backend', {
+              finalOrgId,
+              brandDnaKeys: Object.keys(pendingOrgData.brandDna),
+              brandDna: pendingOrgData.brandDna
+            });
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1574',message:'Saving brand DNA to backend',data:{finalOrgId,brandDnaKeys:Object.keys(pendingOrgData.brandDna)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
+            try {
+              await axios.post(`${BACKEND_URL}/api/organization-materials/save-brand-dna`, pendingOrgData.brandDna, {
+                params: { org_id: finalOrgId }
+              });
+              console.log('[DEBUG] Brand DNA saved successfully', { finalOrgId });
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1577',message:'Brand DNA saved successfully',data:{finalOrgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+              // #endregion
+              console.log('✅ Brand DNA saved to organization');
+            } catch (err) {
+              console.error('[DEBUG] Failed to save brand DNA', {
+                error: err.message,
+                status: err.response?.status,
+                detail: err.response?.data?.detail,
+                finalOrgId
+              });
+              throw err;
+            }
+          } else {
+            console.warn('[DEBUG] No brand DNA to save', {
+              hasBrandDna: !!pendingOrgData.brandDna,
+              brandDna: pendingOrgData.brandDna
+            });
+          }
+          
+          // Save edited analysis data if user edited it in step 3
+          console.log('[DEBUG] Checking analysis data to save', {
+            hasAnalysisData: !!analysisData,
+            hasBrandVoice: !!analysisData?.brand_voice,
+            hasBrandTone: !!analysisData?.brand_tone?.length,
+            hasKeyMessages: !!analysisData?.key_messages?.length,
+            finalOrgId
+          });
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1581',message:'Checking analysis data to save',data:{hasAnalysisData:!!analysisData,hasBrandVoice:!!analysisData?.brand_voice,hasBrandTone:!!analysisData?.brand_tone?.length,hasKeyMessages:!!analysisData?.key_messages?.length,finalOrgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          // #endregion
+          if (analysisData && (analysisData.brand_voice || analysisData.brand_tone?.length > 0 || analysisData.key_messages?.length > 0)) {
+            setLoadingMessage('Saving brand analysis...');
+            try {
+              // First try to run analysis to create the brand_analysis document
+              // This might fail if there are no materials yet, which is OK
+              console.log('[DEBUG] Attempting to create analysis document', { finalOrgId });
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1585',message:'Running analysis to create document',data:{finalOrgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+              // #endregion
+              try {
+                await axios.post(`${BACKEND_URL}/api/organization-materials/analyze`, null, {
+                  params: { org_id: finalOrgId }
+                });
+                console.log('[DEBUG] Analysis document created');
+              } catch (analyzeErr) {
+                // If analyze fails (e.g., no materials), try to create analysis directly via PUT with upsert
+                console.log('[DEBUG] Analyze endpoint failed, will try direct update', {
+                  error: analyzeErr.message,
+                  status: analyzeErr.response?.status
+                });
+              }
+              
+              // Then update it with the edited data (or create if analyze failed)
+              console.log('[DEBUG] Updating analysis with edited data', {
+                finalOrgId,
+                analysisDataKeys: Object.keys(analysisData)
+              });
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1589',message:'Updating analysis with edited data',data:{finalOrgId,analysisDataKeys:Object.keys(analysisData)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+              // #endregion
+              await axios.put(`${BACKEND_URL}/api/organization-materials/analysis`, analysisData, {
+                params: { org_id: finalOrgId }
+              });
+              console.log('[DEBUG] Analysis saved successfully', { finalOrgId });
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1592',message:'Analysis saved successfully',data:{finalOrgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+              // #endregion
+              console.log('✅ Brand analysis saved to organization');
+            } catch (err) {
+              console.error('[DEBUG] Failed to save brand analysis', {
+                error: err.message,
+                status: err.response?.status,
+                detail: err.response?.data?.detail,
+                finalOrgId
+              });
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1594',message:'Analysis save failed',data:{error:err.message,status:err.response?.status,detail:err.response?.data?.detail,finalOrgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+              // #endregion
+              console.warn('Failed to save brand analysis (may not exist yet):', err);
+              // Continue anyway - analysis will be created later
+            }
+          }
+
+          // Add website as material and extract content
+          if (pendingOrgData.websiteUrl) {
+            setLoadingMessage('Adding website materials...');
+            const addMaterialRes = await axios.post(`${BACKEND_URL}/api/organization-materials/add-url`, null, {
+              params: {
+                org_id: finalOrgId,
+                url: pendingOrgData.websiteUrl,
+                material_type: 'website'
+              }
+            });
+
+            const materialId = addMaterialRes.data?.id;
+            if (materialId) {
+              setLoadingMessage('Extracting content from website...');
+              try {
+                await axios.post(`${BACKEND_URL}/api/organization-materials/extract-content/${materialId}`);
+              } catch (err) {
+                console.error('Content extraction failed:', err);
+              }
+            }
+          }
+
+          // Upload description as material
+          if (pendingOrgData.description) {
+            setLoadingMessage('Processing business description...');
+            const blob = new Blob([pendingOrgData.description], { type: 'text/plain' });
+            const formData = new FormData();
+            formData.append('org_id', finalOrgId);
+            formData.append('file', blob, 'business_description.txt');
+            await axios.post(`${BACKEND_URL}/api/organization-materials/upload`, formData);
+            console.log('✅ Description uploaded to organization');
+          }
+
+          // Upload additional files
+          if (pendingOrgData.fileObjects && pendingOrgData.fileObjects.length > 0) {
+            setLoadingMessage('Processing uploaded documents...');
+            for (const file of pendingOrgData.fileObjects) {
+              const formData = new FormData();
+              formData.append('org_id', finalOrgId);
+              formData.append('file', file);
+              await axios.post(`${BACKEND_URL}/api/organization-materials/upload`, formData);
+            }
+            console.log('✅ Files uploaded to organization');
+          }
+
+          // Run AI Brand Analysis now that organization exists
+          if (pendingOrgData.websiteUrl || pendingOrgData.description) {
+            setLoadingMessage('Running AI brand analysis...');
+            try {
+              const analyzeRes = await axios.post(`${BACKEND_URL}/api/organization-materials/analyze`, null, {
+                params: { org_id: finalOrgId }
+              });
+              const analysis = analyzeRes.data;
+              // Merge with existing analysis data if available
+              if (analysis) {
+                setAnalysisData(prev => ({ ...prev, ...analysis }));
+                console.log('✅ AI brand analysis completed');
+              }
+            } catch (err) {
+              console.warn('AI brand analysis failed (non-critical):', err);
+              // Don't fail the whole flow if analysis fails
+            }
+          }
+
+          // Update campaign with org_id if it exists
+          if (generatedCampaign && generatedCampaign.id) {
+            try {
+              await axios.put(`${BACKEND_URL}/api/campaigns/${generatedCampaign.id}`, {
+                ...generatedCampaign,
+                org_id: finalOrgId
+              });
+              console.log('✅ Campaign updated with org_id');
+            } catch (err) {
+              console.warn('Failed to update campaign org_id:', err);
+            }
+          }
+
+          // Update all drafts and scheduled posts with the new org_id
+          // CRITICAL: This must complete BEFORE navigation to ensure posts appear in calendar
+          if (posts.length > 0) {
+            setLoadingMessage('Updating posts with organization...');
+            console.log(`[DEBUG] Updating ${posts.length} posts with finalOrgId:`, finalOrgId);
+            let draftsUpdated = 0;
+            let scheduledUpdated = 0;
+            let draftsFailed = 0;
+            let scheduledFailed = 0;
+            
+            // Use Promise.allSettled to ensure all updates complete (even if some fail)
+            const updatePromises = [];
+            
+            for (const post of posts) {
+              if (post.draft && post.draft.id) {
+                updatePromises.push(
+                  axios.put(`${BACKEND_URL}/api/drafts/${post.draft.id}`, {
+                    ...post.draft,
+                    org_id: finalOrgId
+                  }).then(() => {
+                    draftsUpdated++;
+                    console.log(`[DEBUG] Draft ${post.draft.id} updated successfully`);
+                  }).catch((err) => {
+                    draftsFailed++;
+                    console.error(`[DEBUG] Failed to update draft ${post.draft.id} org_id:`, {
+                      error: err.message,
+                      status: err.response?.status,
+                      detail: err.response?.data?.detail
+                    });
+                  })
+                );
+              }
+              if (post.scheduled && post.scheduled.id) {
+                updatePromises.push(
+                  (async () => {
+                    try {
+                      console.log(`[DEBUG] Updating scheduled post ${post.scheduled.id} with org_id:`, finalOrgId);
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1985',message:'Updating scheduled post org_id',data:{scheduledPostId:post.scheduled.id,oldOrgId:post.scheduled.org_id,newOrgId:finalOrgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                      // #endregion
+                      await axios.put(`${BACKEND_URL}/api/scheduled-posts/${post.scheduled.id}`, {
+                        ...post.scheduled,
+                        org_id: finalOrgId
+                      });
+                      scheduledUpdated++;
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1990',message:'Scheduled post org_id updated successfully',data:{scheduledPostId:post.scheduled.id,finalOrgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                      // #endregion
+                      console.log(`[DEBUG] Scheduled post ${post.scheduled.id} updated successfully`);
+                    } catch (err) {
+                      scheduledFailed++;
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OnboardingFlow.jsx:1993',message:'Failed to update scheduled post org_id',data:{scheduledPostId:post.scheduled.id,error:err.message,status:err.response?.status,detail:err.response?.data?.detail,finalOrgId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                      // #endregion
+                      console.error(`[DEBUG] Failed to update scheduled post ${post.scheduled.id} org_id:`, {
+                        error: err.message,
+                        status: err.response?.status,
+                        detail: err.response?.data?.detail
+                      });
+                      throw err;
+                    }
+                  })()
+                );
+              }
+            }
+            
+            // WAIT for all updates to complete before proceeding
+            await Promise.allSettled(updatePromises);
+            
+            console.log(`[DEBUG] Post update summary:`, {
+              totalPosts: posts.length,
+              draftsUpdated,
+              scheduledUpdated,
+              draftsFailed,
+              scheduledFailed
+            });
+            
+            // Verify updates succeeded - if too many failed, warn user
+            if (scheduledFailed > 0) {
+              console.warn(`⚠️ ${scheduledFailed} scheduled posts failed to update org_id. Posts may not appear in calendar.`);
+            }
+            
+            // Verify at least some posts were updated successfully
+            if (scheduledUpdated === 0 && posts.length > 0) {
+              console.error('❌ CRITICAL: No scheduled posts were updated with org_id!');
+              throw new Error('Failed to update scheduled posts with organization ID. Please contact support.');
+            }
+            
+            console.log('✅ All posts updated with org_id');
+            
+            // Verify posts actually have the correct org_id by querying the backend
+            setLoadingMessage('Verifying posts...');
+            try {
+              const verifyResponse = await axios.get(`${BACKEND_URL}/api/scheduled-posts?org_id=${finalOrgId}`);
+              const verifiedPosts = verifyResponse.data || [];
+              console.log(`[DEBUG] Verification: Found ${verifiedPosts.length} posts with org_id=${finalOrgId}`);
+              
+              if (verifiedPosts.length < scheduledUpdated) {
+                console.warn(`⚠️ Warning: Expected ${scheduledUpdated} posts but only found ${verifiedPosts.length} in database. This may be a timing issue.`);
+              }
+            } catch (verifyErr) {
+              console.warn('Failed to verify posts (non-critical):', verifyErr);
+            }
+            
+            // Add a small delay to ensure database writes are committed
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+
+          console.log('✅ All pending data saved to organization');
+        } catch (error) {
+          console.error('Failed to create organization or save pending data:', error);
+          alert('Warning: Organization creation failed. Some data may not be saved. Please contact support.');
+        }
+      }
 
       // Mark step 5 as complete, unlock dashboard sidebar, and navigate to calendar
       setCompletedSteps(prev => ({ ...prev, step5: true }));
@@ -1386,9 +2294,9 @@ Generate 7 unique topics now:`;
       console.log('✅ All posts generated successfully, redirecting to dashboard...');
       
       // Save the organization ID to localStorage so dashboard auto-selects it
-      if (orgId) {
-        localStorage.setItem('selectedOrgId', orgId);
-        console.log(`✅ Saved orgId ${orgId} to localStorage for auto-selection`);
+      if (finalOrgId) {
+        localStorage.setItem('selectedOrgId', finalOrgId);
+        console.log(`✅ Saved orgId ${finalOrgId} to localStorage for auto-selection`);
       }
       
       navigate('/dashboard');
@@ -1438,6 +2346,8 @@ Generate 7 unique topics now:`;
           </span>
         </div>
 
+        <div className="flex items-center gap-4">
+          {/* Progress Indicators */}
         <div className="flex gap-2">
           {[1, 2, 3, 4, 5].map((i) => {
             const isCompleted = completedSteps[`step${i}`];
@@ -1480,6 +2390,76 @@ Generate 7 unique topics now:`;
               />
             );
           })}
+          </div>
+
+          {/* Skip Onboarding Button */}
+          <button
+            onClick={async () => {
+              if (window.confirm('Skip onboarding and go to dashboard? You can complete onboarding later from settings.')) {
+                try {
+                  const token = localStorage.getItem('token');
+                  await axios.put(`${BACKEND_URL}/api/auth/complete-onboarding`, {}, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {}
+                  });
+                  await refreshUser();
+                  navigate('/dashboard');
+                } catch (error) {
+                  console.error('Failed to skip onboarding:', error);
+                  // Still navigate to dashboard even if API call fails
+                  navigate('/dashboard');
+                }
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200"
+            style={{
+              backgroundColor: 'transparent',
+              border: `1px solid ${tokens.colors.border.default}`,
+              color: tokens.colors.text.secondary
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = tokens.colors.background.layer1;
+              e.target.style.color = tokens.colors.text.primary;
+              e.target.style.borderColor = tokens.colors.border.strong;
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = 'transparent';
+              e.target.style.color = tokens.colors.text.secondary;
+              e.target.style.borderColor = tokens.colors.border.default;
+            }}
+            title="Skip onboarding"
+          >
+            <span className="text-sm font-medium">Skip</span>
+          </button>
+
+          {/* Logout Button */}
+          <button
+            onClick={() => {
+              if (window.confirm('Are you sure you want to log out? Your onboarding progress will be saved.')) {
+                logout();
+                navigate('/login');
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200"
+            style={{
+              backgroundColor: 'transparent',
+              border: `1px solid ${tokens.colors.border.default}`,
+              color: tokens.colors.text.secondary
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = tokens.colors.background.layer1;
+              e.target.style.color = tokens.colors.text.primary;
+              e.target.style.borderColor = tokens.colors.border.strong;
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = 'transparent';
+              e.target.style.color = tokens.colors.text.secondary;
+              e.target.style.borderColor = tokens.colors.border.default;
+            }}
+            title="Log out"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="text-sm font-medium">Logout</span>
+          </button>
         </div>
       </div>
 
@@ -1779,6 +2759,86 @@ Generate 7 unique topics now:`;
           )}
 
           {/* STEP 3: Brand Identity Review */}
+          {step === 3 && (() => {
+            console.log('[DEBUG] Step 3 render check', {
+              step,
+              hasAnalysisData: !!analysisData,
+              analysisDataKeys: analysisData ? Object.keys(analysisData) : null,
+              hasBrandInfo: !!brandInfo,
+              completedStep2: completedSteps.step2,
+              websiteUrl,
+              orgId,
+              hasPendingOrgData: !!pendingOrgData
+            });
+            
+            // PIPELINE FIX: If analysisData is missing, try to recover from pendingOrgData or recreate
+            if (!analysisData && completedSteps.step2) {
+              console.warn('[PIPELINE] Step 3: analysisData is missing but step2 is complete - attempting recovery');
+              
+              // Try to recreate from pendingOrgData if available
+              if (pendingOrgData?.brandDna) {
+                console.log('[PIPELINE] Recovering analysisData from pendingOrgData.brandDna');
+                const recoveredAnalysis = {
+                  brand_tone: pendingOrgData.brandDna.brand_tone || ['professional'],
+                  brand_voice: pendingOrgData.brandDna.brand_voice || 'professional',
+                  brand_colors: [],
+                  brand_images: [],
+                  brand_fonts: [],
+                  key_messages: pendingOrgData.brandDna.key_messages || [],
+                  value_propositions: pendingOrgData.brandDna.value_propositions || [],
+                  brand_story: pendingOrgData.brandDna.brand_story || null,
+                  brand_personality: pendingOrgData.brandDna.brand_personality || [],
+                  core_values: pendingOrgData.brandDna.core_values || [],
+                  target_audience: pendingOrgData.brandDna.target_audience || {
+                    job_titles: [],
+                    industries: [],
+                    interests: [],
+                    pain_points: []
+                  },
+                  content_pillars: pendingOrgData.brandDna.content_pillars || ['Brand Content'],
+                  suggested_campaigns: []
+                };
+                setAnalysisData(recoveredAnalysis);
+                console.log('[PIPELINE] Recovered analysisData from pendingOrgData');
+              } else {
+                // Last resort: create minimal fallback
+                console.warn('[PIPELINE] Creating minimal fallback analysisData');
+                const fallbackAnalysis = {
+                  brand_tone: ['professional'],
+                  brand_voice: 'professional',
+                  brand_colors: [],
+                  brand_images: [],
+                  brand_fonts: [],
+                  key_messages: ['Your brand message'],
+                  value_propositions: ['Your value proposition'],
+                  brand_story: description || null,
+                  brand_personality: ['professional'],
+                  core_values: [],
+                  target_audience: {
+                    job_titles: [],
+                    industries: [],
+                    interests: [],
+                    pain_points: []
+                  },
+                  content_pillars: ['Brand Content', 'Thought Leadership'],
+                  suggested_campaigns: []
+                };
+                setAnalysisData(fallbackAnalysis);
+              }
+            }
+            
+            if (!analysisData) {
+              console.error('[DEBUG] Step 3 is blank because analysisData is null/undefined');
+              console.log('[DEBUG] Available data:', {
+                pendingOrgData: !!pendingOrgData,
+                pendingOrgDataBrandDna: !!pendingOrgData?.brandDna,
+                websiteUrl,
+                orgId,
+                completedStep2: completedSteps.step2
+              });
+            }
+            return null;
+          })()}
           {step === 3 && analysisData && (
             <motion.div
               key="step3"
@@ -2243,6 +3303,36 @@ Generate 7 unique topics now:`;
               </div>
             </motion.div>
           )}
+          {step === 3 && !analysisData && (
+            // Fallback UI when analysisData is missing
+            <motion.div
+              key="step3-empty"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="w-full max-w-4xl mx-auto text-center py-12"
+            >
+              <div className="mb-6">
+                <h1 
+                  className="text-3xl md:text-4xl font-serif italic mb-2"
+                  style={{ color: tokens.colors.text.primary }}
+                >
+                  Brand Analysis Required
+                </h1>
+                <p 
+                  className="text-base mb-6"
+                  style={{ color: tokens.colors.text.secondary }}
+                >
+                  Please complete Step 2 (Brand Discovery) first to analyze your brand identity.
+                </p>
+                <Button
+                  onClick={() => updateStep(2, true)}
+                  className="h-12 px-8 bg-[#88D9E7] text-black hover:bg-[#A0E5F0] font-medium"
+                >
+                  Go to Brand Discovery <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
+            </motion.div>
+          )}
 
           {/* STEP 4: Campaign Selection */}
           {step === 4 && campaignPreviews.length > 0 && !isEditingCampaign && (
@@ -2600,24 +3690,9 @@ Generate 7 unique topics now:`;
                         >
                           Sample Posts
                         </h3>
-                        <div className="space-y-4">
+                        <div className="space-y-2">
                           {generatedCampaign.sample_posts.slice(0, 3).map((post, i) => (
-                            <div 
-                              key={i} 
-                              className="p-4 rounded-xl border"
-                              style={{
-                                backgroundColor: tokens.colors.background.layer2,
-                                borderColor: tokens.colors.border.default,
-                                borderRadius: tokens.radius.xl
-                              }}
-                            >
-                              <p 
-                                className="text-sm leading-relaxed"
-                                style={{ color: tokens.colors.text.primary }}
-                              >
-                                {post}
-                              </p>
-                            </div>
+                            <SamplePostAccordion key={i} post={post} index={i} tokens={tokens} />
                           ))}
                         </div>
                       </section>
@@ -2959,7 +4034,57 @@ Generate 7 unique topics now:`;
           isOpen={showBrandDNAEditModal}
           onClose={() => setShowBrandDNAEditModal(false)}
           onSave={(updatedData) => {
+            console.log('[DEBUG] BrandDNAEditModal onSave callback', {
+              hasPendingOrgData: !!pendingOrgData,
+              updatedDataKeys: Object.keys(updatedData),
+              currentOrgId: orgId
+            });
             setAnalysisData(updatedData);
+            
+            // Convert edited analysis data to brand DNA format
+            const newBrandDna = {
+              // Merge with existing brandDna if it exists
+              ...(pendingOrgData?.brandDna || {}),
+              // Map edited analysis data to brand DNA format
+              brand_story: updatedData.brand_story || pendingOrgData?.brandDna?.brand_story || null,
+              brand_personality: updatedData.brand_tone || pendingOrgData?.brandDna?.brand_personality || [],
+              core_values: updatedData.value_propositions || pendingOrgData?.brandDna?.core_values || [],
+              key_messages: updatedData.key_messages || pendingOrgData?.brandDna?.key_messages || [],
+              unique_selling_points: updatedData.value_propositions || pendingOrgData?.brandDna?.unique_selling_points || [],
+              target_audience_description: updatedData.target_audience_description || pendingOrgData?.brandDna?.target_audience_description || null,
+              // Also store the full analysis data for later use
+              brand_voice: updatedData.brand_voice,
+              brand_tone: updatedData.brand_tone,
+              value_propositions: updatedData.value_propositions,
+              content_pillars: updatedData.content_pillars,
+              target_audience: updatedData.target_audience,
+            };
+            
+            console.log('[DEBUG] Brand DNA to save', {
+              newBrandDnaKeys: Object.keys(newBrandDna),
+              hasBrandStory: !!newBrandDna.brand_story,
+              hasPersonality: !!newBrandDna.brand_personality?.length,
+              hadPendingOrgData: !!pendingOrgData
+            });
+            
+            // Initialize pendingOrgData if it doesn't exist, or update it if it does
+            if (pendingOrgData) {
+              setPendingOrgData(prev => ({
+                ...prev,
+                brandDna: newBrandDna
+              }));
+            } else {
+              // Initialize pendingOrgData with edited brand DNA if it doesn't exist
+              console.log('[DEBUG] Initializing pendingOrgData with edited brand DNA');
+              setPendingOrgData({
+                websiteUrl: null, // Will be set when org is created if needed
+                brandTitle: null,
+                brandDna: newBrandDna,
+                description: null,
+                files: [],
+                fileObjects: []
+              });
+            }
             setShowBrandDNAEditModal(false);
           }}
           initialData={analysisData}

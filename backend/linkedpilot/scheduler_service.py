@@ -15,7 +15,9 @@ import pytz
 from linkedpilot.adapters.ai_content_generator import AIContentGenerator
 from linkedpilot.adapters.linkedin_adapter import LinkedInAdapter
 from linkedpilot.adapters.image_adapter import ImageAdapter
-from linkedpilot.models.campaign import AIGeneratedPostStatus, CampaignStatus
+from linkedpilot.models.campaign import AIGeneratedPostStatus, CampaignStatus, Campaign
+from linkedpilot.services.campaign_generator import CampaignGenerator
+from linkedpilot.models.organization_materials import BrandAnalysis
 
 # Global scheduler instance
 scheduler = None
@@ -141,31 +143,23 @@ async def generate_content_for_active_campaigns():
                 if should_generate:
                     print(f"   [GEN] Generating new content...")
                     
-                    # Get user's API keys from settings (by user_id from campaign)
-                    user_id = campaign.get('created_by')
-                    settings = await db.user_settings.find_one({"user_id": user_id}, {"_id": 0})
+                    # ALWAYS use system API keys from admin dashboard - users never enter API keys
+                    from linkedpilot.routes.drafts import get_system_api_key
                     
-                    if not settings:
-                        print(f"   [ERROR] No settings found for user!")
-                        continue
-                    
-                    # Build list of available providers with their API keys (OpenAI first as default)
+                    # Build list of available providers with system API keys
                     available_providers = []
-                    if settings.get('openai_api_key'):
-                        available_providers.append(('openai', decrypt_api_key(settings['openai_api_key'])))
-                    if settings.get('anthropic_api_key'):
-                        available_providers.append(('claude', decrypt_api_key(settings['anthropic_api_key'])))
-                    if settings.get('google_ai_api_key'):
-                        available_providers.append(('gemini', decrypt_api_key(settings['google_ai_api_key'])))
-                    if settings.get('openrouter_api_key'):
-                        available_providers.append(('openrouter', decrypt_api_key(settings['openrouter_api_key'])))
+                    openai_key, _ = await get_system_api_key("openai")
+                    if openai_key:
+                        available_providers.append(('openai', openai_key))
+                    
+                    google_key, _ = await get_system_api_key("google_ai_studio")
+                    if google_key:
+                        available_providers.append(('gemini', google_key))
                     
                     if not available_providers:
-                        print(f"   [ERROR] No API keys configured!")
-                        print(f"   Please add at least one API key in Settings > API Keys:")
-                        print(f"   - OpenRouter (recommended)")
+                        print(f"   [ERROR] No system API keys configured in admin dashboard!")
+                        print(f"   Please configure API keys in Admin Dashboard > API Keys:")
                         print(f"   - OpenAI (ChatGPT)")
-                        print(f"   - Anthropic (Claude)")
                         print(f"   - Google AI Studio (Gemini)")
                         continue
                     
@@ -176,20 +170,17 @@ async def generate_content_for_active_campaigns():
                     # Determine which provider to use based on campaign's text_model
                     model_provider_map = {
                         'openai': 'openai',
-                        'anthropic': 'claude',
-                        'claude': 'claude',
                         'google': 'gemini',
                         'gemini': 'gemini',
-                        'meta-llama': 'openrouter',
                     }
                     
                     # Extract provider from model name (e.g., "openai/gpt-4o" -> "openai")
                     preferred_provider = None
                     if '/' in campaign_text_model:
                         model_prefix = campaign_text_model.split('/')[0]
-                        preferred_provider = model_provider_map.get(model_prefix, 'openrouter')
+                        preferred_provider = model_provider_map.get(model_prefix, 'openai')
                     else:
-                        preferred_provider = 'openrouter'  # Default to OpenRouter for flexibility
+                        preferred_provider = 'openai'  # Default to OpenAI
                     
                     # Try preferred provider first, then fall back to others
                     providers_to_try = []
@@ -199,8 +190,19 @@ async def generate_content_for_active_campaigns():
                         else:
                             providers_to_try.append((provider, api_key))  # Add to end
                     
-                    # Try each provider until one succeeds
-                    result = None
+                    # Get brand analysis for CampaignGenerator
+                    brand_analysis_doc = await db.brand_analysis.find_one(
+                        {"org_id": org_id}, {"_id": 0}
+                    )
+                    
+                    if not brand_analysis_doc:
+                        print(f"   [ERROR] No brand analysis found for organization!")
+                        continue
+                    
+                    brand_analysis = BrandAnalysis(**brand_analysis_doc)
+                    
+                    # Get CampaignGenerator with API key
+                    campaign_generator = None
                     last_error = None
                     
                     for provider, api_key in providers_to_try:
@@ -208,21 +210,17 @@ async def generate_content_for_active_campaigns():
                             print(f"   [API] Trying {provider} provider...")
                             
                             # Format model name based on provider
-                            # OpenRouter uses "provider/model", others use just "model"
                             model_to_use = campaign_text_model
-                            if provider != 'openrouter' and '/' in campaign_text_model:
-                                # Extract just the model name for direct API calls
+                            if '/' in campaign_text_model:
                                 model_to_use = campaign_text_model.split('/')[-1]
                                 print(f"   [MODEL] Adjusted for {provider}: {model_to_use}")
                             
-                            generator = AIContentGenerator(
+                            campaign_generator = CampaignGenerator(
                                 api_key=api_key,
-                                provider=provider,
-                                model=model_to_use  # Pass properly formatted model
+                                provider=provider
                             )
                             
-                            result = await generator.generate_post_for_campaign(campaign)
-                            print(f"   [SUCCESS] Content generated with {provider} using model {model_to_use}!")
+                            print(f"   [SUCCESS] CampaignGenerator initialized with {provider}!")
                             break  # Success! Exit the loop
                             
                         except Exception as gen_error:
@@ -231,14 +229,99 @@ async def generate_content_for_active_campaigns():
                             continue  # Try next provider
                     
                     # If all providers failed
-                    if not result:
+                    if not campaign_generator:
                         print(f"   [ERROR] All providers failed!")
                         print(f"   Last error: {last_error}")
                         continue
                     
-                    # Generate image if campaign requires it
+                    # Track last post type to avoid consecutive days having same style
+                    last_post_type = campaign.get('last_post_type')
+                    last_post_date = campaign.get('last_post_date')
+                    
+                    # Check if last post was today (same day) - if so, exclude that type
+                    excluded_types = []
+                    if last_post_type and last_post_date:
+                        try:
+                            if isinstance(last_post_date, str):
+                                last_date = datetime.fromisoformat(last_post_date.replace('Z', '+00:00'))
+                            else:
+                                last_date = last_post_date
+                            
+                            # If last post was today, exclude that type
+                            if last_date.date() == datetime.utcnow().date():
+                                excluded_types.append(last_post_type)
+                                print(f"   [ROTATION] Excluding '{last_post_type}' (used today)")
+                        except Exception as e:
+                            print(f"   [WARNING] Could not parse last_post_date: {e}")
+                    
+                    # Generate post using CampaignGenerator with 8-part format
+                    # This will automatically rotate through 5 types, excluding today's type
+                    try:
+                        print(f"   [GEN] Generating post with 8-part viral format...")
+                        print(f"   [ROTATION] Excluded types: {excluded_types if excluded_types else 'None'}")
+                        
+                        # Generate single post (count=1) - CampaignGenerator will rotate types
+                        from linkedpilot.models.campaign import Campaign
+                        campaign_obj = Campaign(**campaign)
+                        
+                        # Generate post ideas (returns list of full posts)
+                        # Pass excluded_types to ensure no consecutive days have same type
+                        post_ideas = await campaign_generator.generate_post_ideas(
+                            campaign=campaign_obj,
+                            brand_analysis=brand_analysis,
+                            count=1,
+                            excluded_types=excluded_types
+                        )
+                        
+                        if not post_ideas or len(post_ideas) == 0:
+                            print(f"   [ERROR] No posts generated!")
+                            continue
+                        
+                        # Get the generated post
+                        post_content = post_ideas[0]
+                        
+                        # Determine which post type was used based on day rotation
+                        import hashlib
+                        day_of_year = datetime.utcnow().timetuple().tm_yday
+                        post_types = [
+                            "How to/The Secret to",
+                            "The Rant",
+                            "Polarisation",
+                            "Data Driven",
+                            "There Are 3 Things"
+                        ]
+                        
+                        # Filter out excluded types
+                        available_types = [t for t in post_types if t not in excluded_types]
+                        if not available_types:
+                            available_types = post_types
+                        
+                        # Use day_of_year for consistent daily rotation
+                        post_type_index = day_of_year % len(available_types)
+                        selected_type = available_types[post_type_index]
+                        
+                        print(f"   [ROTATION] Selected type: '{selected_type}' (day {day_of_year}, excluded: {excluded_types})")
+                        
+                        result = {
+                            'content': post_content,
+                            'generation_prompt': f"Generated using 8-part viral format with {selected_type} template",
+                            'content_pillar': campaign.get('content_pillars', [])[0] if campaign.get('content_pillars') else 'General',
+                            'content_type': 'text',
+                            'post_type': selected_type  # Track the type used
+                        }
+                        
+                        print(f"   [SUCCESS] Post generated with type: {selected_type}!")
+                        
+                    except Exception as gen_error:
+                        print(f"   [ERROR] CampaignGenerator failed: {gen_error}")
+                        import traceback
+                        traceback.print_exc()
+                        continue
+                    
+                    # Generate image - default to True if not explicitly set
                     image_url = None
-                    if campaign.get('include_images', False):
+                    include_images = campaign.get('include_images', True)  # Default to True - always generate images
+                    if include_images:
                         try:
                             print(f"   [IMAGE] Generating image...")
                             
@@ -246,7 +329,7 @@ async def generate_content_for_active_campaigns():
                             
                             # Check campaign's image mode setting
                             use_ai_images = campaign.get('use_ai_images', True)  # Default to AI images
-                            image_model_raw = campaign.get('image_model', 'google/gemini-3-pro-image-preview')  # Updated to Gemini 3 Pro Image Preview
+                            image_model_raw = campaign.get('image_model', 'google/gemini-3-pro-image-preview')  # Gemini 3 Pro Image Preview (supports text)
                             
                             print(f"   [IMAGE] Campaign image mode: {'AI Generation' if use_ai_images else 'Stock Photos'}")
                             print(f"   [IMAGE] Campaign image_model setting: {image_model_raw}")
@@ -380,7 +463,7 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
                                                 image_adapter = ImageAdapter(
                                                     api_key=system_api_key,
                                                     provider="google_ai_studio",
-                                                    model="gemini-2.5-flash-image"
+                                                    model="gemini-3-pro-image-preview"
                                                 )
                                                 image_result = await image_adapter.generate_image(
                                                     prompt=image_prompt,
@@ -520,14 +603,22 @@ National Geographic quality. ABSOLUTELY NO TEXT OR WORDS. Pure imagery only.""".
                         print(f"   Post data: {ai_post}")
                         continue  # Skip campaign update if DB save failed
                     
-                    # Update campaign: increment post count AND update last generation time
+                    # Update campaign: increment post count, update last generation time, and track post type
+                    update_data = {
+                        "$inc": {"total_posts": 1},
+                        "$set": {
+                            "last_generation_time": current_time.isoformat(),
+                            "last_post_type": result.get('post_type'),
+                            "last_post_date": current_time.date().isoformat()  # Track date (not time) for day-based rotation
+                        }
+                    }
+                    
                     await db.campaigns.update_one(
                         {"id": campaign_id},
-                        {
-                            "$inc": {"total_posts": 1},
-                            "$set": {"last_generation_time": current_time.isoformat()}
-                        }
+                        update_data
                     )
+                    
+                    print(f"   [TRACKING] Updated campaign with post type: {result.get('post_type')}")
                     
                     print(f"   [SUCCESS] Content generated successfully!")
                     print(f"   Provider: {provider}")

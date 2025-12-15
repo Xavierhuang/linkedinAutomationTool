@@ -59,14 +59,14 @@ export function SettingsButton({ className }) {
     navigate('/dashboard/settings');
   };
 
-  // Use proxy URL to avoid CORS issues, fallback to direct URL
-  const pictureUrl = linkedinProfile?.picture || linkedinProfile?.pictureUrl || linkedinProfile?.picture_url || linkedinProfile?.profilePicture;
-  const profilePicture = pictureUrl ? `${BACKEND_URL}/api/settings/linkedin-profile-picture?user_id=${user.id}` : null;
-
   // Only show when user is authenticated
   if (!user) {
     return null;
   }
+
+  // Use proxy URL to avoid CORS issues, fallback to direct URL
+  const pictureUrl = linkedinProfile?.picture || linkedinProfile?.pictureUrl || linkedinProfile?.picture_url || linkedinProfile?.profilePicture;
+  const profilePicture = pictureUrl ? `${BACKEND_URL}/api/settings/linkedin-profile-picture?user_id=${user.id}` : null;
 
   return (
     <Button

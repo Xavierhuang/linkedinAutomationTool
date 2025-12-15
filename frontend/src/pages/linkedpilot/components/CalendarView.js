@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Plus, Linkedin, Loader2, X, Clock, Send, CheckCircle, ExternalLink, List, Calendar as CalendarIcon, Edit } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { getUserTimezone, convertUTCToUserTime, getTimeInUserTimezone } from '@/utils/timezone';
-import TextOverlayModal from './TextOverlayModalKonva';
 import designTokens from '@/designTokens';
 import { CalendarPostCard } from '@/components/ui/CalendarPostCard';
 
@@ -40,9 +39,7 @@ const CalendarView = ({ orgId }) => {
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostModal, setShowPostModal] = useState(false);
   
-  // Text overlay editing
-  const [showTextOverlayModal, setShowTextOverlayModal] = useState(false);
-  const [selectedImageForEdit, setSelectedImageForEdit] = useState(null);
+  // Text overlay editing (now uses standalone page)
   const [imageOverlays, setImageOverlays] = useState({}); // Store overlay elements by image URL
 
   // Detect mobile and tablet viewport
@@ -133,7 +130,16 @@ const CalendarView = ({ orgId }) => {
       // Fetch scheduled posts (including posted ones), approved AI content, and posted posts
       // Use date range filtering for AI posts to improve performance
       const [scheduledRes, aiPostsRes, postedRes] = await Promise.all([
-        axios.get(`${BACKEND_URL}/api/scheduled-posts?org_id=${orgId}&range_start=${rangeStartStr}&range_end=${rangeEndStr}`),
+        (async () => {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CalendarView.js:133',message:'Fetching scheduled posts for calendar',data:{orgId,rangeStart:rangeStartStr,rangeEnd:rangeEndStr},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
+          const response = await axios.get(`${BACKEND_URL}/api/scheduled-posts?org_id=${orgId}&range_start=${rangeStartStr}&range_end=${rangeEndStr}`);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CalendarView.js:136',message:'Calendar posts fetched',data:{orgId,postsCount:response.data?.length||0,postIds:response.data?.map(p=>p.id)||[],postOrgIds:response.data?.map(p=>p.org_id)||[],postPublishTimes:response.data?.map(p=>p.publish_time)||[]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
+          return response;
+        })(),
         axios.get(`${BACKEND_URL}/api/ai-content/approved-posts?org_id=${orgId}&range_start=${rangeStartStr}&range_end=${rangeEndStr}`),
         axios.get(`${BACKEND_URL}/api/posts?org_id=${orgId}&range_start=${rangeStartStr}&range_end=${rangeEndStr}`)
       ]);
@@ -1184,15 +1190,83 @@ const CalendarView = ({ orgId }) => {
                         boxShadow: designTokens.shadow.card
                       }}
                       onClick={() => {
-                        setSelectedImageForEdit(selectedPost.image_url);
-                        setShowTextOverlayModal(true);
+                        // Navigate immediately with data in state for instant loading
+                        const imageUrl = selectedPost.image_url;
+                        const elements = imageOverlays[imageUrl] || [];
+                        
+                        if (!imageUrl) {
+                          console.error('[CalendarView] No image URL found');
+                          return;
+                        }
+                        
+                        navigate('/text-editor', {
+                          state: {
+                            image_url: imageUrl,
+                            elements: elements,
+                            campaign_data: null,
+                            org_id: orgId, // Pass orgId for draft saving
+                            referrer: location.pathname + location.search // Store current page to return to
+                          }
+                        });
+                        
+                        // Create session in background for URL sharing (non-blocking)
+                        axios.post(
+                          `${BACKEND_URL}/api/text-editor/sessions`,
+                          {
+                            image_url: imageUrl,
+                            elements: elements,
+                            campaign_data: { org_id: orgId } // Include orgId in session
+                          }
+                        ).then(sessionResponse => {
+                          const token = sessionResponse.data.token;
+                          console.log('[CalendarView] Created session token in background:', token);
+                          // Optionally update URL with token for sharing
+                          navigate(`/text-editor?token=${token}`, { replace: true });
+                        }).catch(error => {
+                          console.warn('[CalendarView] Failed to create session (non-critical):', error);
+                          // Don't show error - editor already loaded
+                        });
                       }}
                     />
                     {/* Edit Image Button - appears on hover */}
                     <button
                       onClick={() => {
-                        setSelectedImageForEdit(selectedPost.image_url);
-                        setShowTextOverlayModal(true);
+                        // Navigate immediately with data in state for instant loading
+                        const imageUrl = selectedPost.image_url;
+                        const elements = imageOverlays[imageUrl] || [];
+                        
+                        if (!imageUrl) {
+                          console.error('[CalendarView] No image URL found');
+                          return;
+                        }
+                        
+                        navigate('/text-editor', {
+                          state: {
+                            image_url: imageUrl,
+                            elements: elements,
+                            campaign_data: null,
+                            org_id: orgId, // Pass orgId for draft saving
+                            referrer: location.pathname + location.search // Store current page to return to
+                          }
+                        });
+                        
+                        // Create session in background for URL sharing (non-blocking)
+                        axios.post(
+                          `${BACKEND_URL}/api/text-editor/sessions`,
+                          {
+                            image_url: imageUrl,
+                            elements: elements,
+                            campaign_data: { org_id: orgId } // Include orgId in session
+                          }
+                        ).then(sessionResponse => {
+                          const token = sessionResponse.data.token;
+                          console.log('[CalendarView] Created session token in background:', token);
+                          // Optionally update URL with token for sharing
+                          navigate(`/text-editor?token=${token}`, { replace: true });
+                        }).catch(error => {
+                          console.warn('[CalendarView] Failed to create session (non-critical):', error);
+                          // Don't show error - editor already loaded
+                        });
                       }}
                       className="absolute bottom-3 right-3 bg-background/80 hover:bg-background/90 backdrop-blur-md text-foreground px-3 py-1.5 rounded-lg text-xs font-medium transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2 border border-border"
                       style={{
@@ -1210,24 +1284,6 @@ const CalendarView = ({ orgId }) => {
         </div>
       )}
       
-      {/* Text Overlay Editing Modal */}
-      <TextOverlayModal
-        isOpen={showTextOverlayModal}
-        onClose={() => setShowTextOverlayModal(false)}
-        imageUrl={selectedImageForEdit}
-        initialElements={imageOverlays[selectedImageForEdit] || []}
-        onApply={(newImageUrl, elements) => {
-          const oldImageUrl = selectedImageForEdit;
-          setSelectedImageForEdit(newImageUrl);
-          // Store overlay data for new image, remove old key
-          setImageOverlays(prev => {
-            const newOverlays = {...prev};
-            delete newOverlays[oldImageUrl];
-            newOverlays[newImageUrl] = elements || [];
-            return newOverlays;
-          });
-        }}
-      />
     </div>
   );
 };

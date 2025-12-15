@@ -55,7 +55,9 @@ PHOTOGRAPHY REQUIREMENTS:
 - Shallow depth of field
 - Ample negative space for text overlay
 - Rule of thirds or golden ratio
-- ABSOLUTELY NO TEXT/WORDS/LETTERS in the image
+- ALWAYS include bold, readable text overlay with a key message or quote from the post
+- Text should be prominently displayed, well-positioned, and easy to read
+- Use modern, professional typography that matches the image style
 
 OUTPUT FORMAT (JSON):
 {
@@ -68,6 +70,7 @@ OUTPUT FORMAT (JSON):
   "color_palette": "Primary colors and tones",
   "composition": "Framing and perspective",
   "emotional_tone": "The feeling this image evokes",
+  "key_message": "A short, impactful quote or key phrase (5-10 words) from the post to display as text overlay",
   "reasoning": "Why this specific visual works for this post"
 }"""
 
@@ -131,8 +134,15 @@ Respond ONLY with valid JSON matching the format specified."""
             import json
             analysis = json.loads(ai_analysis)
             
-            # Build optimized DALL-E prompt - KEEP IT CONCISE (DALL-E 3 works better with shorter, focused prompts)
-            optimized_prompt = f"""A professional photograph of {analysis['subject']} in {analysis['environment']}, {analysis['focal_point']} as focal point. {analysis['lighting']}, {analysis['color_palette']}. {analysis['composition']}. Shot on DSLR, 35mm f/1.8, shallow depth of field. Photojournalistic style, National Geographic quality, hyper-realistic, 4K, natural lighting, authentic candid moment. Real photo - NOT illustration, NOT digital art, NOT cartoon. ABSOLUTELY NO TEXT or words of any kind."""
+            # Build optimized Gemini 3 Pro Image Preview prompt - include text for LinkedIn posts
+            # Use key_message from AI analysis if available, otherwise extract from post
+            key_message = analysis.get('key_message', '')
+            if not key_message:
+                post_summary = post_content[:150].replace('\n', ' ').strip()
+                # Get a short, impactful quote or key phrase (first sentence or up to 10 words)
+                key_message = post_summary.split('.')[0][:80] if '.' in post_summary else ' '.join(post_summary.split(' ')[:10])
+            
+            optimized_prompt = f"""A professional LinkedIn post image featuring {analysis['subject']} in {analysis['environment']}, {analysis['focal_point']} as focal point. {analysis['lighting']}, {analysis['color_palette']}. {analysis['composition']}. Shot on DSLR, 35mm f/1.8, shallow depth of field. Photojournalistic style, National Geographic quality, hyper-realistic, 4K, natural lighting, authentic candid moment. Include bold, readable text overlay with the key message: "{key_message}". Text should be prominently displayed, well-positioned, and easy to read on the image."""
             
             analysis['optimized_prompt'] = optimized_prompt.replace('\n', ' ').strip()
             
@@ -147,8 +157,6 @@ Respond ONLY with valid JSON matching the format specified."""
             "optimized_prompt": f"""PROFESSIONAL PHOTOGRAPH - PHOTOREALISTIC ONLY. 
 Shot on DSLR, 35mm lens, f/1.8. A cinematic photograph representing the concept from this post: "{post_content[:100]}...". 
 Natural setting, dramatic lighting, shallow depth of field, professional composition. 
-Photojournalism style, National Geographic quality. 
-ABSOLUTELY NO TEXT - NO WORDS - NO LETTERS - NO TYPOGRAPHY OF ANY KIND. 
-Pure photographic imagery ONLY.""".replace('\n', ' ').strip(),
+Photojournalism style, National Geographic quality.""".replace('\n', ' ').strip(),
             "reasoning": "Fallback generic prompt due to AI analysis error"
         }

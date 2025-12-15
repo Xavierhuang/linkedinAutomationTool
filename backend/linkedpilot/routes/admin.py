@@ -758,8 +758,6 @@ async def get_recent_activity(admin_user: dict = Depends(get_current_admin_user)
 
 class SystemKeysRequest(BaseModel):
     openai_api_key: Optional[str] = ''
-    openrouter_api_key: Optional[str] = ''
-    anthropic_api_key: Optional[str] = ''
     google_ai_api_key: Optional[str] = ''
     linkedin_client_id: Optional[str] = ''
     linkedin_client_secret: Optional[str] = ''
@@ -803,8 +801,6 @@ async def get_system_keys(admin_user: dict = Depends(get_current_admin_user)):
         # Return empty keys if not configured
         return {
             "openai_api_key": "",
-            "openrouter_api_key": "",
-            "anthropic_api_key": "",
             "google_ai_api_key": "",
             "linkedin_client_id": "",
             "linkedin_client_secret": "",
@@ -820,8 +816,6 @@ async def get_system_keys(admin_user: dict = Depends(get_current_admin_user)):
     # Decrypt and return keys
     return {
         "openai_api_key": decrypt_value(system_settings.get('openai_api_key', '')),
-        "openrouter_api_key": decrypt_value(system_settings.get('openrouter_api_key', '')),
-        "anthropic_api_key": decrypt_value(system_settings.get('anthropic_api_key', '')),
         "google_ai_api_key": decrypt_value(system_settings.get('google_ai_api_key', '')),
         "linkedin_client_id": decrypt_value(system_settings.get('linkedin_client_id', '')),
         "linkedin_client_secret": decrypt_value(system_settings.get('linkedin_client_secret', '')),
@@ -863,8 +857,6 @@ async def save_system_keys(
     encrypted_data = {
         "_id": "api_keys",
         "openai_api_key": encrypt_value(keys.openai_api_key) if keys.openai_api_key else '',
-        "openrouter_api_key": encrypt_value(keys.openrouter_api_key) if keys.openrouter_api_key else '',
-        "anthropic_api_key": encrypt_value(keys.anthropic_api_key) if keys.anthropic_api_key else '',
         "google_ai_api_key": encrypt_value(keys.google_ai_api_key) if keys.google_ai_api_key else '',
         "linkedin_client_id": encrypt_value(keys.linkedin_client_id) if keys.linkedin_client_id else '',
         "linkedin_client_secret": encrypt_value(keys.linkedin_client_secret) if keys.linkedin_client_secret else '',
@@ -908,9 +900,9 @@ class ModelSettingsRequest(BaseModel):
     text_text_overlay: Optional[str] = 'google_ai_studio:gemini-2.5-flash'
     text_carousel_content: Optional[str] = 'google_ai_studio:gemini-2.5-flash'
     
-    # Image generation models
-    image_draft_image: Optional[str] = 'google_ai_studio:gemini-2.5-flash-image'
-    image_carousel_images: Optional[str] = 'google_ai_studio:gemini-2.5-flash-image'
+    # Image generation models - using only Gemini 3 Pro Image Preview
+    image_draft_image: Optional[str] = 'google_ai_studio:gemini-3-pro-image-preview'
+    image_carousel_images: Optional[str] = 'google_ai_studio:gemini-3-pro-image-preview'
 
 
 @router.get("/model-settings")
@@ -927,16 +919,16 @@ async def get_model_settings(admin_user: dict = Depends(get_current_admin_user))
             "text_draft_content": "google_ai_studio:gemini-2.5-flash",
             "text_text_overlay": "google_ai_studio:gemini-2.5-flash",
             "text_carousel_content": "google_ai_studio:gemini-2.5-flash",
-            "image_draft_image": "google_ai_studio:gemini-2.5-flash-image",
-            "image_carousel_images": "google_ai_studio:gemini-2.5-flash-image"
+            "image_draft_image": "google_ai_studio:gemini-3-pro-image-preview",
+            "image_carousel_images": "google_ai_studio:gemini-3-pro-image-preview"
         }
     
     return {
         "text_draft_content": model_settings.get('text_draft_content', 'google_ai_studio:gemini-2.5-flash'),
         "text_text_overlay": model_settings.get('text_text_overlay', 'google_ai_studio:gemini-2.5-flash'),
         "text_carousel_content": model_settings.get('text_carousel_content', 'google_ai_studio:gemini-2.5-flash'),
-        "image_draft_image": model_settings.get('image_draft_image', 'google_ai_studio:gemini-2.5-flash-image'),
-        "image_carousel_images": model_settings.get('image_carousel_images', 'google_ai_studio:gemini-2.5-flash-image')
+        "image_draft_image": model_settings.get('image_draft_image', 'google_ai_studio:gemini-3-pro-image-preview'),
+        "image_carousel_images": model_settings.get('image_carousel_images', 'google_ai_studio:gemini-3-pro-image-preview')
     }
 
 
@@ -955,8 +947,8 @@ async def save_model_settings(
         "text_draft_content": settings.text_draft_content or "google_ai_studio:gemini-2.5-flash",
         "text_text_overlay": settings.text_text_overlay or "google_ai_studio:gemini-2.5-flash",
         "text_carousel_content": settings.text_carousel_content or "google_ai_studio:gemini-2.5-flash",
-        "image_draft_image": settings.image_draft_image or "google_ai_studio:gemini-2.5-flash-image",
-        "image_carousel_images": settings.image_carousel_images or "google_ai_studio:gemini-2.5-flash-image",
+        "image_draft_image": settings.image_draft_image or "google_ai_studio:gemini-3-pro-image-preview",
+        "image_carousel_images": settings.image_carousel_images or "google_ai_studio:gemini-3-pro-image-preview",
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "updated_by": admin_user['id']
     }
@@ -980,6 +972,78 @@ async def save_model_settings(
     return {"message": "Model settings saved successfully"}
 
 
+@router.get("/test-google-api")
+async def test_google_api(admin_user: dict = Depends(get_current_admin_user)):
+    """Test Google AI Studio API key accessibility and functionality (admin only)"""
+    from linkedpilot.routes.drafts import get_system_api_key
+    from linkedpilot.adapters.image_adapter import ImageAdapter
+    
+    result = {
+        "api_key_found": False,
+        "api_key_length": 0,
+        "api_key_preview": "",
+        "adapter_initialized": False,
+        "test_image_generated": False,
+        "error": None,
+        "model_used": None
+    }
+    
+    try:
+        # Step 1: Get API key
+        print(f"[TEST] Testing Google AI Studio API key access...")
+        google_api_key, provider = await get_system_api_key("google_ai_studio")
+        
+        if not google_api_key:
+            result["error"] = "Google AI Studio API key not found in system settings"
+            return result
+        
+        result["api_key_found"] = True
+        result["api_key_length"] = len(google_api_key)
+        result["api_key_preview"] = f"{google_api_key[:10]}...{google_api_key[-4:]}" if len(google_api_key) > 14 else "***"
+        
+        # Step 2: Initialize adapter
+        print(f"[TEST] Initializing ImageAdapter with Gemini 3 Pro Image Preview...")
+        try:
+            image_adapter = ImageAdapter(
+                api_key=google_api_key,
+                provider="google_ai_studio",
+                model="gemini-3-pro-image-preview"
+            )
+            result["adapter_initialized"] = True
+            result["model_used"] = image_adapter.model
+        except Exception as adapter_error:
+            result["error"] = f"Failed to initialize ImageAdapter: {str(adapter_error)}"
+            return result
+        
+        # Step 3: Test image generation with a simple prompt
+        print(f"[TEST] Testing image generation...")
+        try:
+            test_prompt = "A professional LinkedIn post image showing a modern office workspace"
+            image_result = await image_adapter.generate_image(
+                prompt=test_prompt,
+                style="professional",
+                size="1024x1024"
+            )
+            
+            if image_result and image_result.get('url'):
+                result["test_image_generated"] = True
+                result["image_url"] = image_result.get('url')
+                print(f"[TEST] SUCCESS: Image generated at {image_result.get('url')[:50]}...")
+            else:
+                result["error"] = "Image generation returned no URL"
+        except Exception as gen_error:
+            result["error"] = f"Image generation failed: {str(gen_error)}"
+            import traceback
+            result["traceback"] = traceback.format_exc()
+        
+    except Exception as e:
+        result["error"] = f"Test failed: {str(e)}"
+        import traceback
+        result["traceback"] = traceback.format_exc()
+    
+    return result
+
+
 @router.get("/available-models")
 async def get_available_models(admin_user: dict = Depends(get_current_admin_user)):
     """Get list of available AI models organized by provider"""
@@ -995,23 +1059,10 @@ async def get_available_models(admin_user: dict = Depends(get_current_admin_user
                 {"value": "openai:gpt-4-turbo", "label": "GPT-4 Turbo"},
                 {"value": "openai:gpt-3.5-turbo", "label": "GPT-3.5 Turbo"},
             ],
-            "anthropic": [
-                {"value": "anthropic:claude-3-5-sonnet", "label": "Claude 3.5 Sonnet (Recommended)"},
-                {"value": "anthropic:claude-3-opus", "label": "Claude 3 Opus"},
-                {"value": "anthropic:claude-3-haiku", "label": "Claude 3 Haiku"},
-            ],
-            "openrouter": [
-                {"value": "openrouter:anthropic/claude-3.5-sonnet", "label": "Claude 3.5 Sonnet (via OpenRouter)"},
-                {"value": "openrouter:google/gemini-pro", "label": "Gemini Pro (via OpenRouter)"},
-            ]
         },
         "image_models": {
             "google_ai_studio": [
-                {"value": "google_ai_studio:gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image (Recommended)"},
-            ],
-            "openrouter": [
-                {"value": "openrouter:google/gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image (via OpenRouter)"},
-                {"value": "openrouter:black-forest-labs/flux-1.1-pro", "label": "Flux 1.1 Pro (via OpenRouter)"},
+                {"value": "google_ai_studio:gemini-3-pro-image-preview", "label": "Gemini 3 Pro Image Preview (Recommended)"},
             ],
             "stock": [
                 {"value": "stock:unsplash", "label": "Unsplash Stock Photos"},

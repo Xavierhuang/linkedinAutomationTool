@@ -689,11 +689,6 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                         <option value="openai/gpt-4-turbo">GPT-4 Turbo</option>
                                         <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo (Fastest)</option>
                                     </optgroup>
-                                    <optgroup label="Anthropic">
-                                        <option value="anthropic/claude-3-5-sonnet-20241022">Claude 3.5 Sonnet (Latest)</option>
-                                        <option value="anthropic/claude-3-5-haiku-20241022">Claude 3.5 Haiku (Fast)</option>
-                                        <option value="anthropic/claude-3-opus-20240229">Claude 3 Opus (Best)</option>
-                                    </optgroup>
                                     <optgroup label="Google">
                                         <option value="google/gemini-2.0-flash-exp">Gemini 2.0 Flash (Latest)</option>
                                         <option value="google/gemini-1.5-pro">Gemini 1.5 Pro</option>
@@ -773,9 +768,6 @@ const CampaignConfigModal = ({ isOpen, onClose, onSave, initialData, orgId }) =>
                                             >
                                                 <optgroup label="Google">
                                                     <option value="google/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Fast & Affordable - Recommended)</option>
-                                                </optgroup>
-                                                <optgroup label="OpenRouter">
-                                                    <option value="openrouter/seedream">SeeDream via OpenRouter (High Quality)</option>
                                                 </optgroup>
                                             </select>
                                             <p className="text-xs text-muted-foreground mt-1">

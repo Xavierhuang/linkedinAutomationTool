@@ -49,21 +49,21 @@ const LinkedPilotDashboard = () => {
           const orgExists = orgs.find(org => org.id === savedOrgId);
           if (orgExists) {
             // Use the saved orgId (from onboarding or previous selection)
-            if (selectedOrg !== savedOrgId) {
-              setSelectedOrg(savedOrgId);
-              console.log(`✅ Auto-selected organization: ${savedOrgId}`);
-            }
+            setSelectedOrg(savedOrgId);
+            console.log(`✅ Auto-selected organization: ${savedOrgId}`);
           } else {
             // Saved orgId doesn't exist, select first available
-            if (orgs.length > 0 && selectedOrg !== orgs[0].id) {
+            if (orgs.length > 0) {
               setSelectedOrg(orgs[0].id);
               localStorage.setItem('selectedOrgId', orgs[0].id);
+              console.log(`✅ Auto-selected first organization: ${orgs[0].id}`);
             }
           }
-        } else if (orgs.length > 0 && !selectedOrg) {
+        } else if (orgs.length > 0) {
           // No saved orgId, select first available
           setSelectedOrg(orgs[0].id);
           localStorage.setItem('selectedOrgId', orgs[0].id);
+          console.log(`✅ Auto-selected first organization: ${orgs[0].id}`);
         }
       } catch (error) {
         console.error('Failed to load organizations:', error);
@@ -72,6 +72,41 @@ const LinkedPilotDashboard = () => {
 
     fetchOrganizations();
   }, [user]);
+
+  // Also check localStorage on mount and when it changes (for onboarding completion)
+  useEffect(() => {
+    const checkSavedOrg = () => {
+      const savedOrgId = localStorage.getItem('selectedOrgId');
+      if (savedOrgId && savedOrgId !== selectedOrg) {
+        // Verify it exists in organizations list
+        const orgExists = organizations.find(org => org.id === savedOrgId);
+        if (orgExists) {
+          setSelectedOrg(savedOrgId);
+          console.log(`✅ Organization auto-selected from localStorage: ${savedOrgId}`);
+        }
+      }
+    };
+
+    // Check immediately
+    checkSavedOrg();
+
+    // Listen for storage events (when onboarding saves orgId)
+    const handleStorageChange = (e) => {
+      if (e.key === 'selectedOrgId' && e.newValue) {
+        checkSavedOrg();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also poll localStorage periodically (for same-tab updates)
+    const interval = setInterval(checkSavedOrg, 1000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, [organizations, selectedOrg]);
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden relative text-foreground bg-background">
