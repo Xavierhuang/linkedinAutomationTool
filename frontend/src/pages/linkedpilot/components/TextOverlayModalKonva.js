@@ -11,100 +11,15 @@ import { useThemeTokens } from '@/hooks/useThemeTokens';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
 // Text component with transformer and inline editing support
-const EditableText = ({ shapeProps, isSelected, isEditing, onSelect, onEdit, onChange, onTextChange, onBlur, isMultiSelected = false, onHover, stageRef, zoomLevel = 100, panPosition = { x: 0, y: 0 } }) => {
+const EditableText = ({ shapeProps, isSelected, isEditing, onSelect, onEdit, onChange, isMultiSelected = false, onHover }) => {
   const shapeRef = useRef();
   const trRef = useRef();
-  const textareaRef = useRef();
   const tokens = useThemeTokens();
-
-  // Dynamically measure and update text height to fit all content
-  useEffect(() => {
-    if (shapeRef.current && !isEditing) {
-      const node = shapeRef.current;
-      // Measure actual text height after rendering
-      if (node.width() > 0) {
-        try {
-          // Get the actual rendered text height (accounts for wrapping, line height, padding)
-          // Check if textHeight method exists (it's a Konva Text method)
-          const actualTextHeight = typeof node.textHeight === 'function' ? node.textHeight() : (node.height() || 0);
-          
-          if (actualTextHeight > 0 && !isNaN(actualTextHeight)) {
-            // Add padding for descenders and line spacing (20% extra)
-            const paddedHeight = actualTextHeight * 1.2;
-            
-            // Always update height to ensure all text is visible
-            // Use a small threshold to avoid infinite loops
-            const currentHeight = node.height() || 0;
-            if (Math.abs(paddedHeight - currentHeight) > 1) {
-              // Update the node's height to fit all text
-              node.height(paddedHeight);
-              
-              // Update parent state to persist the change
-              if (onChange) {
-                onChange({
-                  ...shapeProps, // Preserve all existing properties
-                  height: paddedHeight,
-                  // Explicitly preserve all styling properties
-                  fontSize: shapeProps.fontSize,
-                  fontFamily: shapeProps.fontFamily,
-                  fill: shapeProps.fill,
-                  fontStyle: shapeProps.fontStyle,
-                  textDecoration: shapeProps.textDecoration,
-                  align: shapeProps.align,
-                  lineHeight: shapeProps.lineHeight,
-                  letterSpacing: shapeProps.letterSpacing,
-                  opacity: shapeProps.opacity,
-                  shadowEnabled: shapeProps.shadowEnabled,
-                  shadowColor: shapeProps.shadowColor,
-                  shadowBlur: shapeProps.shadowBlur,
-                  shadowOffsetX: shapeProps.shadowOffsetX,
-                  shadowOffsetY: shapeProps.shadowOffsetY,
-                  background_color: shapeProps.background_color,
-                  background_opacity: shapeProps.background_opacity,
-                  width: shapeProps.width,
-                  x: shapeProps.x,
-                  y: shapeProps.y,
-                  rotation: shapeProps.rotation,
-                });
-              }
-              
-              // Clear cache and re-cache with new dimensions
-              if (node.cache) {
-                try {
-                  node.clearCache();
-                  if (node.width() > 0 && paddedHeight > 0) {
-                    node.cache();
-                  }
-                } catch (e) {
-                  // Ignore cache errors
-                }
-              }
-              
-              // Batch draw to update display
-              const layer = node.getLayer();
-              if (layer) {
-                layer.batchDraw();
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('[EditableText] Error measuring text height:', e);
-        }
-      }
-    }
-  }, [shapeProps.text, shapeProps.fontSize, shapeProps.width, shapeProps.fontFamily, shapeProps.lineHeight, isEditing]);
 
   useEffect(() => {
     if (isSelected && !isEditing && trRef.current && shapeRef.current) {
       trRef.current.nodes([shapeRef.current]);
-      // Use batchDraw for performance - batches multiple draw operations
-      const layer = trRef.current.getLayer();
-      if (layer) {
-        layer.batchDraw();
-      }
-    } else if (!isSelected && trRef.current) {
-      // Clean up transformer when deselected
-      trRef.current.nodes([]);
+      trRef.current.getLayer().batchDraw();
     }
   }, [isSelected, isEditing]);
 
@@ -124,100 +39,6 @@ const EditableText = ({ shapeProps, isSelected, isEditing, onSelect, onEdit, onC
     }
   }, [isSelected, isEditing, onEdit]);
 
-  // Position and style textarea for direct inline editing
-  useEffect(() => {
-    if (isEditing && shapeRef.current && textareaRef.current && stageRef?.current) {
-      const textNode = shapeRef.current;
-      const stage = stageRef.current;
-      const stageBox = stage.container().getBoundingClientRect();
-      const stageScale = stage.scaleX();
-      
-      // Get absolute position of text node relative to stage
-      const absPos = textNode.getAbsolutePosition();
-      
-      // Account for pan position
-      const panX = panPosition.x || 0;
-      const panY = panPosition.y || 0;
-      
-      // Calculate position accounting for stage transform and pan
-      const x = stageBox.left + (absPos.x + panX) * stageScale;
-      const y = stageBox.top + (absPos.y + panY) * stageScale;
-      
-      // Set textarea position and size
-      const textarea = textareaRef.current;
-      textarea.style.position = 'fixed';
-      textarea.style.left = `${x}px`;
-      textarea.style.top = `${y}px`;
-      textarea.style.width = `${textNode.width() * stageScale}px`;
-      textarea.style.minHeight = `${Math.max(30, textNode.height() * stageScale)}px`;
-      textarea.style.fontSize = `${(textNode.fontSize() || shapeProps.fontSize || 16) * stageScale}px`;
-      textarea.style.fontFamily = textNode.fontFamily() || shapeProps.fontFamily || 'Arial';
-      textarea.style.fontStyle = textNode.fontStyle() || shapeProps.fontStyle || 'normal';
-      textarea.style.textDecoration = textNode.textDecoration() || shapeProps.textDecoration || 'none';
-      textarea.style.color = textNode.fill() || shapeProps.fill || '#000000';
-      textarea.style.textAlign = textNode.align() || shapeProps.align || 'left';
-      textarea.style.lineHeight = (textNode.lineHeight() || shapeProps.lineHeight || 1.2).toString();
-      textarea.style.letterSpacing = `${((textNode.letterSpacing() || shapeProps.letterSpacing || 0) * stageScale)}px`;
-      textarea.style.opacity = textNode.opacity() !== undefined ? textNode.opacity() : (shapeProps.opacity !== undefined ? shapeProps.opacity : 1);
-      textarea.style.background = shapeProps.background_color && shapeProps.background_color !== 'transparent' 
-        ? shapeProps.background_color 
-        : 'rgba(255, 255, 255, 0.9)';
-      textarea.style.border = '2px solid ' + (tokens?.colors?.accent?.lime || '#00ff00');
-      textarea.style.borderRadius = '4px';
-      textarea.style.padding = '4px';
-      textarea.style.outline = 'none';
-      textarea.style.resize = 'none';
-      textarea.style.overflow = 'auto';
-      textarea.style.whiteSpace = 'pre-wrap';
-      textarea.style.wordWrap = 'break-word';
-      textarea.style.zIndex = '10000';
-      textarea.style.boxSizing = 'border-box';
-      textarea.style.display = 'block';
-      textarea.style.transform = textNode.rotation() ? `rotate(${textNode.rotation()}deg)` : 'none';
-      textarea.style.transformOrigin = 'top left';
-      
-      // Match text shadow if present
-      if (textNode.shadowEnabled && textNode.shadowEnabled()) {
-        const shadowOffsetX = (textNode.shadowOffsetX() || shapeProps.shadowOffsetX || 0) * stageScale;
-        const shadowOffsetY = (textNode.shadowOffsetY() || shapeProps.shadowOffsetY || 0) * stageScale;
-        const shadowBlur = (textNode.shadowBlur() || shapeProps.shadowBlur || 0) * stageScale;
-        const shadowColor = textNode.shadowColor() || shapeProps.shadowColor || '#000000';
-        textarea.style.textShadow = `${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${shadowColor}`;
-      }
-      
-      // Focus and select all after a brief delay to ensure positioning is complete
-      setTimeout(() => {
-        if (textareaRef.current) {
-          textareaRef.current.focus();
-          textareaRef.current.select();
-        }
-      }, 10);
-    }
-    
-    // Cleanup: hide textarea when not editing
-    if (!isEditing && textareaRef.current) {
-      textareaRef.current.style.display = 'none';
-    }
-  }, [isEditing, shapeProps, zoomLevel, panPosition, stageRef, tokens]);
-  
-  // Update textarea height dynamically as text changes
-  useEffect(() => {
-    if (isEditing && textareaRef.current && shapeRef.current) {
-      const textarea = textareaRef.current;
-      const textNode = shapeRef.current;
-      const stage = stageRef?.current;
-      
-      if (stage) {
-        const stageScale = stage.scaleX();
-        // Reset height to auto to get natural height, then set it
-        textarea.style.height = 'auto';
-        const scrollHeight = textarea.scrollHeight;
-        const minHeight = Math.max(30, (textNode.height() || 30) * stageScale);
-        textarea.style.height = `${Math.max(minHeight, scrollHeight)}px`;
-      }
-    }
-  }, [isEditing, shapeProps.text, stageRef]);
-
   // Safety check for tokens
   if (!tokens) {
     return null;
@@ -227,23 +48,8 @@ const EditableText = ({ shapeProps, isSelected, isEditing, onSelect, onEdit, onC
     <>
       {!isEditing && (
         <>
-          {/* Text background - ALWAYS show for baked-in text to cover original */}
-          {/* Background height syncs with text height via shapeProps.height */}
-          {(shapeProps.is_baked_in && shapeProps.replace_baked_text) ? (
-            // For baked-in text that should replace original, use opaque background
-            <Rect
-              x={shapeProps.x}
-              y={shapeProps.y}
-              width={shapeProps.width || 400}
-              height={shapeProps.height || 100}
-              fill={shapeProps.background_color && shapeProps.background_color !== 'transparent' 
-                ? shapeProps.background_color 
-                : 'rgba(255, 255, 255, 0.95)'} // Default white background to cover baked-in text
-              opacity={1.0} // Fully opaque to hide baked-in text
-              listening={false}
-            />
-          ) : shapeProps.background_color && shapeProps.background_color !== 'transparent' ? (
-            // Regular background for non-baked-in text
+          {/* Text background (if enabled) */}
+          {shapeProps.background_color && shapeProps.background_color !== 'transparent' && (
             <Rect
               x={shapeProps.x}
               y={shapeProps.y}
@@ -253,32 +59,18 @@ const EditableText = ({ shapeProps, isSelected, isEditing, onSelect, onEdit, onC
               opacity={(shapeProps.background_opacity || 100) / 100}
               listening={false}
             />
-          ) : null}
+          )}
           <KonvaText
             ref={shapeRef}
             {...shapeProps}
             draggable
-            perfectDrawEnabled={true}
-            hitStrokeWidth={10}
             onClick={(e) => {
-              e.cancelBubble = true;
-              const evt = e.evt || e;
-              // Single click on already-selected text triggers editing (direct editing)
-              if (isSelected && !isMultiSelected && onEdit && !evt.shiftKey && !evt.ctrlKey && !evt.metaKey) {
-                // Small delay to distinguish from drag start
-                setTimeout(() => {
-                  if (onEdit) {
-                    onEdit();
-                  }
-                }, 150);
-              }
-              // Pass event for selection/multi-select detection
+              // Pass event for multi-select detection
               if (onSelect) {
-                onSelect(evt);
+                onSelect(e.evt || e);
               }
             }}
             onTap={(e) => {
-              e.cancelBubble = true;
               if (onSelect) {
                 onSelect(e.evt || e);
               }
@@ -291,135 +83,36 @@ const EditableText = ({ shapeProps, isSelected, isEditing, onSelect, onEdit, onC
             shadowOffsetX={shapeProps.glowEnabled ? 0 : (shapeProps.shadowOffsetX || 0)}
             shadowOffsetY={shapeProps.glowEnabled ? 0 : (shapeProps.shadowOffsetY || 0)}
             shadowOpacity={shapeProps.glowEnabled ? 0.8 : 1}
-            // Ensure text wraps properly and doesn't get cut off
-            wrap="word"
-            ellipsis={false}
-            // Don't set height initially - let Konva calculate it based on text content
-            // Height will be set dynamically in useEffect based on textHeight()
-            height={shapeProps.height || undefined}
             onDblClick={(e) => {
-              // Double-click to edit (backup method)
+              // Double-click to edit (Canva pattern)
               e.cancelBubble = true;
               if (onEdit && !isMultiSelected) {
                 onEdit();
               }
             }}
             onDragEnd={(e) => {
-              const node = e.target;
-              // Explicitly read ALL properties from the node to preserve styling
               onChange({
-                ...shapeProps, // Base properties
-                x: node.x(),
-                y: node.y(),
-                rotation: node.rotation(),
-                // Explicitly preserve all styling properties from node
-                fontSize: node.fontSize() || shapeProps.fontSize,
-                fontFamily: node.fontFamily() || shapeProps.fontFamily,
-                fill: node.fill() || shapeProps.fill,
-                fontStyle: node.fontStyle() || shapeProps.fontStyle,
-                textDecoration: node.textDecoration() || shapeProps.textDecoration,
-                align: node.align() || shapeProps.align,
-                lineHeight: node.lineHeight() || shapeProps.lineHeight,
-                letterSpacing: node.letterSpacing() || shapeProps.letterSpacing,
-                opacity: node.opacity() !== undefined ? node.opacity() : shapeProps.opacity,
-                shadowEnabled: node.shadowEnabled() !== undefined ? node.shadowEnabled() : shapeProps.shadowEnabled,
-                shadowColor: node.shadowColor() || shapeProps.shadowColor,
-                shadowBlur: node.shadowBlur() || shapeProps.shadowBlur,
-                shadowOffsetX: node.shadowOffsetX() || shapeProps.shadowOffsetX,
-                shadowOffsetY: node.shadowOffsetY() || shapeProps.shadowOffsetY,
-                width: node.width() || shapeProps.width,
-                height: node.height() || shapeProps.height,
-                background_color: shapeProps.background_color,
-                background_opacity: shapeProps.background_opacity,
-                text: node.text() || shapeProps.text,
+                ...shapeProps,
+                x: e.target.x(),
+                y: e.target.y(),
               });
             }}
             onTransformEnd={(e) => {
               const node = shapeRef.current;
-              if (!node) return;
-              
               const scaleX = node.scaleX();
               const scaleY = node.scaleY();
 
-              // Reset scale to 1 and apply to dimensions
               node.scaleX(1);
               node.scaleY(1);
               
-              // Calculate new dimensions - ensure minimum sizes to prevent cutoff
-              const newWidth = Math.max(50, node.width() * scaleX);
-              
-              // For height: if resizing vertically, use the scaled height
-              // If resizing horizontally, measure actual text height after width change
-              let newHeight;
-              if (Math.abs(scaleY - 1) > 0.01) {
-                // User is resizing vertically - use the scaled height
-                newHeight = Math.max(30, node.height() * scaleY);
-                node.height(newHeight);
-              } else {
-                // User is resizing horizontally - measure text height after width change
-                // Set the new width first so Konva can recalculate wrapping
-                node.width(newWidth);
-                
-                // Get the actual text height after wrapping
-                let actualTextHeight = typeof node.textHeight === 'function' ? node.textHeight() : node.height();
-                if (actualTextHeight === 0 || isNaN(actualTextHeight)) {
-                  // Fallback: use current height
-                  actualTextHeight = node.height();
-                }
-                
-                // Add padding for descenders and line spacing (20% extra)
-                newHeight = Math.max(30, actualTextHeight * 1.2);
-                
-                // Update node height to fit text
-                node.height(newHeight);
-              }
-              
-              // IMPORTANT: Keep font size unchanged - resizing only changes available space
-              // Font size should remain constant so text wraps/reflows within the new bounds
-              
               onChange({
-                ...shapeProps, // Preserve all existing properties
+                ...shapeProps,
                 x: node.x(),
                 y: node.y(),
-                width: newWidth,
-                height: newHeight,
-                // Explicitly preserve all styling properties
-                fontSize: shapeProps.fontSize, // Keep original font size - don't scale it
-                fontFamily: shapeProps.fontFamily,
-                fill: shapeProps.fill,
-                fontStyle: shapeProps.fontStyle,
-                textDecoration: shapeProps.textDecoration,
-                align: shapeProps.align,
-                lineHeight: shapeProps.lineHeight,
-                letterSpacing: shapeProps.letterSpacing,
-                opacity: shapeProps.opacity,
-                shadowEnabled: shapeProps.shadowEnabled,
-                shadowColor: shapeProps.shadowColor,
-                shadowBlur: shapeProps.shadowBlur,
-                shadowOffsetX: shapeProps.shadowOffsetX,
-                shadowOffsetY: shapeProps.shadowOffsetY,
-                background_color: shapeProps.background_color,
-                background_opacity: shapeProps.background_opacity,
+                width: Math.max(5, node.width() * scaleX),
+                fontSize: Math.max(5, shapeProps.fontSize * scaleX),
                 rotation: node.rotation(),
               });
-              
-              // Clear cache and re-cache after transform for updated rendering
-              if (node.cache) {
-                try {
-                  node.clearCache();
-                  if (newWidth > 0 && newHeight > 0) {
-                    node.cache();
-                  }
-                } catch (e) {
-                  // Ignore cache errors
-                }
-              }
-              
-              // Batch draw after transform for performance
-              const layer = node.getLayer();
-              if (layer) {
-                layer.batchDraw();
-              }
             }}
             onMouseEnter={(e) => {
               // Visual feedback: change cursor to text cursor
@@ -447,50 +140,16 @@ const EditableText = ({ shapeProps, isSelected, isEditing, onSelect, onEdit, onC
         </>
       )}
       {isEditing && (
-        <>
-          {/* Hide text while editing - textarea will show instead */}
-          <KonvaText
-            ref={shapeRef}
-            {...shapeProps}
-            visible={false}
-          />
-          {/* HTML textarea for direct inline editing */}
-          <textarea
-            ref={textareaRef}
-            value={shapeProps.text || ''}
-            onChange={(e) => {
-              if (onTextChange) {
-                onTextChange(e.target.value);
-              }
-            }}
-            onBlur={() => {
-              if (onBlur) {
-                onBlur();
-              }
-            }}
-            onKeyDown={(e) => {
-              // Escape to cancel
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                if (onBlur) {
-                  onBlur();
-                }
-              }
-              // Enter without Shift to finish (Shift+Enter for new line)
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (onBlur) {
-                  onBlur();
-                }
-              }
-              e.stopPropagation();
-            }}
-            style={{
-              position: 'fixed',
-              pointerEvents: 'auto',
-            }}
-          />
-        </>
+        <Rect
+          x={shapeProps.x}
+          y={shapeProps.y}
+          width={shapeProps.width || 400}
+          height={shapeProps.height || 100}
+          fill="rgba(0, 255, 0, 0.1)"
+          stroke={tokens.colors.accent.lime}
+          strokeWidth={2}
+          dash={[5, 5]}
+        />
       )}
       {isSelected && !isEditing && (
         <Transformer
@@ -500,24 +159,9 @@ const EditableText = ({ shapeProps, isSelected, isEditing, onSelect, onEdit, onC
           borderStrokeWidth={isMultiSelected ? 1 : 2}
           anchorStroke={tokens.colors.accent.lime}
           anchorFill={tokens.colors.background.app}
-          anchorSize={12}
+          anchorSize={8}
           anchorCornerRadius={4}
-          anchorStrokeWidth={2}
-          enabledAnchors={['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'middle-left', 'middle-right']}
-          boundBoxFunc={(oldBox, newBox) => {
-            // Prevent resizing below minimum size to avoid text cutoff
-            // Minimum height should accommodate at least one line of text
-            const minWidth = 50;
-            const minHeight = shapeRef.current ? Math.max(40, (shapeRef.current.fontSize() || 20) * 1.5) : 40;
-            
-            if (Math.abs(newBox.width) < minWidth || Math.abs(newBox.height) < minHeight) {
-              return oldBox;
-            }
-            return newBox;
-          }}
-          ignoreStroke={true}
-          flipEnabled={false}
-          keepRatio={false}
+          enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right']}
         />
       )}
     </>
@@ -547,38 +191,22 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
           return;
         }
         
-        // Try organization materials endpoint (if available)
-        // Silently handle 405/404 errors as the endpoint may not exist
-        try {
-          const response = await axios.get(`${BACKEND_URL}/api/organization-materials/brand-analysis`, {
-            timeout: 2000,
-            validateStatus: (status) => status < 500 // Don't throw on 4xx errors
-          });
-          if (response.status === 200 && (response.data?.brand_colors || response.data?.brand_fonts)) {
-            setBrandColors(response.data.brand_colors || []);
-            setBrandFonts(response.data.brand_fonts || []);
-            return; // Success, exit early
-          }
-        } catch (apiError) {
-          // Silently ignore 405/404 errors - endpoint may not be implemented
-          if (apiError.response?.status !== 405 && apiError.response?.status !== 404) {
-            console.warn('[BRAND] Brand analysis API error:', apiError.message);
-          }
+        // Try organization materials endpoint
+        const response = await axios.get(`${BACKEND_URL}/api/organization-materials/brand-analysis`);
+        if (response.data?.brand_colors || response.data?.brand_fonts) {
+          setBrandColors(response.data.brand_colors || []);
+          setBrandFonts(response.data.brand_fonts || []);
         }
       } catch (error) {
         // Fallback: use default colors from tokens
-        if (error.response?.status !== 405 && error.response?.status !== 404) {
-          console.log('[BRAND] Using default brand colors');
-        }
+        console.log('[BRAND] Using default brand colors');
+        setBrandColors([
+          tokens.colors.accent.lime,
+          tokens.colors.text.primary,
+          tokens.colors.text.secondary,
+        ]);
+        setBrandFonts(['Poppins', 'Roboto', 'Open Sans']);
       }
-      
-      // Set default colors/fonts if not set above
-      setBrandColors([
-        tokens.colors.accent.lime,
-        tokens.colors.text.primary,
-        tokens.colors.text.secondary,
-      ]);
-      setBrandFonts(['Poppins', 'Roboto', 'Open Sans']);
     };
     
     fetchBrandProfile();
@@ -712,25 +340,19 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
     const safeElements = Array.isArray(initialElements) ? initialElements : [];
     
     // Debug logging
-    console.log('[TextOverlayModalKonva] Initialization:', {
-      isOpen,
-      elementsCount: safeElements.length,
-      stageSize: { width: stageSize.width, height: stageSize.height },
-      image: image ? { width: image.width, height: image.height } : null,
-      elements: safeElements.length > 0 ? safeElements.map(el => ({
-        text: el.text?.substring(0, 30),
-        is_baked_in: el.is_baked_in,
-        fontSize: el.fontSize || el.font_size,
-        hasBbox: !!el.bbox_percent,
-        hasBboxPixels: !!el.bbox,
-        position: el.position,
-        width: el.width,
-        height: el.height
-      })) : []
-    });
+    if (safeElements.length > 0) {
+      console.log('[TextOverlayModalKonva] Loading elements:', {
+        count: safeElements.length,
+        elements: safeElements.map(el => ({
+          text: el.text?.substring(0, 30),
+          is_baked_in: el.is_baked_in,
+          fontSize: el.fontSize || el.font_size,
+          hasBbox: !!el.bbox_percent
+        }))
+      });
+    }
     
     if (safeElements.length > 0 && stageSize.width > 0 && image) {
-      console.log('[TextOverlayModalKonva] Conditions met - will convert elements');
       // Check if elements are already in Konva format (have fontSize, fontFamily, etc.)
       const isKonvaFormat = (el) => {
         return el.hasOwnProperty('fontSize') || el.hasOwnProperty('fontFamily') || el.hasOwnProperty('fill');
@@ -740,26 +362,6 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
       const convertToKonvaElement = (el) => {
         // If already in Konva format, just ensure it has an ID and adjust coordinates if needed
         if (isKonvaFormat(el)) {
-          // Calculate scale factor
-          const scaleX = stageSize.width / image.width;
-          const scaleY = stageSize.height / image.height;
-          
-          // For baked-in text, recalculate font size from bbox if available
-          let fontSize = el.fontSize;
-          if (el.is_baked_in && (el.replace_baked_text !== false) && (el.bbox || el.bbox_percent)) {
-            const bboxHeight = el.bbox?.height || (el.bbox_percent ? (image.height * el.bbox_percent.height_percent / 100) : el.height);
-            const lineCount = (el.text || '').split('\n').length || 1;
-            const lineHeight = el.lineHeight || 1.2;
-            const calculatedFontSize = bboxHeight / (lineHeight * lineCount);
-            fontSize = calculatedFontSize * scaleY; // Scale to stage
-            fontSize = Math.max(12, fontSize);
-          } else if (el.fontSize) {
-            // Scale existing font size
-            fontSize = el.fontSize * scaleY;
-          } else {
-            fontSize = 72 * scaleY;
-          }
-          
           // Elements are already in Konva format - just ensure they have IDs and proper scaling
           return {
             ...el,
@@ -770,7 +372,7 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
             width: el.width || 400,
             height: el.height || 100,
             // Ensure all Konva properties are present
-            fontSize: fontSize,
+            fontSize: el.fontSize || 72,
             fontFamily: el.fontFamily || 'Poppins',
             fontStyle: el.fontStyle || 'normal',
             fill: el.fill || '#000000',
@@ -797,7 +399,6 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
             bbox_percent: el.bbox_percent,
             confidence: el.confidence,
             is_baked_in: el.is_baked_in !== undefined ? el.is_baked_in : true,
-            replace_baked_text: el.replace_baked_text !== undefined ? el.replace_baked_text : false,
           };
         }
         
@@ -805,139 +406,45 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
         // Prefer bounding box percentages if available (new format)
         let xPos, yPos, width, height;
         
-        // Calculate scale factor between actual image and displayed stage size
-        const scaleX = stageSize.width / image.width;
-        const scaleY = stageSize.height / image.height;
-        
         if (el.bbox_percent) {
-          // New format with bounding boxes - use percentages relative to ACTUAL image dimensions
-          const xPercent = el.bbox_percent.x_percent || el.position?.[0] || 50;
-          const yPercent = el.bbox_percent.y_percent || el.position?.[1] || 50;
-          const widthPercent = el.bbox_percent.width_percent || 50;
-          const heightPercent = el.bbox_percent.height_percent || 10;
-          
-          // Convert percentages to pixels based on ACTUAL image dimensions
-          const xPixels = (image.width * xPercent) / 100;
-          const yPixels = (image.height * yPercent) / 100;
-          const widthPixels = el.width || (image.width * widthPercent) / 100;
-          let heightPixels = el.height || (image.height * heightPercent) / 100;
-          
-          // Add padding to height to prevent text cutoff (account for descenders and line spacing)
-          // Add 20% padding for descenders and better visibility
-          if (heightPixels > 0) {
-            heightPixels = heightPixels * 1.2; // Add 20% padding
-          }
-          
-          // Scale to stage size
-          xPos = xPixels * scaleX;
-          yPos = yPixels * scaleY;
-          width = widthPixels * scaleX;
-          height = heightPixels * scaleY;
-        } else if (el.bbox && el.bbox.x !== undefined) {
-          // Use pixel bbox directly if available
-          xPos = el.bbox.x * scaleX;
-          yPos = el.bbox.y * scaleY;
-          width = (el.bbox.width || el.width || 400) * scaleX;
-          let bboxHeight = el.bbox.height || el.height || 100;
-          // Add padding to prevent text cutoff
-          bboxHeight = bboxHeight * 1.2; // Add 20% padding
-          height = bboxHeight * scaleY;
+          // New format with bounding boxes
+          xPos = el.bbox_percent.x_percent || el.position?.[0] || 50;
+          yPos = el.bbox_percent.y_percent || el.position?.[1] || 50;
+          width = el.width || (stageSize.width * (el.bbox_percent.width_percent || 50) / 100);
+          height = el.height || (stageSize.height * (el.bbox_percent.height_percent || 10) / 100);
         } else if (el.position) {
           // Legacy format with center position
           xPos = el.position[0] || 50;
           yPos = el.position[1] || 50;
           
-          // If values are > 100, they're likely pixels - convert to percentage then scale
+          // If values are > 100, they're likely pixels - convert to percentage
           if (xPos > 100 || yPos > 100) {
-            const xPercent = (xPos / image.width) * 100;
-            const yPercent = (yPos / image.height) * 100;
-            xPos = (image.width * xPercent / 100) * scaleX;
-            yPos = (image.height * yPercent / 100) * scaleY;
-          } else {
-            // Percentage format
-            xPos = (image.width * xPos / 100) * scaleX;
-            yPos = (image.height * yPos / 100) * scaleY;
+            xPos = (xPos / image.width) * 100;
+            yPos = (yPos / image.height) * 100;
           }
           
-          width = (el.width || 400) * scaleX;
-          height = (el.height || 100) * scaleY;
+          width = el.width || 400;
+          height = el.height || 100;
         } else {
           // Fallback
-          xPos = (image.width * 0.5) * scaleX;
-          yPos = (image.height * 0.5) * scaleY;
-          width = 400 * scaleX;
-          height = 100 * scaleY;
-        }
-        
-        // Calculate font size - use bounding box height or extracted font size
-        // For baked-in text, font size should match the visual size in the image
-        let fontSize;
-        try {
-          if (el.is_baked_in && (el.replace_baked_text !== false)) {
-            // For baked-in text, use bounding box height as font size reference
-            const lineCount = (el.text || '').split('\n').length || 1;
-            const lineHeight = el.line_height || el.lineHeight || 1.2;
-            
-            // Get bbox height - try multiple sources
-            let bboxHeight = null;
-            if (el.bbox && el.bbox.height) {
-              bboxHeight = el.bbox.height;
-            } else if (el.bbox_percent && el.bbox_percent.height_percent) {
-              bboxHeight = (image.height * el.bbox_percent.height_percent) / 100;
-            } else if (el.height) {
-              bboxHeight = el.height / scaleY; // Convert from stage pixels to image pixels
-            } else if (height > 0) {
-              bboxHeight = height / scaleY; // Convert from stage pixels to image pixels
-            }
-            
-            // Use extracted font_size if available and reasonable
-            if (el.font_size && el.font_size > 10 && el.font_size < 200) {
-              fontSize = el.font_size * scaleY;
-              console.log(`[FONT SIZE] Using extracted font_size: ${el.font_size}px -> ${fontSize}px (scale: ${scaleY})`);
-            } else if (bboxHeight && bboxHeight > 0) {
-              // Calculate from bbox height
-              const calculatedFontSize = bboxHeight / (lineHeight * lineCount);
-              fontSize = calculatedFontSize * scaleY;
-              console.log(`[FONT SIZE] Calculated from bbox: ${bboxHeight}px / (${lineHeight} * ${lineCount}) = ${calculatedFontSize}px -> ${fontSize}px`);
-            } else {
-              // Fallback: use height directly if available
-              fontSize = (height / scaleY) * scaleY; // This equals height, but ensures we have a value
-              if (fontSize < 12) {
-                fontSize = 72 * scaleY; // Final fallback
-              }
-              console.log(`[FONT SIZE] Using fallback: ${fontSize}px`);
-            }
-          } else {
-            // For non-baked-in text, use extracted font size or default
-            fontSize = (el.font_size || 72) * scaleY;
-            console.log(`[FONT SIZE] Non-baked-in: ${el.font_size || 72}px -> ${fontSize}px`);
-          }
-          
-          // Ensure minimum font size and valid number
-          if (!fontSize || isNaN(fontSize) || fontSize <= 0) {
-            fontSize = 72 * scaleY;
-            console.warn(`[FONT SIZE] Invalid fontSize, using default: ${fontSize}px`);
-          }
-          fontSize = Math.max(12, fontSize);
-        } catch (error) {
-          console.error('[FONT SIZE] Error calculating font size:', error, el);
-          fontSize = 72 * scaleY;
+          xPos = 50;
+          yPos = 50;
+          width = 400;
+          height = 100;
         }
         
         return {
           id: el.id || `text-${elementIdCounter.current++}`,
           text: el.text || 'Sample Text',
-          x: xPos, // Already scaled to stage coordinates
-          y: yPos, // Already scaled to stage coordinates
-          fontSize: fontSize, // Font size scaled to match image appearance
-          fontFamily: el.font_name || el.fontFamily || 'Poppins', // Use extracted font name
+          x: (stageSize.width * xPos) / 100,
+          y: (stageSize.height * yPos) / 100,
+          fontSize: el.font_size || 72,
+          fontFamily: el.font_name || 'Poppins',
           fontStyle: `${el.font_style || 'normal'} ${el.font_weight || 400}`,
           fill: el.color || '#000000',
           align: el.text_align || 'left',
           width: width,
           height: height,
-          // Add padding to height to prevent text cutoff (descenders, line spacing)
-          padding: Math.max(4, fontSize * 0.1), // 10% of font size as padding
           rotation: el.rotation || 0,
           strokeWidth: el.stroke_width || 0,
           stroke: el.stroke_color || '#000000',
@@ -1000,72 +507,17 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
         elementsToConvert = mergeTextRegions(existingAsOverlays, safeElements);
       }
       
-      console.log(`[CONVERT] Starting conversion of ${elementsToConvert.length} elements`);
-      console.log(`[CONVERT] Image dimensions: ${image.width}x${image.height}`);
-      console.log(`[CONVERT] Stage dimensions: ${stageSize.width}x${stageSize.height}`);
-      
-      const convertedElements = elementsToConvert.map((el, idx) => {
-        try {
-          console.log(`[CONVERT] Converting element ${idx}:`, {
-            text: el.text?.substring(0, 30),
-            hasBboxPercent: !!el.bbox_percent,
-            hasBbox: !!el.bbox,
-            hasPosition: !!el.position,
-            font_size: el.font_size,
-            is_baked_in: el.is_baked_in
-          });
-          
-          const converted = convertToKonvaElement(el);
-          
-          console.log(`[CONVERT] Element ${idx} converted:`, {
-            text: converted.text?.substring(0, 30),
-            x: converted.x,
-            y: converted.y,
-            fontSize: converted.fontSize,
-            width: converted.width,
-            height: converted.height,
-            is_baked_in: converted.is_baked_in,
-            fill: converted.fill
-          });
-          
-          // Validate converted element
-          if (!converted.text || converted.fontSize <= 0 || converted.width <= 0 || converted.height <= 0) {
-            console.warn(`[CONVERT] Element ${idx} has invalid properties:`, converted);
-            return null;
-          }
-          
-          return converted;
-        } catch (error) {
-          console.error(`[CONVERT] Error converting element ${idx}:`, error, el);
-          return null;
-        }
-      }).filter(el => el !== null && el !== undefined); // Remove any failed conversions
-      
-      console.log(`[CONVERT] Conversion complete: ${convertedElements.length} elements from ${elementsToConvert.length} input elements`);
-      
+      const convertedElements = elementsToConvert.map(convertToKonvaElement);
+      setTextElements(convertedElements);
       if (convertedElements.length > 0) {
-        setTextElements(convertedElements);
         setSelectedId(convertedElements[0].id);
-        setHistory([convertedElements]);
-        setHistoryIndex(0);
-        console.log(`[CONVERT] Set ${convertedElements.length} text elements`);
-      } else {
-        console.warn(`[CONVERT] No valid elements after conversion!`);
-        setTextElements([]);
-        setHistory([[]]);
-        setHistoryIndex(0);
       }
+      setHistory([convertedElements]);
+      setHistoryIndex(0);
     } else if (isOpen && safeElements.length === 0) {
-      console.log('[TextOverlayModalKonva] No elements to load - clearing');
       setTextElements([]);
       setHistory([[]]);
       setHistoryIndex(0);
-    } else if (isOpen) {
-      console.log('[TextOverlayModalKonva] Waiting for conditions:', {
-        hasElements: safeElements.length > 0,
-        hasStageSize: stageSize.width > 0,
-        hasImage: !!image
-      });
     }
   }, [isOpen, initialElements, stageSize, image]);
 
@@ -1681,13 +1133,7 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
                 }}
               >
                 <Layer>
-                  <KonvaImage 
-                    image={image} 
-                    width={stageSize.width} 
-                    height={stageSize.height}
-                    listening={false}
-                    perfectDrawEnabled={false}
-                  />
+                  <KonvaImage image={image} width={stageSize.width} height={stageSize.height} />
                   
                   {/* Text Masking: Hide original baked-in text when editing overlay is active */}
                   {editingId && textElements.find(el => el.id === editingId)?.is_baked_in && (() => {
@@ -1772,42 +1218,11 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
                       onHover={(isHovering) => {
                         setHoveredElementId(isHovering ? textEl.id : null);
                       }}
-                      onTextChange={(newText) => {
-                        setTextElements((prev) => {
-                          const updated = prev.map((el) =>
-                            el.id === textEl.id ? { ...el, text: newText } : el
-                          );
-                          addToHistory(updated);
-                          return updated;
-                        });
-                      }}
-                      onBlur={() => {
-                        // Save changes and exit edit mode
-                        setEditingId(null);
-                      }}
-                      stageRef={stageRef}
-                      zoomLevel={zoomLevel}
-                      panPosition={panPosition}
                       onChange={(newAttrs) => {
                         setTextElements((prev) => {
-                          const updated = prev.map((el) => {
-                            if (el.id === textEl.id) {
-                              // Merge new attributes with existing element to preserve all properties
-                              const merged = { ...el, ...newAttrs };
-                              // Ensure fontStyle is properly formatted if font_weight or font_style changed
-                              if (newAttrs.font_weight !== undefined || newAttrs.font_style !== undefined) {
-                                const fontStyle = merged.font_style || merged.fontStyle?.split(' ')[0] || 'normal';
-                                const fontWeight = merged.font_weight || parseInt(merged.fontStyle?.split(' ')[1]) || 400;
-                                merged.fontStyle = `${fontStyle} ${fontWeight}`;
-                              }
-                              // Ensure textDecoration is set if text_decoration changed
-                              if (newAttrs.text_decoration !== undefined) {
-                                merged.textDecoration = newAttrs.text_decoration;
-                              }
-                              return merged;
-                            }
-                            return el;
-                          });
+                          const updated = prev.map((el) =>
+                            el.id === textEl.id ? newAttrs : el
+                          );
                           addToHistory(updated);
                           return updated;
                         });
@@ -1822,6 +1237,34 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
               </div>
             )}
 
+            {/* Inline Text Editor Overlay */}
+            {editingId && textElements.find(el => el.id === editingId) && (
+              <InlineTextEditor
+                textElement={textElements.find(el => el.id === editingId)}
+                stageRef={stageRef}
+                containerRef={containerRef}
+                isEditing={true}
+                zoomLevel={zoomLevel}
+                panPosition={panPosition}
+                onTextChange={(newText) => {
+                  setTextElements((prev) => {
+                    const updated = prev.map((el) =>
+                      el.id === editingId ? { ...el, text: newText } : el
+                    );
+                    addToHistory(updated);
+                    return updated;
+                  });
+                }}
+                onBlur={() => {
+                  // Save changes and exit edit mode
+                  setEditingId(null);
+                }}
+                onCancel={() => {
+                  // Cancel editing (could restore original text if needed)
+                  setEditingId(null);
+                }}
+              />
+            )}
 
             {/* Zoom Controls */}
             <div
