@@ -1237,34 +1237,7 @@ const TextOverlayModalKonva = ({ isOpen, onClose, imageUrl, onApply, initialElem
               </div>
             )}
 
-            {/* Inline Text Editor Overlay */}
-            {editingId && textElements.find(el => el.id === editingId) && (
-              <InlineTextEditor
-                textElement={textElements.find(el => el.id === editingId)}
-                stageRef={stageRef}
-                containerRef={containerRef}
-                isEditing={true}
-                zoomLevel={zoomLevel}
-                panPosition={panPosition}
-                onTextChange={(newText) => {
-                  setTextElements((prev) => {
-                    const updated = prev.map((el) =>
-                      el.id === editingId ? { ...el, text: newText } : el
-                    );
-                    addToHistory(updated);
-                    return updated;
-                  });
-                }}
-                onBlur={() => {
-                  // Save changes and exit edit mode
-                  setEditingId(null);
-                }}
-                onCancel={() => {
-                  // Cancel editing (could restore original text if needed)
-                  setEditingId(null);
-                }}
-              />
-            )}
+            {/* Inline Text Editor Overlay - Removed InlineTextEditor component, using direct HTML textarea instead */}
 
             {/* Zoom Controls */}
             <div
