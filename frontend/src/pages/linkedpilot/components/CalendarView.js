@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Plus, Linkedin, Loader2, X, Clock, Send, Che
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { getUserTimezone, convertUTCToUserTime, getTimeInUserTimezone } from '@/utils/timezone';
+import TextOverlayModal from './TextOverlayModalKonva';
 import designTokens from '@/designTokens';
 import { CalendarPostCard } from '@/components/ui/CalendarPostCard';
 
@@ -13,6 +14,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const CalendarView = ({ orgId }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [draggedPost, setDraggedPost] = useState(null);
@@ -22,6 +24,12 @@ const CalendarView = ({ orgId }) => {
   const [viewMode, setViewMode] = useState('calendar'); // 'calendar' or 'list'
   const [isMobile, setIsMobile] = useState(false);
   const campaignsCacheRef = useRef({}); // Cache campaigns per org
+  
+  // Onboarding post generation state
+  const [onboardingGenerating, setOnboardingGenerating] = useState(false);
+  const [onboardingProgress, setOnboardingProgress] = useState({ current: 0, total: 3 });
+  const onboardingGeneratedRef = useRef(false); // Prevent duplicate generation
+  const scheduledPostsRef = useRef([]); // Ref to track current scheduledPosts
 
   const cardBackground = 'hsl(var(--card))';
   const layerOneBackground = 'hsl(var(--layer-1))';
@@ -39,7 +47,9 @@ const CalendarView = ({ orgId }) => {
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostModal, setShowPostModal] = useState(false);
   
-  // Text overlay editing (now uses standalone page)
+  // Text overlay editing
+  const [showTextOverlayModal, setShowTextOverlayModal] = useState(false);
+  const [selectedImageForEdit, setSelectedImageForEdit] = useState(null);
   const [imageOverlays, setImageOverlays] = useState({}); // Store overlay elements by image URL
 
   // Detect mobile and tablet viewport
@@ -89,6 +99,7 @@ const CalendarView = ({ orgId }) => {
       prevOrgIdRef.current = orgId;
       // Clear posts immediately when switching orgs for better UX
       setScheduledPosts([]);
+      scheduledPostsRef.current = [];
       console.log('📅 Calendar reset to today:', today.toLocaleDateString());
       // Fetch will be triggered by the currentWeek change in the next effect
     } else if (orgId && !prevOrgIdRef.current) {
@@ -105,6 +116,101 @@ const CalendarView = ({ orgId }) => {
       });
     }
   }, [orgId, currentWeek]);
+
+  // Check for onboarding when query parameter changes or component mounts
+  useEffect(() => {
+    const checkOnboarding = () => {
+      if (!orgId || onboardingGeneratedRef.current) {
+        console.log('[CALENDAR_ONBOARDING] Skipping check:', { hasOrgId: !!orgId, alreadyGenerated: onboardingGeneratedRef.current });
+        return;
+      }
+      
+      const onboardingDataStr = localStorage.getItem('onboarding_post_generation');
+      const isOnboarding = new URLSearchParams(location.search).get('onboarding') === 'true';
+      
+      console.log('[CALENDAR_ONBOARDING] useEffect check:', {
+        hasOrgId: !!orgId,
+        orgId: orgId,
+        hasOnboardingData: !!onboardingDataStr,
+        isOnboarding,
+        locationSearch: location.search,
+        onboardingGeneratedRef: onboardingGeneratedRef.current
+      });
+      
+      if (onboardingDataStr && isOnboarding) {
+        try {
+          const onboardingData = JSON.parse(onboardingDataStr);
+          console.log('[CALENDAR_ONBOARDING] Parsed data:', {
+            storedOrgId: onboardingData.orgId,
+            currentOrgId: orgId,
+            orgIdMatch: onboardingData.orgId === orgId,
+            topicsCount: onboardingData.topics?.length,
+            hasTopics: !!onboardingData.topics
+          });
+          
+          if (onboardingData.orgId === orgId && onboardingData.topics && onboardingData.topics.length === 3) {
+            console.log('🚀 Starting onboarding post generation in calendar (from useEffect)...');
+            onboardingGeneratedRef.current = true;
+            
+            // Create and add loading posts immediately
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const timeSlots = onboardingData.campaign?.posting_schedule?.time_slots || ['09:00'];
+            const loadingPosts = [];
+            
+            for (let i = 0; i < 3; i++) {
+              const postDate = new Date(today);
+              postDate.setDate(today.getDate() + i);
+              const timeSlot = timeSlots[i % timeSlots.length] || '09:00';
+              const [hours, minutes] = timeSlot.split(':').map(Number);
+              const publishDate = new Date(postDate);
+              publishDate.setHours(hours, minutes || 0, 0, 0);
+              
+              loadingPosts.push({
+                id: `loading_${i}_${Date.now()}`,
+                draft_id: null,
+                scheduled_for: publishDate.toISOString(),
+                content: 'Generating post...',
+                body: 'Generating post...',
+                image_url: null,
+                is_loading: true,
+                loading_progress: i + 1,
+                loading_total: 3,
+                topic: onboardingData.topics[i]?.topic || `Post ${i + 1}`
+              });
+            }
+            
+            console.log('[CALENDAR_ONBOARDING] Created loading posts:', loadingPosts.length);
+            
+            // Add loading posts to state immediately
+            setScheduledPosts(prev => {
+              const updated = [...prev, ...loadingPosts];
+              scheduledPostsRef.current = updated; // Update ref
+              console.log('[CALENDAR_ONBOARDING] Added loading posts, total:', updated.length);
+              return updated;
+            });
+            
+            // Start generation
+            generateOnboardingPosts(onboardingData);
+          } else {
+            console.warn('[CALENDAR_ONBOARDING] Conditions not met:', {
+              orgIdMatch: onboardingData.orgId === orgId,
+              hasTopics: !!onboardingData.topics,
+              topicsLength: onboardingData.topics?.length
+            });
+          }
+        } catch (e) {
+          console.error('[CALENDAR_ONBOARDING] Failed to parse:', e);
+        }
+      }
+    };
+    
+    // Check immediately and also after a short delay to catch redirects
+    checkOnboarding();
+    const timeout = setTimeout(checkOnboarding, 1000);
+    
+    return () => clearTimeout(timeout);
+  }, [orgId, location.search]);
 
   const fetchScheduledPosts = async () => {
     try {
@@ -130,16 +236,7 @@ const CalendarView = ({ orgId }) => {
       // Fetch scheduled posts (including posted ones), approved AI content, and posted posts
       // Use date range filtering for AI posts to improve performance
       const [scheduledRes, aiPostsRes, postedRes] = await Promise.all([
-        (async () => {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CalendarView.js:133',message:'Fetching scheduled posts for calendar',data:{orgId,rangeStart:rangeStartStr,rangeEnd:rangeEndStr},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
-          const response = await axios.get(`${BACKEND_URL}/api/scheduled-posts?org_id=${orgId}&range_start=${rangeStartStr}&range_end=${rangeEndStr}`);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/9a1f398a-9f2e-43a3-80e2-8c72fe06454c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CalendarView.js:136',message:'Calendar posts fetched',data:{orgId,postsCount:response.data?.length||0,postIds:response.data?.map(p=>p.id)||[],postOrgIds:response.data?.map(p=>p.org_id)||[],postPublishTimes:response.data?.map(p=>p.publish_time)||[]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
-          return response;
-        })(),
+        axios.get(`${BACKEND_URL}/api/scheduled-posts?org_id=${orgId}&range_start=${rangeStartStr}&range_end=${rangeEndStr}`),
         axios.get(`${BACKEND_URL}/api/ai-content/approved-posts?org_id=${orgId}&range_start=${rangeStartStr}&range_end=${rangeEndStr}`),
         axios.get(`${BACKEND_URL}/api/posts?org_id=${orgId}&range_start=${rangeStartStr}&range_end=${rangeEndStr}`)
       ]);
@@ -170,12 +267,33 @@ const CalendarView = ({ orgId }) => {
         // Map scheduled posts (normalize publish_time -> scheduled_for, extract content from draft)
         ...scheduledRes.data.map(p => {
           const postedInfo = postedMap[p.id];
+          
+          // Debug: Log image URL extraction for onboarding posts
+          const imageUrl = p.draft_preview?.assets?.[0]?.url || p.draft_preview?.content?.image_url || null;
+          if (imageUrl) {
+            console.log(`[CALENDAR] Post ${p.id} has image URL:`, {
+              postId: p.id,
+              hasDraftPreview: !!p.draft_preview,
+              assetsCount: p.draft_preview?.assets?.length || 0,
+              imageUrlPreview: imageUrl.substring(0, 50) + '...',
+              imageUrlType: imageUrl.startsWith('data:') ? 'base64' : 'url'
+            });
+          } else {
+            console.warn(`[CALENDAR] Post ${p.id} missing image URL:`, {
+              postId: p.id,
+              hasDraftPreview: !!p.draft_preview,
+              assetsCount: p.draft_preview?.assets?.length || 0,
+              draftPreviewKeys: p.draft_preview ? Object.keys(p.draft_preview) : [],
+              assets: p.draft_preview?.assets || []
+            });
+          }
+          
           return {
             ...p,
             source: 'scheduled',
             scheduled_for: p.publish_time, // Map publish_time to scheduled_for
             content: p.draft_preview?.content?.body || p.content || '',
-            image_url: p.draft_preview?.assets?.[0]?.url || p.draft_preview?.content?.image_url || null,
+            image_url: imageUrl,
             is_posted: p.status === 'posted' || !!postedInfo,
             platform_url: postedInfo?.platform_url || null,
             posted_at: postedInfo?.posted_at || null,
@@ -235,10 +353,299 @@ const CalendarView = ({ orgId }) => {
       });
 
       setScheduledPosts(enrichedPosts);
+      scheduledPostsRef.current = enrichedPosts; // Update ref
+      
+      // Check for onboarding post generation after initial fetch
+      if (orgId && !onboardingGeneratedRef.current) {
+        const onboardingDataStr = localStorage.getItem('onboarding_post_generation');
+        const isOnboarding = new URLSearchParams(location.search).get('onboarding') === 'true';
+        
+        console.log('[CALENDAR_ONBOARDING] Checking onboarding:', {
+          hasOrgId: !!orgId,
+          orgId: orgId,
+          hasOnboardingData: !!onboardingDataStr,
+          isOnboarding,
+          onboardingGeneratedRef: onboardingGeneratedRef.current,
+          locationSearch: location.search,
+          onboardingDataStr: onboardingDataStr ? onboardingDataStr.substring(0, 200) + '...' : null
+        });
+        
+        if (onboardingDataStr && isOnboarding) {
+          console.log('[CALENDAR_ONBOARDING] Conditions met, parsing data...');
+          try {
+            const onboardingData = JSON.parse(onboardingDataStr);
+            console.log('[CALENDAR_ONBOARDING] Parsed onboarding data:', {
+              orgId: onboardingData.orgId,
+              currentOrgId: orgId,
+              orgIdMatch: onboardingData.orgId === orgId,
+              topicsCount: onboardingData.topics?.length,
+              hasTopics: !!onboardingData.topics,
+              topics: onboardingData.topics
+            });
+            
+            if (onboardingData.orgId === orgId && onboardingData.topics && onboardingData.topics.length === 3) {
+              console.log('🚀 Starting onboarding post generation in calendar...');
+              onboardingGeneratedRef.current = true;
+              
+              // Create and add loading posts immediately
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const timeSlots = onboardingData.campaign?.posting_schedule?.time_slots || ['09:00'];
+              const loadingPosts = [];
+              
+              for (let i = 0; i < 3; i++) {
+                const postDate = new Date(today);
+                postDate.setDate(today.getDate() + i);
+                const timeSlot = timeSlots[i % timeSlots.length] || '09:00';
+                const [hours, minutes] = timeSlot.split(':').map(Number);
+                const publishDate = new Date(postDate);
+                publishDate.setHours(hours, minutes || 0, 0, 0);
+                
+                loadingPosts.push({
+                  id: `loading_${i}_${Date.now()}`,
+                  draft_id: null,
+                  scheduled_for: publishDate.toISOString(),
+                  content: 'Generating post...',
+                  body: 'Generating post...',
+                  image_url: null,
+                  is_loading: true,
+                  loading_progress: i + 1,
+                  loading_total: 3,
+                  topic: onboardingData.topics[i]?.topic || `Post ${i + 1}`
+                });
+              }
+              
+              console.log('[CALENDAR_ONBOARDING] Created loading posts:', loadingPosts.map(p => ({
+                id: p.id,
+                scheduled_for: p.scheduled_for,
+                is_loading: p.is_loading
+              })));
+              
+              // Add loading posts to state immediately
+              setScheduledPosts(prev => {
+                const updated = [...prev, ...loadingPosts];
+                scheduledPostsRef.current = updated; // Update ref
+                console.log('[CALENDAR_ONBOARDING] Updated scheduledPosts:', {
+                  prevCount: prev.length,
+                  loadingCount: loadingPosts.length,
+                  totalCount: updated.length
+                });
+                return updated;
+              });
+              
+              // Start generation
+              generateOnboardingPosts(onboardingData);
+            } else {
+              console.warn('[CALENDAR_ONBOARDING] Conditions not met:', {
+                orgIdMatch: onboardingData.orgId === orgId,
+                hasTopics: !!onboardingData.topics,
+                topicsLength: onboardingData.topics?.length
+              });
+            }
+          } catch (e) {
+            console.error('[CALENDAR_ONBOARDING] Failed to parse onboarding data:', e);
+          }
+        }
+      }
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // Generate onboarding posts directly in calendar
+  const generateOnboardingPosts = async (onboardingData) => {
+    if (onboardingGenerating) {
+      console.warn('Onboarding posts already generating');
+      return;
+    }
+    
+    setOnboardingGenerating(true);
+    setOnboardingProgress({ current: 0, total: 3 });
+    
+    try {
+      const { orgId, campaignId, campaign, brandContext, campaignContext, topics, userId } = onboardingData;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      // Loading posts should already be added in fetchScheduledPosts or useEffect
+      // Find them from scheduledPosts state using ref to get current value
+      const currentPosts = scheduledPostsRef.current.length > 0 ? scheduledPostsRef.current : scheduledPosts;
+      const existingLoadingPosts = currentPosts.filter(p => p.is_loading).sort((a, b) => {
+        // Sort by scheduled_for to match order
+        return new Date(a.scheduled_for) - new Date(b.scheduled_for);
+      });
+      
+      console.log('[CALENDAR_ONBOARDING] Starting post generation, current scheduledPosts count:', currentPosts.length);
+      console.log('[CALENDAR_ONBOARDING] Found loading posts:', existingLoadingPosts.length);
+      
+      // Track used post types for template rotation
+      const usedPostTypes = [];
+      
+      for (let i = 0; i < 3; i++) {
+        setOnboardingProgress({ current: i + 1, total: 3 });
+        
+        const topic = topics[i];
+        if (!topic) continue;
+        
+        const postDate = new Date(today);
+        postDate.setDate(today.getDate() + i);
+        
+        // Find the loading post for this index
+        const loadingPost = existingLoadingPosts[i];
+        const loadingPostId = loadingPost?.id || `loading_${i}_${Date.now()}`;
+        
+        // Update loading post with progress
+        setScheduledPosts(prev => {
+          const updated = prev.map(p => 
+            p.id === loadingPostId 
+              ? { ...p, content: `Generating post ${i + 1}/3...`, body: `Generating post ${i + 1}/3...` }
+              : p
+          );
+          scheduledPostsRef.current = updated;
+          return updated;
+        });
+        
+        // Generate post
+        const enrichedTopic = `${topic.topic}\n\nBrand Context: ${brandContext.brand_voice} voice, focusing on ${brandContext.content_pillars.slice(0, 2).join(' and ')}. Key messages: ${brandContext.key_messages.slice(0, 2).join(', ')}. Campaign: ${campaignContext.campaign_name} - ${campaignContext.campaign_focus}.`;
+        const excludedTypes = [...usedPostTypes];
+        
+        const brandContextWithTopic = {
+          ...brandContext,
+          topic: topic.topic,
+          enriched_topic: enrichedTopic
+        };
+        
+        setScheduledPosts(prev => {
+          const updated = prev.map(p => 
+            p.id === loadingPostId 
+              ? { ...p, content: 'Creating post content...', body: 'Creating post content...' }
+              : p
+          );
+          scheduledPostsRef.current = updated;
+          return updated;
+        });
+        
+        const postResponse = await axios.post(`${BACKEND_URL}/api/brand/generate-post`, {
+          org_id: orgId || null,
+          campaign_id: campaignId,
+          brand_context: brandContextWithTopic,
+          excluded_types: excludedTypes,
+          user_id: userId
+        });
+        
+        const postData = postResponse.data;
+        if (postData?.post_type && !usedPostTypes.includes(postData.post_type)) {
+          usedPostTypes.push(postData.post_type);
+        }
+        
+        // Save draft
+        const draftToSave = {
+          author_id: userId,
+          mode: 'text',
+          content: { body: postData.content, hashtags: [] },
+          assets: []
+        };
+        if (orgId) draftToSave.org_id = orgId;
+        if (campaignId) draftToSave.campaign_id = campaignId;
+        
+        setScheduledPosts(prev => {
+          const updated = prev.map(p => 
+            p.id === loadingPostId 
+              ? { ...p, content: 'Saving draft...', body: 'Saving draft...' }
+              : p
+          );
+          scheduledPostsRef.current = updated;
+          return updated;
+        });
+        
+        const savedDraft = (await axios.post(`${BACKEND_URL}/api/drafts`, draftToSave)).data;
+        
+        // Generate image
+        setScheduledPosts(prev => {
+          const updated = prev.map(p => 
+            p.id === loadingPostId 
+              ? { ...p, content: 'Generating image...', body: 'Generating image...' }
+              : p
+          );
+          scheduledPostsRef.current = updated;
+          return updated;
+        });
+        
+        const imageResponse = await axios.post(`${BACKEND_URL}/api/drafts/generate-image`, {
+          prompt: postData.content,
+          topic: topic.topic,
+          style: campaign?.image_style || 'professional',
+          user_id: userId,
+          org_id: orgId || null,
+          campaign_id: campaignId || null,
+          model: 'gemini-3-pro-image-preview',
+          skip_optimization: true
+        }, { timeout: 220000 });
+        
+        const imageUrl = imageResponse.data?.url;
+        if (imageUrl) {
+          // Update draft with image
+          const currentDraft = (await axios.get(`${BACKEND_URL}/api/drafts/${savedDraft.id}`)).data;
+          await axios.put(`${BACKEND_URL}/api/drafts/${savedDraft.id}`, {
+            ...currentDraft,
+            assets: [{ type: 'image', url: imageUrl, prompt: topic.topic, generated_at: new Date().toISOString() }]
+          });
+        }
+        
+        // Schedule post
+        const timeSlots = campaign?.posting_schedule?.time_slots || ['09:00'];
+        const timeSlot = timeSlots[i % timeSlots.length] || '09:00';
+        const [hours, minutes] = timeSlot.split(':').map(Number);
+        const publishDate = new Date(postDate);
+        publishDate.setHours(hours, minutes || 0, 0, 0);
+        
+        setScheduledPosts(prev => {
+          const updated = prev.map(p => 
+            p.id === loadingPostId 
+              ? { ...p, content: 'Scheduling post...', body: 'Scheduling post...' }
+              : p
+          );
+          scheduledPostsRef.current = updated;
+          return updated;
+        });
+        
+        await axios.post(`${BACKEND_URL}/api/scheduled-posts`, {
+          id: `scheduled_${Date.now()}_${i}`,
+          draft_id: savedDraft.id,
+          org_id: orgId || null,
+          publish_time: publishDate.toISOString(),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+          status: 'scheduled',
+          require_approval: false
+        });
+        
+        // Remove loading post and refresh to show real post
+        setScheduledPosts(prev => {
+          const updated = prev.filter(p => p.id !== loadingPostId);
+          scheduledPostsRef.current = updated;
+          return updated;
+        });
+        await fetchScheduledPosts();
+      }
+      
+      // Clear onboarding data
+      localStorage.removeItem('onboarding_post_generation');
+      console.log('✅ Onboarding posts generated successfully');
+      
+    } catch (error) {
+      console.error('❌ Failed to generate onboarding posts:', error);
+      // Remove loading posts on error
+      setScheduledPosts(prev => {
+        const updated = prev.filter(p => !p.is_loading);
+        scheduledPostsRef.current = updated;
+        return updated;
+      });
+      alert('Failed to generate posts. Please try again.');
+    } finally {
+      setOnboardingGenerating(false);
+      setOnboardingProgress({ current: 0, total: 3 });
     }
   };
 
@@ -1190,83 +1597,15 @@ const CalendarView = ({ orgId }) => {
                         boxShadow: designTokens.shadow.card
                       }}
                       onClick={() => {
-                        // Navigate immediately with data in state for instant loading
-                        const imageUrl = selectedPost.image_url;
-                        const elements = imageOverlays[imageUrl] || [];
-                        
-                        if (!imageUrl) {
-                          console.error('[CalendarView] No image URL found');
-                          return;
-                        }
-                        
-                        navigate('/text-editor', {
-                          state: {
-                            image_url: imageUrl,
-                            elements: elements,
-                            campaign_data: null,
-                            org_id: orgId, // Pass orgId for draft saving
-                            referrer: location.pathname + location.search // Store current page to return to
-                          }
-                        });
-                        
-                        // Create session in background for URL sharing (non-blocking)
-                        axios.post(
-                          `${BACKEND_URL}/api/text-editor/sessions`,
-                          {
-                            image_url: imageUrl,
-                            elements: elements,
-                            campaign_data: { org_id: orgId } // Include orgId in session
-                          }
-                        ).then(sessionResponse => {
-                          const token = sessionResponse.data.token;
-                          console.log('[CalendarView] Created session token in background:', token);
-                          // Optionally update URL with token for sharing
-                          navigate(`/text-editor?token=${token}`, { replace: true });
-                        }).catch(error => {
-                          console.warn('[CalendarView] Failed to create session (non-critical):', error);
-                          // Don't show error - editor already loaded
-                        });
+                        setSelectedImageForEdit(selectedPost.image_url);
+                        setShowTextOverlayModal(true);
                       }}
                     />
                     {/* Edit Image Button - appears on hover */}
                     <button
                       onClick={() => {
-                        // Navigate immediately with data in state for instant loading
-                        const imageUrl = selectedPost.image_url;
-                        const elements = imageOverlays[imageUrl] || [];
-                        
-                        if (!imageUrl) {
-                          console.error('[CalendarView] No image URL found');
-                          return;
-                        }
-                        
-                        navigate('/text-editor', {
-                          state: {
-                            image_url: imageUrl,
-                            elements: elements,
-                            campaign_data: null,
-                            org_id: orgId, // Pass orgId for draft saving
-                            referrer: location.pathname + location.search // Store current page to return to
-                          }
-                        });
-                        
-                        // Create session in background for URL sharing (non-blocking)
-                        axios.post(
-                          `${BACKEND_URL}/api/text-editor/sessions`,
-                          {
-                            image_url: imageUrl,
-                            elements: elements,
-                            campaign_data: { org_id: orgId } // Include orgId in session
-                          }
-                        ).then(sessionResponse => {
-                          const token = sessionResponse.data.token;
-                          console.log('[CalendarView] Created session token in background:', token);
-                          // Optionally update URL with token for sharing
-                          navigate(`/text-editor?token=${token}`, { replace: true });
-                        }).catch(error => {
-                          console.warn('[CalendarView] Failed to create session (non-critical):', error);
-                          // Don't show error - editor already loaded
-                        });
+                        setSelectedImageForEdit(selectedPost.image_url);
+                        setShowTextOverlayModal(true);
                       }}
                       className="absolute bottom-3 right-3 bg-background/80 hover:bg-background/90 backdrop-blur-md text-foreground px-3 py-1.5 rounded-lg text-xs font-medium transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2 border border-border"
                       style={{
@@ -1284,6 +1623,24 @@ const CalendarView = ({ orgId }) => {
         </div>
       )}
       
+      {/* Text Overlay Editing Modal */}
+      <TextOverlayModal
+        isOpen={showTextOverlayModal}
+        onClose={() => setShowTextOverlayModal(false)}
+        imageUrl={selectedImageForEdit}
+        initialElements={imageOverlays[selectedImageForEdit] || []}
+        onApply={(newImageUrl, elements) => {
+          const oldImageUrl = selectedImageForEdit;
+          setSelectedImageForEdit(newImageUrl);
+          // Store overlay data for new image, remove old key
+          setImageOverlays(prev => {
+            const newOverlays = {...prev};
+            delete newOverlays[oldImageUrl];
+            newOverlays[newImageUrl] = elements || [];
+            return newOverlays;
+          });
+        }}
+      />
     </div>
   );
 };

@@ -15,14 +15,64 @@ def get_db():
 
 @router.post("", response_model=ScheduledPost)
 async def create_scheduled_post(scheduled_post: ScheduledPost):
-    """Create a new scheduled post"""
+    """Create a new scheduled post with duplicate prevention"""
     db = get_db()
+    
+    # Ensure publish_time is properly parsed
+    try:
+        if isinstance(scheduled_post.publish_time, str):
+            # Parse ISO format string
+            publish_time_str = scheduled_post.publish_time.replace('Z', '+00:00')
+            publish_dt = datetime.fromisoformat(publish_time_str)
+        elif isinstance(scheduled_post.publish_time, datetime):
+            publish_dt = scheduled_post.publish_time
+        else:
+            raise ValueError(f"Invalid publish_time type: {type(scheduled_post.publish_time)}")
+    except Exception as e:
+        print(f"[SCHEDULED POSTS] Error parsing publish_time: {e}")
+        raise HTTPException(status_code=422, detail=f"Invalid publish_time format: {str(e)}")
+    
+    # Check for duplicate: same draft_id and publish_time (within 1 minute tolerance)
+    if scheduled_post.draft_id and publish_dt:
+        try:
+            # Check for existing scheduled post with same draft_id and publish_time (within 1 minute)
+            time_tolerance = timedelta(minutes=1)
+            query = {
+                "draft_id": scheduled_post.draft_id,
+                "publish_time": {
+                    "$gte": (publish_dt - time_tolerance).isoformat(),
+                    "$lte": (publish_dt + time_tolerance).isoformat()
+                },
+                "status": {"$nin": ["cancelled", "deleted"]}
+            }
+            # Only filter by org_id if it's not None (for onboarding, org_id might be null)
+            if scheduled_post.org_id:
+                query["org_id"] = scheduled_post.org_id
+            existing = await db.scheduled_posts.find_one(query)
+            
+            if existing:
+                print(f"[SCHEDULED POSTS] Duplicate detected: draft_id={scheduled_post.draft_id}, publish_time={publish_dt.isoformat()}")
+                print(f"   Existing post ID: {existing.get('id')}")
+                # Return existing post instead of creating duplicate
+                return ScheduledPost(**existing)
+        except Exception as e:
+            print(f"[SCHEDULED POSTS] Warning: Could not check for duplicates: {e}")
+            import traceback
+            traceback.print_exc()
+            # Continue with creation if duplicate check fails
+    
     post_dict = scheduled_post.model_dump()
     post_dict['created_at'] = datetime.utcnow().isoformat()
     post_dict['updated_at'] = datetime.utcnow().isoformat()
-    post_dict['publish_time'] = post_dict['publish_time'].isoformat() if isinstance(post_dict['publish_time'], datetime) else post_dict['publish_time']
+    post_dict['publish_time'] = publish_dt.isoformat()
     
-    await db.scheduled_posts.insert_one(post_dict)
+    try:
+        await db.scheduled_posts.insert_one(post_dict)
+    except Exception as e:
+        print(f"[SCHEDULED POSTS] Error inserting post: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create scheduled post: {str(e)}")
     
     # TODO: Enqueue publish job in Celery
     
@@ -41,7 +91,11 @@ async def list_scheduled_posts(
     # Build query - if org_id provided, filter by it; otherwise return all (for admin)
     query = {}
     if org_id:
-        query["org_id"] = org_id
+        # Handle string "null" from frontend during onboarding
+        if org_id.lower() == "null" or org_id == "null":
+            query["org_id"] = None  # Query for onboarding posts (null org_id)
+        else:
+            query["org_id"] = org_id
     else:
         # If no org_id provided, only return posts with org_id set (exclude null/onboarding posts)
         query["org_id"] = {"$ne": None}
@@ -71,9 +125,15 @@ async def list_scheduled_posts(
     posts = await db.scheduled_posts.find(query, {"_id": 0}).to_list(length=500)  # EXCLUDE _id
     
     # #region agent log
-    import json
-    with open('/var/www/linkedin-pilot/.cursor/debug.log', 'a') as f:
-        f.write(json.dumps({"location":"scheduled_posts.py:71","message":"list_scheduled_posts query executed","data":{"org_id":org_id,"query":str(query),"posts_count":len(posts),"post_ids":[p.get('id') for p in posts[:5]],"post_org_ids":[p.get('org_id') for p in posts[:5]],"post_publish_times":[p.get('publish_time') for p in posts[:5]]},"timestamp":int(datetime.utcnow().timestamp()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"B"})+"\n")
+    try:
+        import json
+        from pathlib import Path
+        debug_log_path = Path('/var/www/linkedin-pilot/.cursor/debug.log')
+        if debug_log_path.parent.exists():
+            with open(debug_log_path, 'a') as f:
+                f.write(json.dumps({"location":"scheduled_posts.py:71","message":"list_scheduled_posts query executed","data":{"org_id":org_id,"query":str(query),"posts_count":len(posts),"post_ids":[p.get('id') for p in posts[:5]],"post_org_ids":[p.get('org_id') for p in posts[:5]],"post_publish_times":[p.get('publish_time') for p in posts[:5]]},"timestamp":int(datetime.utcnow().timestamp()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"B"})+"\n")
+    except Exception:
+        pass  # Ignore debug log errors
     # #endregion
     
     print(f"[SCHEDULED POSTS] Found {len(posts)} posts matching query")
@@ -110,18 +170,32 @@ async def list_scheduled_posts(
             except Exception as e:
                 print(f"[SCHEDULED POSTS] Error extending date range: {e}")
     
-    # Get draft data for each post
+    # Get draft data for each post (always fetch fresh to get latest assets)
+    # Ensure drafts match the post's org_id to prevent cross-account access
     for post in posts:
-        draft = await db.drafts.find_one({"id": post['draft_id']}, {"_id": 0})
+        draft_query = {"id": post['draft_id']}
+        # Add org_id check if post has org_id (for security and data integrity)
+        if post.get('org_id'):
+            draft_query["org_id"] = post['org_id']
+        draft = await db.drafts.find_one(draft_query, {"_id": 0})
         if draft:
+            assets = draft.get('assets', [])
+            # Debug log for onboarding posts
+            if assets and len(assets) > 0:
+                print(f"[SCHEDULED POSTS] Post {post.get('id')} has {len(assets)} asset(s) in draft {post['draft_id']}")
+            elif not assets or len(assets) == 0:
+                print(f"[SCHEDULED POSTS] Post {post.get('id')} has NO assets in draft {post['draft_id']} (draft exists: {draft is not None})")
+            
             post['draft_preview'] = {
                 "mode": draft.get('mode'),
                 "content": draft.get('content', {}),
-                "assets": draft.get('assets', []),
+                "assets": assets,  # Use the fetched assets directly
                 "linkedin_author_type": draft.get('linkedin_author_type'),
                 "linkedin_author_id": draft.get('linkedin_author_id'),
                 "campaign_id": draft.get('campaign_id')
             }
+        else:
+            print(f"[SCHEDULED POSTS] WARNING: Draft {post.get('draft_id')} not found for post {post.get('id')}")
     
     return posts
 
@@ -174,8 +248,15 @@ async def update_scheduled_post_full(post_id: str, update_data: dict):
     db = get_db()
     
     # #region agent log
-    with open('/var/www/linkedin-pilot/.cursor/debug.log', 'a') as f:
-        f.write(json.dumps({"location":"scheduled_posts.py:164","message":"PUT update_scheduled_post_full called","data":{"post_id":post_id,"update_data_keys":list(update_data.keys()),"has_org_id":'org_id' in update_data,"new_org_id":update_data.get('org_id')},"timestamp":int(datetime.utcnow().timestamp()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"A"})+"\n")
+    try:
+        import json
+        from pathlib import Path
+        debug_log_path = Path('/var/www/linkedin-pilot/.cursor/debug.log')
+        if debug_log_path.parent.exists():
+            with open(debug_log_path, 'a') as f:
+                f.write(json.dumps({"location":"scheduled_posts.py:164","message":"PUT update_scheduled_post_full called","data":{"post_id":post_id,"update_data_keys":list(update_data.keys()),"has_org_id":'org_id' in update_data,"new_org_id":update_data.get('org_id')},"timestamp":int(datetime.utcnow().timestamp()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"A"})+"\n")
+    except Exception:
+        pass  # Ignore debug log errors
     # #endregion
     
     # Check if post exists
@@ -184,8 +265,15 @@ async def update_scheduled_post_full(post_id: str, update_data: dict):
         raise HTTPException(status_code=404, detail="Scheduled post not found")
     
     # #region agent log
-    with open('/var/www/linkedin-pilot/.cursor/debug.log', 'a') as f:
-        f.write(json.dumps({"location":"scheduled_posts.py:171","message":"Existing post found","data":{"post_id":post_id,"existing_org_id":existing_post.get('org_id'),"existing_status":existing_post.get('status'),"existing_publish_time":existing_post.get('publish_time')},"timestamp":int(datetime.utcnow().timestamp()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"A"})+"\n")
+    try:
+        import json
+        from pathlib import Path
+        debug_log_path = Path('/var/www/linkedin-pilot/.cursor/debug.log')
+        if debug_log_path.parent.exists():
+            with open(debug_log_path, 'a') as f:
+                f.write(json.dumps({"location":"scheduled_posts.py:171","message":"Existing post found","data":{"post_id":post_id,"existing_org_id":existing_post.get('org_id'),"existing_status":existing_post.get('status'),"existing_publish_time":existing_post.get('publish_time')},"timestamp":int(datetime.utcnow().timestamp()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"A"})+"\n")
+    except Exception:
+        pass  # Ignore debug log errors
     # #endregion
     
     # Build update dict - only update fields that are provided
@@ -374,7 +462,7 @@ async def publish_now(post_id: str):
         # Determine media category for carousel (multiple images)
         if len(media_urns) > 1 and not media_category:
             media_category = "IMAGE"  # Carousel
-            print(f"   📸 Carousel detected: {len(media_urns)} images")
+            print(f"   [CAROUSEL] Carousel detected: {len(media_urns)} images")
         
         # Append hashtags to content if they exist
         content_to_post = draft['content'].copy()

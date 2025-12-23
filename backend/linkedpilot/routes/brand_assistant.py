@@ -3,9 +3,21 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
+import sys
+import os
 from collections import Counter
 from typing import Dict, List, Optional
 from urllib.parse import urljoin, urlparse
+
+# Fix Windows console encoding
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except:
+        pass
+    # Also set environment variable
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -40,9 +52,13 @@ def _fallback_campaign_previews(
     suggestions: List[CampaignSuggestion],
     count: int,
 ) -> CampaignPreviewResponse:
-    # Deterministic fallback that never calls the LLM.
+    """
+    Create brand-DNA-enriched fallback campaigns when AI generation is unavailable.
+    Uses all available brand DNA to create meaningful, personalized campaigns.
+    """
     safe_count = max(1, min(int(count or 1), 10))
 
+    # Extract all brand DNA elements
     pillars = list(brand_analysis.content_pillars or [])
     if not pillars:
         pillars = ["Industry Insights", "Best Practices", "Case Studies", "Thought Leadership"]
@@ -54,79 +70,156 @@ def _fallback_campaign_previews(
         if hasattr(brand_analysis.target_audience, "model_dump")
         else {}
     )
-
+    
+    # Get key brand DNA elements
+    brand_voice = brand_analysis.brand_voice or "professional"
+    brand_story = brand_analysis.brand_story[:200] if brand_analysis.brand_story else ""
+    core_values = brand_analysis.core_values[:5] if brand_analysis.core_values else []
+    key_messages = brand_analysis.key_messages[:5] if brand_analysis.key_messages else []
+    value_props = brand_analysis.value_propositions[:3] if brand_analysis.value_propositions else []
+    usps = brand_analysis.unique_selling_points[:3] if brand_analysis.unique_selling_points else []
+    personality = brand_analysis.brand_personality[:3] if brand_analysis.brand_personality else []
+    
+    # Get target audience details
+    job_titles = audience.get("job_titles", [])[:3]
+    industries = audience.get("industries", [])[:3]
+    pain_points = audience.get("pain_points", [])[:3]
+    
     p0 = pillars[0] if len(pillars) > 0 else "industry trends"
     p1 = pillars[1] if len(pillars) > 1 else p0
+    p2 = pillars[2] if len(pillars) > 2 else p1
+    
+    # Create brand-specific sample posts
+    def create_thought_leadership_posts():
+        posts = []
+        if core_values:
+            posts.append(f"Why {core_values[0]} is the foundation of everything we do - a leadership perspective on {p0}")
+        else:
+            posts.append(f"The contrarian truth about {p0} that most leaders miss")
+        if key_messages:
+            posts.append(f"How {key_messages[0][:50]}... - breaking down what this means for your business")
+        else:
+            posts.append(f"The 3 shifts happening in {p1} that will define the next decade")
+        if usps:
+            posts.append(f"What makes us different: {usps[0][:60]} - and why it matters for your results")
+        else:
+            posts.append(f"Behind the scenes: How we approach {p2} differently")
+        return posts[:3]
+    
+    def create_education_posts():
+        posts = []
+        if pain_points:
+            posts.append(f"The 5-step framework to solve {pain_points[0][:50]} (with examples)")
+        else:
+            posts.append(f"5 proven strategies to excel at {p0} - a complete guide")
+        if value_props:
+            posts.append(f"How to {value_props[0][:50]} - a practical checklist")
+        else:
+            posts.append(f"The ultimate checklist for {p1} success")
+        posts.append(f"Common mistakes in {p2} and how to avoid them")
+        return posts[:3]
+    
+    def create_engagement_posts():
+        posts = []
+        if pain_points:
+            posts.append(f"Poll: What's your biggest challenge with {pain_points[0][:40]}?")
+        else:
+            posts.append(f"Poll: What aspect of {p0} needs the most improvement in your organization?")
+        if personality:
+            posts.append(f"We believe in being {', '.join(personality[:2])}. What values drive your work?")
+        else:
+            posts.append(f"Question: What would you change about {p1} in your industry?")
+        posts.append(f"Share your experience: How do you approach {p2}?")
+        return posts[:3]
 
     fallback: List[CampaignPreview] = []
     if not suggestions:
+        # Campaign 1: Thought Leadership - leverage brand story and values
+        desc1 = f"Establish authority in {p0} and {p1}."
+        if brand_story:
+            desc1 = f"Share your unique perspective on {p0}. Leverage your brand story and {len(core_values)} core values to build thought leadership and industry authority."
+        
         fallback.append(
             CampaignPreview(
                 id="campaign_fallback_1",
-                name="Thought Leadership",
-                description="Establish your brand as an industry authority through insights and expert commentary.",
-                focus="Brand Authority",
+                name=f"{p0} Thought Leadership" if p0 else "Thought Leadership Campaign",
+                description=desc1,
+                focus=p0 if p0 else "Thought Leadership",
                 content_pillars=pillars[:4],
                 target_audience=audience,
-                tone_voice=brand_analysis.brand_voice,
+                tone_voice=brand_voice,
                 posting_schedule={"frequency": "daily", "time_slots": ["08:00", "12:00", "17:00"]},
-                sample_posts=[
-                    f"Share a contrarian take on {p0}",
-                    f"Break down a complex topic related to {p1}",
-                    "Highlight a recent customer success story",
-                ],
+                sample_posts=create_thought_leadership_posts(),
             )
         )
+        
+        # Campaign 2: Educational - address pain points with value props
+        desc2 = f"Educate your audience on {p1} with actionable insights."
+        if pain_points:
+            desc2 = f"Address key challenges like {pain_points[0][:40]}... with practical solutions. Help your audience succeed with actionable guides and best practices."
+        elif value_props:
+            desc2 = f"Help your audience achieve results through educational content. Focus on {value_props[0][:50]}... and build trust through expertise."
+        
         fallback.append(
             CampaignPreview(
                 id="campaign_fallback_2",
-                name="Educational Series",
-                description="Educate your audience with actionable tips, how-to guides, and best practices.",
-                focus="Audience Education",
+                name=f"{p1} Education Series" if p1 else "Educational Series Campaign",
+                description=desc2,
+                focus=p1 if p1 else "Audience Education",
                 content_pillars=pillars[:4],
                 target_audience=audience,
                 tone_voice="informative",
                 posting_schedule={"frequency": "daily", "time_slots": ["09:00", "13:00", "18:00"]},
-                sample_posts=[
-                    "5 tips for better results with...",
-                    "How to solve a common challenge",
-                    "A simple checklist for success",
-                ],
+                sample_posts=create_education_posts(),
             )
         )
+        
+        # Campaign 3: Community Engagement - build relationships
+        desc3 = f"Build community around {p2} through conversations and engagement."
+        if job_titles:
+            desc3 = f"Connect with {', '.join(job_titles[:2])} and other professionals. Spark meaningful conversations around {p2} and build lasting relationships."
+        
         fallback.append(
             CampaignPreview(
                 id="campaign_fallback_3",
-                name="Community Engagement",
-                description="Spark conversations, gather feedback, and build relationships.",
-                focus="Engagement",
+                name=f"{p2} Community Hub" if p2 else "Community Engagement Campaign",
+                description=desc3,
+                focus=p2 if p2 else "Community Building",
                 content_pillars=pillars[:4],
                 target_audience=audience,
                 tone_voice="conversational",
                 posting_schedule={"frequency": "daily", "time_slots": ["10:00", "14:00", "19:00"]},
-                sample_posts=[
-                    "Poll: What's your biggest challenge right now?",
-                    "A behind-the-scenes look at how we work",
-                    "Question of the day: what would you do differently?",
-                ],
+                sample_posts=create_engagement_posts(),
             )
         )
     else:
-        for suggestion in suggestions[:safe_count]:
+        # Use provided suggestions but enrich with brand DNA
+        for idx, suggestion in enumerate(suggestions[:safe_count]):
+            focus_pillar = pillars[idx % len(pillars)] if pillars else p0
+            
+            # Create posts specific to the suggestion focus
+            sample_posts = []
+            if suggestion.focus:
+                sample_posts.append(f"Deep dive: The key principles of {suggestion.focus} that drive results")
+                if key_messages:
+                    sample_posts.append(f"How {key_messages[0][:40]}... relates to {suggestion.focus}")
+                else:
+                    sample_posts.append(f"3 ways to excel at {suggestion.focus} in today's market")
+                sample_posts.append(f"What we've learned about {suggestion.focus} from working with {industries[0] if industries else 'industry leaders'}")
+            else:
+                sample_posts = [f"Share an insight about {p}" for p in pillars[:3]]
+            
             fallback.append(
                 CampaignPreview(
                     id=f"campaign_fallback_{len(fallback) + 1}",
                     name=suggestion.name,
-                    description=suggestion.description,
-                    focus=suggestion.focus,
+                    description=suggestion.description or f"Engage your audience with insights and content focused on {suggestion.focus or focus_pillar}.",
+                    focus=suggestion.focus or focus_pillar,
                     content_pillars=pillars[:4],
                     target_audience=audience,
-                    tone_voice=brand_analysis.brand_voice,
+                    tone_voice=brand_voice,
                     posting_schedule={"frequency": "daily", "time_slots": ["08:00", "12:00", "17:00"]},
-                    sample_posts=[
-                        f"Share an insight about {p}"
-                        for p in pillars[:3]
-                    ],
+                    sample_posts=sample_posts[:3],
                 )
             )
 
@@ -186,8 +279,8 @@ async def get_website_screenshot(url: str):
                         # Likely an error page - try to read the error message
                         try:
                             error_text = image_data.decode('utf-8', errors='ignore')
-                            print(f"[ERROR] Screenshot API returned GIF (likely error): {len(image_data)} bytes")
-                            print(f"[ERROR] Content preview: {error_text[:500]}")
+                            _safe_print(f"[ERROR] Screenshot API returned GIF (likely error): {len(image_data)} bytes")
+                            _safe_print(f"[ERROR] Content preview: {error_text[:500]}")
                             
                             # Check for common error messages
                             if 'invalid' in error_text.lower() or 'api key' in error_text.lower():
@@ -202,12 +295,12 @@ async def get_website_screenshot(url: str):
                         except HTTPException:
                             raise
                         except Exception as e:
-                            print(f"[ERROR] Could not parse error: {e}")
+                            _safe_print(f"[ERROR] Could not parse error: {e}")
                             raise HTTPException(status_code=400, detail="Screenshot API returned invalid response. Check your API key.")
                     
                     # Validate it's actually image data (not HTML/error page)
                     if len(image_data) < 1000:
-                        print(f"[WARNING] Screenshot response too small ({len(image_data)} bytes), might be error page")
+                        _safe_print(f"[WARNING] Screenshot response too small ({len(image_data)} bytes), might be error page")
                         raise HTTPException(status_code=404, detail="Screenshot service unavailable")
                     
                     # Check if it's actually an image by checking magic bytes
@@ -218,19 +311,23 @@ async def get_website_screenshot(url: str):
                     )
                     
                     if not is_image and len(image_data) < 50000:
-                        print(f"[WARNING] Response doesn't appear to be an image")
+                        _safe_print(f"[WARNING] Response doesn't appear to be an image")
                         raise HTTPException(status_code=404, detail="Screenshot service returned invalid response")
                     
                     return Response(content=image_data, media_type=content_type)
                 else:
-                    error_text = await response.text() if response.content_type == 'text/html' else f"HTTP {response.status}"
-                    print(f"[ERROR] Screenshot service returned {response.status}: {error_text[:200]}")
+                    error_text = await response.text(encoding='utf-8', errors='replace') if response.content_type == 'text/html' else f"HTTP {response.status}"
+                    _safe_print(f"[ERROR] Screenshot service returned {response.status}: {error_text[:200]}")
                     raise HTTPException(status_code=404, detail=f"Screenshot not available: {error_text[:100]}")
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Screenshot proxy failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Screenshot generation failed: {str(e)}")
+        _safe_print(f"[ERROR] Screenshot proxy failed: {e}")
+        try:
+            safe_error = str(e).encode('utf-8', errors='replace').decode('utf-8')
+        except:
+            safe_error = "Screenshot generation error"
+        raise HTTPException(status_code=500, detail=f"Screenshot generation failed: {safe_error}")
 
 
 @router.get("/images/{filename}")
@@ -274,8 +371,12 @@ async def serve_brand_image(filename: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to serve image {filename}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to serve image: {str(e)}")
+        _safe_print(f"[ERROR] Failed to serve image {filename}: {e}")
+        try:
+            safe_error = str(e).encode('utf-8', errors='replace').decode('utf-8')
+        except:
+            safe_error = "Image serving error"
+        raise HTTPException(status_code=500, detail=f"Failed to serve image: {safe_error}")
 
 
 @router.get("/media-library")
@@ -349,8 +450,12 @@ async def proxy_image(image_url: str):
                 else:
                     raise HTTPException(status_code=404, detail="Image not found")
     except Exception as e:
-        print(f"[ERROR] Image proxy failed for {image_url}: {e}")
-        raise HTTPException(status_code=500, detail=f"Image proxy failed: {str(e)}")
+        _safe_print(f"[ERROR] Image proxy failed for {image_url}: {e}")
+        try:
+            safe_error = str(e).encode('utf-8', errors='replace').decode('utf-8')
+        except:
+            safe_error = "Image proxy error"
+        raise HTTPException(status_code=500, detail=f"Image proxy failed: {safe_error}")
 
 class BrandDiscoveryRequest(BaseModel):
     url: str = Field(..., description="Public website URL for the organization")
@@ -372,6 +477,12 @@ class BrandDiscoveryResponse(BaseModel):
     brand_personality: List[str] = Field(default_factory=list)
     core_values: List[str] = Field(default_factory=list)
     target_audience_description: Optional[str] = None
+    target_audience: Dict = Field(default_factory=lambda: {
+        "job_titles": [],
+        "industries": [],
+        "interests": [],
+        "pain_points": []
+    })
     unique_selling_points: List[str] = Field(default_factory=list)
     key_messages: List[str] = Field(default_factory=list)
 
@@ -508,13 +619,93 @@ STOPWORDS = {
 }
 
 
+def _safe_print(message: str) -> None:
+    """Safely print messages that may contain Unicode characters"""
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        # Try to encode and decode to remove problematic characters
+        try:
+            safe_message = message.encode('utf-8', errors='replace').decode('utf-8')
+            print(safe_message)
+        except Exception:
+            # Last resort: print a generic message
+            print("[BRAND] [Message contains Unicode characters that cannot be displayed]")
+
+
 async def _fetch_text(session: aiohttp.ClientSession, url: str) -> str:
-    async with session.get(url, timeout=20) as response:
-        if response.status != 200:
-            raise HTTPException(
-                status_code=400, detail=f"Unable to fetch content from {url}"
-            )
-        return await response.text()
+    """Fetch HTML content from a URL with proper headers and error handling"""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+    }
+    
+    try:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=30), headers=headers, allow_redirects=True) as response:
+            if response.status != 200:
+                # Log detailed error information for debugging
+                status_code = response.status
+                status_reason = getattr(response, 'reason', 'Unknown')
+                _safe_print(f"[BRAND] Failed to fetch {url}: HTTP {status_code} {status_reason}")
+                
+                # Provide more detailed error information
+                status_text = f"HTTP {status_code}"
+                if status_code == 403:
+                    status_text += " (Forbidden - website may be blocking automated requests)"
+                elif status_code == 404:
+                    status_text += " (Not Found - page may not exist)"
+                elif status_code == 429:
+                    status_text += " (Too Many Requests - rate limited)"
+                elif status_code >= 500:
+                    status_text += " (Server Error - website may be temporarily unavailable)"
+                
+                try:
+                    error_body = await response.text(encoding='utf-8', errors='ignore')
+                    if len(error_body) > 200:
+                        error_body = error_body[:200] + "..."
+                    if error_body.strip():
+                        status_text += f": {error_body}"
+                except:
+                    pass
+                
+                # Ensure status_text is safely encoded
+                try:
+                    safe_status_text = status_text.encode('utf-8', errors='replace').decode('utf-8')
+                except:
+                    safe_status_text = f"HTTP {status_code}"
+                
+                safe_url = url
+                try:
+                    safe_url = url.encode('utf-8', errors='replace').decode('utf-8')
+                except:
+                    pass
+                
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Unable to fetch content from {safe_url}. Server returned {safe_status_text}. Please verify the URL is correct and accessible."
+                )
+            # Explicitly use UTF-8 encoding to avoid charmap codec errors on Windows
+            return await response.text(encoding='utf-8', errors='replace')
+    except aiohttp.ClientError as e:
+        # Safely get error message
+        try:
+            error_str = str(e)
+            safe_error = error_str.encode('utf-8', errors='replace').decode('utf-8')
+        except:
+            safe_error = "Network connection error"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Network error while fetching {url}: {safe_error}. Please check if the website is accessible."
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Request to {url} timed out. The website may be slow or unavailable."
+        )
 
 
 def _deduplicate_preserve_order(items: List[str]) -> List[str]:
@@ -558,17 +749,17 @@ async def _download_and_store_images(session: aiohttp.ClientSession, image_urls:
             if org:
                 user_id = org.get("created_by")
     
-    print(f"[IMAGE] Starting download of {len(image_urls)} images to {images_dir}")
+    _safe_print(f"[IMAGE] Starting download of {len(image_urls)} images to {images_dir}")
     if org_id:
-        print(f"[IMAGE] Associating images with org_id: {org_id}, user_id: {user_id}")
+        _safe_print(f"[IMAGE] Associating images with org_id: {org_id}, user_id: {user_id}")
     
     for idx, img_url in enumerate(image_urls[:6]):  # Limit to 6 images
         try:
-            print(f"[IMAGE] Processing image {idx + 1}/{min(len(image_urls), 6)}: {img_url[:80]}...")
+            _safe_print(f"[IMAGE] Processing image {idx + 1}/{min(len(image_urls), 6)}: {img_url[:80]}...")
             
             # Skip data URIs and invalid URLs
             if img_url.startswith("data:") or not img_url.startswith(("http://", "https://")):
-                print(f"[IMAGE] Skipping invalid URL (data URI or not http/https): {img_url[:50]}")
+                _safe_print(f"[IMAGE] Skipping invalid URL (data URI or not http/https): {img_url[:50]}")
                 continue
             
             # Download image
@@ -576,7 +767,7 @@ async def _download_and_store_images(session: aiohttp.ClientSession, image_urls:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }) as response:
                 if response.status != 200:
-                    print(f"[IMAGE] Failed to download {img_url}: HTTP {response.status}")
+                    _safe_print(f"[IMAGE] Failed to download {img_url}: HTTP {response.status}")
                     continue
                 
                 # Read image data first
@@ -596,12 +787,12 @@ async def _download_and_store_images(session: aiohttp.ClientSession, image_urls:
                 )
                 
                 if not is_image_by_type and not is_image_by_bytes:
-                    print(f"[IMAGE] Not an image: {content_type}, magic bytes: {image_data[:10]}")
+                    _safe_print(f"[IMAGE] Not an image: {content_type}, magic bytes: {image_data[:10]}")
                     continue
                 
                 # Validate it's actually image data (at least 500 bytes to avoid tiny icons)
                 if len(image_data) < 500:
-                    print(f"[IMAGE] Image too small: {len(image_data)} bytes")
+                    _safe_print(f"[IMAGE] Image too small: {len(image_data)} bytes")
                     continue
                 
                 # Generate filename from URL hash + index
@@ -624,7 +815,7 @@ async def _download_and_store_images(session: aiohttp.ClientSession, image_urls:
                 # Return backend URL
                 backend_url = f"/api/brand/images/{filename}"
                 stored_urls.append(backend_url)
-                print(f"[IMAGE] SUCCESS: Stored {filename} ({len(image_data)} bytes) -> {backend_url}")
+                _safe_print(f"[IMAGE] SUCCESS: Stored {filename} ({len(image_data)} bytes) -> {backend_url}")
                 
                 # Save image metadata to database if org_id/user_id available
                 if db and (org_id or user_id):
@@ -643,31 +834,54 @@ async def _download_and_store_images(session: aiohttp.ClientSession, image_urls:
                         "updated_at": datetime.utcnow().isoformat()
                     }
                     await db.user_images.insert_one(image_metadata)
-                    print(f"[IMAGE] Saved metadata to database for {filename}")
+                    _safe_print(f"[IMAGE] Saved metadata to database for {filename}")
                 
         except Exception as e:
-            print(f"[IMAGE] ERROR downloading {img_url[:80]}: {e}")
+            _safe_print(f"[IMAGE] ERROR downloading {img_url[:80]}: {e}")
             import traceback
-            print(f"[IMAGE] Traceback: {traceback.format_exc()}")
+            _safe_print(f"[IMAGE] Traceback: {traceback.format_exc()}")
             continue
     
-    print(f"[IMAGE] Download complete: {len(stored_urls)}/{len(image_urls)} images stored successfully")
+    _safe_print(f"[IMAGE] Download complete: {len(stored_urls)}/{len(image_urls)} images stored successfully")
     return stored_urls
 
 
 async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> BrandDiscoveryResponse:
+    """Extract brand attributes from a website URL with comprehensive error handling"""
     parsed = urlparse(url if url.startswith("http") else f"https://{url}")
     normalized_url = parsed.geturl()
     base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    async with aiohttp.ClientSession() as session:
-        html = await _fetch_text(session, normalized_url)
-        soup = BeautifulSoup(html, "html.parser")
+    # Try to fetch website content, but continue even if it fails
+    html = None
+    soup = None
+    fetch_failed = False
 
-        # Gather inline colors/fonts from HTML
-        colors = COLOR_PATTERN.findall(html)
-        fonts = FONT_PATTERN.findall(html)
-        print(f"[BRAND] Initial extraction: {len(colors)} colors, {len(fonts)} fonts from HTML")
+    async with aiohttp.ClientSession() as session:
+        try:
+            html = await _fetch_text(session, normalized_url)
+            soup = BeautifulSoup(html, "html.parser")
+        except HTTPException as e:
+            # Website fetch failed - log but continue with minimal data
+            fetch_failed = True
+            _safe_print(f"[BRAND] [WARNING] Website fetch failed: {e.detail}")
+            _safe_print(f"[BRAND] Continuing with minimal brand analysis using URL and domain only")
+            # Create empty soup for safety
+            soup = BeautifulSoup("", "html.parser")
+        except Exception as e:
+            fetch_failed = True
+            _safe_print(f"[BRAND] [WARNING] Unexpected error fetching website: {e}")
+            soup = BeautifulSoup("", "html.parser")
+
+        # Gather inline colors/fonts from HTML (only if fetch succeeded)
+        colors = []
+        fonts = []
+        if html and not fetch_failed:
+            colors = COLOR_PATTERN.findall(html)
+            fonts = FONT_PATTERN.findall(html)
+            _safe_print(f"[BRAND] Initial extraction: {len(colors)} colors, {len(fonts)} fonts from HTML")
+        else:
+            _safe_print(f"[BRAND] No HTML content available - using minimal brand analysis")
         
         # CSS variable patterns for color extraction
         css_var_color_pattern = re.compile(r"--(?:color|primary|secondary|accent|background|text|border|brand|theme)[a-zA-Z0-9-]*\s*:\s*([^;]+)", re.IGNORECASE)
@@ -687,14 +901,14 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
 
         # Pull inline styles
         style_blocks = soup.find_all("style")
-        print(f"[BRAND] Found {len(style_blocks)} style blocks")
+        _safe_print(f"[BRAND] Found {len(style_blocks)} style blocks")
         for block in style_blocks:
             content = block.get_text() or ""
             block_colors = COLOR_PATTERN.findall(content)
             block_fonts = FONT_PATTERN.findall(content)
             colors.extend(block_colors)
             fonts.extend(block_fonts)
-            print(f"[BRAND] Style block: {len(block_colors)} colors, {len(block_fonts)} fonts")
+            _safe_print(f"[BRAND] Style block: {len(block_colors)} colors, {len(block_fonts)} fonts")
             
             # Extract CSS variables from style blocks (especially color-related ones)
             css_vars = css_var_color_pattern.findall(content)
@@ -717,15 +931,16 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
             fontface_matches = re.findall(r"@font-face\s*\{[^}]*font-family\s*:\s*['\"]?([^;\"']+)['\"]?", content, re.IGNORECASE)
             fonts.extend(fontface_matches)
 
-        # Attempt to fetch first two external stylesheets for richer data
+        # Attempt to fetch first two external stylesheets for richer data (only if fetch succeeded)
         stylesheet_links = []
-        for link_tag in soup.find_all("link"):
-            rel = link_tag.get("rel") or []
-            if any("stylesheet" in rel_value.lower() for rel_value in rel):
-                href = link_tag.get("href")
-                if href:
-                    stylesheet_links.append(urljoin(base_url, href))
-        stylesheet_links = stylesheet_links[:2]
+        if html and not fetch_failed:
+            for link_tag in soup.find_all("link"):
+                rel = link_tag.get("rel") or []
+                if any("stylesheet" in rel_value.lower() for rel_value in rel):
+                    href = link_tag.get("href")
+                    if href:
+                        stylesheet_links.append(urljoin(base_url, href))
+            stylesheet_links = stylesheet_links[:2]
 
         async def fetch_stylesheet(sheet_url: str) -> str:
             try:
@@ -734,7 +949,7 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
                 return ""
 
         if stylesheet_links:
-            print(f"[BRAND] Fetching {len(stylesheet_links)} external stylesheets")
+            _safe_print(f"[BRAND] Fetching {len(stylesheet_links)} external stylesheets")
             stylesheet_contents = await asyncio.gather(
                 *[fetch_stylesheet(link) for link in stylesheet_links]
             )
@@ -744,7 +959,7 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
                     sheet_fonts = FONT_PATTERN.findall(sheet_content)
                     colors.extend(sheet_colors)
                     fonts.extend(sheet_fonts)
-                    print(f"[BRAND] Stylesheet {i+1}: {len(sheet_colors)} colors, {len(sheet_fonts)} fonts")
+                    _safe_print(f"[BRAND] Stylesheet {i+1}: {len(sheet_colors)} colors, {len(sheet_fonts)} fonts")
                     
                     # Extract CSS variables from stylesheets
                     css_vars = css_var_color_pattern.findall(sheet_content)
@@ -821,11 +1036,11 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
         
         font_families = _deduplicate_preserve_order(font_families)[:8]  # Increased to 8
         
-        print(f"[BRAND] Final extraction: {len(color_palette)} colors, {len(font_families)} fonts")
+        _safe_print(f"[BRAND] Final extraction: {len(color_palette)} colors, {len(font_families)} fonts")
         if color_palette:
-            print(f"[BRAND] Colors found: {color_palette[:5]}")
+            _safe_print(f"[BRAND] Colors found: {color_palette[:5]}")
         if font_families:
-            print(f"[BRAND] Fonts found: {font_families[:5]}")
+            _safe_print(f"[BRAND] Fonts found: {font_families[:5]}")
 
         # Imagery: prefer Open Graph image then inline imagery
         imagery = []
@@ -997,30 +1212,36 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
         
         # Limit to top 10 images for response (increased from 6)
         imagery = imagery[:10]
-        print(f"[BRAND] Found {len(imagery)} image URLs from website scraping")
+        _safe_print(f"[BRAND] Found {len(imagery)} image URLs from website scraping")
         
         if imagery:
-            print(f"[BRAND] Image URLs found:")
+            _safe_print(f"[BRAND] Image URLs found:")
             for idx, img_url in enumerate(imagery[:6], 1):
-                print(f"[BRAND]   {idx}. {img_url}")
+                _safe_print(f"[BRAND]   {idx}. {img_url}")
         else:
-            print(f"[BRAND] WARNING: No images found! Debugging HTML structure...")
+            _safe_print(f"[BRAND] WARNING: No images found! Debugging HTML structure...")
             # Debug: Check if there are any img tags at all
             all_img_tags = soup.find_all("img")
-            print(f"[BRAND]   Total <img> tags in HTML: {len(all_img_tags)}")
+            _safe_print(f"[BRAND]   Total <img> tags in HTML: {len(all_img_tags)}")
             if all_img_tags:
-                print(f"[BRAND]   Sample img tags (first 3):")
+                _safe_print(f"[BRAND]   Sample img tags (first 3):")
                 for i, img in enumerate(all_img_tags[:3], 1):
-                    print(f"[BRAND]     {i}. src={img.get('src', 'NONE')[:60]}")
-                    print(f"[BRAND]        data-src={img.get('data-src', 'NONE')[:60]}")
-                    print(f"[BRAND]        classes={img.get('class', [])}")
+                    try:
+                        src_val = str(img.get('src', 'NONE'))[:60]
+                        data_src_val = str(img.get('data-src', 'NONE'))[:60]
+                        classes_val = str(img.get('class', []))
+                        _safe_print(f"[BRAND]     {i}. src={src_val}")
+                        _safe_print(f"[BRAND]        data-src={data_src_val}")
+                        _safe_print(f"[BRAND]        classes={classes_val}")
+                    except:
+                        _safe_print(f"[BRAND]     {i}. [Image tag contains Unicode]")
             else:
-                print(f"[BRAND]   No <img> tags found in HTML at all!")
+                _safe_print(f"[BRAND]   No <img> tags found in HTML at all!")
         
-        # NEW APPROACH: Download and store images, return our backend URLs
+        # NEW APPROACH: Download and store images, return our backend URLs (only if fetch succeeded)
         stored_imagery = []
-        if imagery:
-            print(f"[BRAND] Downloading and storing {len(imagery)} images...")
+        if html and not fetch_failed and imagery:
+            _safe_print(f"[BRAND] Downloading and storing {len(imagery)} images...")
             # Get user_id from org_id if available
             user_id = None
             if org_id:
@@ -1032,95 +1253,131 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
                 except:
                     pass
             stored_imagery = await _download_and_store_images(session, imagery, normalized_url, org_id=org_id, user_id=user_id)
-            print(f"[BRAND] Successfully stored {len(stored_imagery)} images")
+            _safe_print(f"[BRAND] Successfully stored {len(stored_imagery)} images")
         else:
-            print(f"[BRAND] No images to download - skipping storage")
+            if fetch_failed:
+                _safe_print(f"[BRAND] Skipping image download - website fetch failed")
+            else:
+                _safe_print(f"[BRAND] No images to download - skipping storage")
         
         # Use stored images if available, fallback to original URLs
-        final_imagery = stored_imagery if stored_imagery else imagery[:6]
-        print(f"[BRAND] Returning {len(final_imagery)} images in response")
+        final_imagery = stored_imagery if stored_imagery else (imagery[:6] if imagery else [])
+        _safe_print(f"[BRAND] Returning {len(final_imagery)} images in response")
 
-        title = soup.title.string.strip() if soup.title and soup.title.string else None
-        description_tag = soup.find("meta", attrs={"name": "description"})
-        og_description = soup.find("meta", property="og:description")
-        description = (
-            (description_tag.get("content") if description_tag else None)
-            or (og_description.get("content") if og_description else None)
-            or None
-        )
+        # Safely extract title, handling Unicode encoding issues
+        try:
+            title = soup.title.string.strip() if soup.title and soup.title.string else None
+            # Ensure title is a valid string that can be encoded
+            if title:
+                title = title.encode('utf-8', errors='replace').decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError, AttributeError) as e:
+            try:
+                _safe_print(f"[BRAND] Warning: Could not extract title safely: {type(e).__name__}")
+            except:
+                pass
+            title = None
+
+        # Safely extract description, handling Unicode encoding issues
+        try:
+            description_tag = soup.find("meta", attrs={"name": "description"})
+            og_description = soup.find("meta", property="og:description")
+            description = (
+                (description_tag.get("content") if description_tag else None)
+                or (og_description.get("content") if og_description else None)
+                or None
+            )
+            # Ensure description is a valid string that can be encoded
+            if description:
+                description = description.encode('utf-8', errors='replace').decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError, AttributeError) as e:
+            try:
+                _safe_print(f"[BRAND] Warning: Could not extract description safely: {type(e).__name__}")
+            except:
+                pass
+            description = None
 
         # Extract text content - include header and footer
-        # Extract header content (excluding navigation)
-        header_content = ""
-        header = soup.find("header")
-        if header:
-            header_copy = BeautifulSoup(str(header), 'html.parser')
-            for nav in header_copy.find_all("nav"):
-                nav.decompose()
-            header_text = header_copy.get_text(separator=" ", strip=True)
-            if header_text and len(header_text) > 10:
-                header_content = header_text
-        
-        # Extract footer content
-        footer_content = ""
-        footer = soup.find("footer")
-        if footer:
-            footer_text = footer.get_text(separator=" ", strip=True)
-            if footer_text and len(footer_text) > 10:
-                footer_content = footer_text
-        
-        # Extract main content - try multiple strategies to get ALL text
-        main = soup.find("main") or soup.find("article") or soup.find("body")
+        # Only extract if we have HTML content
         text_content = ""
-        if main:
-            text_content = main.get_text(separator=" ", strip=True)
-        else:
-            text_content = soup.get_text(separator=" ", strip=True)
+        header_content = ""
+        footer_content = ""
         
-        # If content is short, also try getting structured content from all elements
-        if len(text_content) < 2000:
-            structured_parts = []
-            for selector in ['h1', 'h2', 'h3', 'h4', 'p', 'li', 'div[class*="content"]', 'div[class*="text"]', 'section', 'article']:
-                elements = soup.select(selector)
-                for elem in elements[:200]:  # Increase limit
-                    elem_text = elem.get_text(strip=True)
-                    if elem_text and len(elem_text) > 5:  # Lower threshold to get more content
-                        structured_parts.append(elem_text)
+        if html and not fetch_failed:
+            # Extract header content (excluding navigation)
+            header = soup.find("header")
+            if header:
+                header_copy = BeautifulSoup(str(header), 'html.parser')
+                for nav in header_copy.find_all("nav"):
+                    nav.decompose()
+                header_text = header_copy.get_text(separator=" ", strip=True)
+                if header_text and len(header_text) > 10:
+                    header_content = header_text
             
-            if structured_parts:
-                structured_text = " ".join(structured_parts)
-                if len(structured_text) > len(text_content):
-                    text_content = structured_text
-                    print(f"[BRAND] Extended main content with structured elements: {len(text_content)} chars")
-        
-        # Combine all content: header + main + footer
-        content_parts = []
-        if header_content:
-            content_parts.append(header_content)
-        if text_content:
-            content_parts.append(text_content)
-        if footer_content:
-            content_parts.append(footer_content)
-        
-        text_content = " ".join(content_parts)
-        
-        # Also try to extract footer pages content
-        footer_links = []
-        if footer:
-            for link in footer.find_all("a", href=True):
-                href = link.get("href")
-                if href:
-                    full_url = urljoin(base_url, href)
-                    parsed_link = urlparse(full_url)
-                    parsed_base = urlparse(base_url)
-                    # Only include same-domain links
-                    if parsed_link.netloc == parsed_base.netloc:
-                        link_text = link.get_text(strip=True)
-                        if link_text and len(link_text) > 2:
-                            footer_links.append({
-                                "url": full_url,
-                                "text": link_text
-                            })
+            # Extract footer content
+            footer = soup.find("footer")
+            if footer:
+                footer_text = footer.get_text(separator=" ", strip=True)
+                if footer_text and len(footer_text) > 10:
+                    footer_content = footer_text
+            
+            # Extract main content - try multiple strategies to get ALL text
+            main = soup.find("main") or soup.find("article") or soup.find("body")
+            if main:
+                text_content = main.get_text(separator=" ", strip=True)
+            else:
+                text_content = soup.get_text(separator=" ", strip=True)
+            
+            # If content is short, also try getting structured content from all elements
+            if len(text_content) < 2000:
+                structured_parts = []
+                for selector in ['h1', 'h2', 'h3', 'h4', 'p', 'li', 'div[class*="content"]', 'div[class*="text"]', 'section', 'article']:
+                    elements = soup.select(selector)
+                    for elem in elements[:200]:  # Increase limit
+                        elem_text = elem.get_text(strip=True)
+                        if elem_text and len(elem_text) > 5:  # Lower threshold to get more content
+                            structured_parts.append(elem_text)
+                
+                if structured_parts:
+                    structured_text = " ".join(structured_parts)
+                    if len(structured_text) > len(text_content):
+                        text_content = structured_text
+                        _safe_print(f"[BRAND] Extended main content with structured elements: {len(text_content)} chars")
+            
+            # Combine all content: header + main + footer
+            content_parts = []
+            if header_content:
+                content_parts.append(header_content)
+            if text_content:
+                content_parts.append(text_content)
+            if footer_content:
+                content_parts.append(footer_content)
+            
+            text_content = " ".join(content_parts)
+            
+            # Ensure text_content is safely encoded (handle Unicode issues)
+            try:
+                text_content = text_content.encode('utf-8', errors='replace').decode('utf-8')
+            except Exception:
+                # If encoding fails, try to clean it
+                text_content = text_content.encode('ascii', errors='ignore').decode('ascii')
+            
+            # Also try to extract footer pages content
+            footer_links = []
+            if footer:
+                for link in footer.find_all("a", href=True):
+                    href = link.get("href")
+                    if href:
+                        full_url = urljoin(base_url, href)
+                        parsed_link = urlparse(full_url)
+                        parsed_base = urlparse(base_url)
+                        # Only include same-domain links
+                        if parsed_link.netloc == parsed_base.netloc:
+                            link_text = link.get_text(strip=True)
+                            if link_text and len(link_text) > 2:
+                                footer_links.append({
+                                    "url": full_url,
+                                    "text": link_text
+                                })
         
             # Extract content from multiple pages (up to 10 pages)
             all_internal_links = []
@@ -1153,7 +1410,7 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
             # Extract content from up to 10 pages
             pages_text = []
             if all_internal_links:
-                print(f"[BRAND] Found {len(all_internal_links)} internal links, analyzing up to 10 pages...")
+                _safe_print(f"[BRAND] Found {len(all_internal_links)} internal links, analyzing up to 10 pages...")
                 
                 # Prioritize important pages
                 important_keywords = ['about', 'contact', 'company', 'team', 'mission', 'vision', 'values', 'services', 'products', 'solutions', 'blog', 'news', 'careers', 'culture']
@@ -1175,11 +1432,22 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
                 for link_info in links_to_extract:
                     try:
                         page_url = link_info['url']
-                        print(f"[BRAND] Analyzing page {len(pages_text) + 1}/10: {link_info['text']} ({page_url})")
+                        # Safely print link text (may contain Unicode)
+                        try:
+                            link_text = link_info['text'].encode('utf-8', errors='replace').decode('utf-8')
+                        except:
+                            link_text = str(link_info['text'])[:50]
+                        _safe_print(f"[BRAND] Analyzing page {len(pages_text) + 1}/10: {link_text} ({page_url})")
                         
-                        async with session.get(page_url, timeout=15) as page_response:
+                        # Use same headers as main request
+                        headers = {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                            'Accept-Language': 'en-US,en;q=0.5',
+                        }
+                        async with session.get(page_url, timeout=aiohttp.ClientTimeout(total=15), headers=headers, allow_redirects=True) as page_response:
                             if page_response.status == 200:
-                                page_html = await page_response.text()
+                                page_html = await page_response.text(encoding='utf-8', errors='replace')
                                 page_soup = BeautifulSoup(page_html, "html.parser")
                                 
                                 # Remove scripts/styles
@@ -1211,19 +1479,41 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
                                     
                                     # Use more text per page (increased from 2000 to 8000)
                                     if page_text and len(page_text) > 20:  # Lower threshold from 50
+                                        # Ensure page_text is safely encoded
+                                        try:
+                                            page_text = page_text.encode('utf-8', errors='replace').decode('utf-8')
+                                        except:
+                                            pass
                                         pages_text.append(page_text[:8000])  # Increased from 2000 to 8000 chars per page
-                                        print(f"[BRAND] Extracted {len(page_text)} chars from {link_info['text']} (using {min(len(page_text), 8000)} chars)")
+                                        # Safely print link text
+                                        try:
+                                            link_text = link_info['text'].encode('utf-8', errors='replace').decode('utf-8')
+                                        except:
+                                            link_text = str(link_info['text'])[:50]
+                                        _safe_print(f"[BRAND] Extracted {len(page_text)} chars from {link_text} (using {min(len(page_text), 8000)} chars)")
                                     
                                     # Stop if we've extracted from 10 pages
                                     if len(pages_text) >= 10:
                                         break
                     except Exception as e:
-                        print(f"[BRAND] Failed to extract page {link_info['url']}: {e}")
+                        _safe_print(f"[BRAND] Failed to extract page {link_info['url']}: {e}")
                         continue
             
             if pages_text:
-                text_content = f"{text_content} {' '.join(pages_text)}"
-                print(f"[BRAND] Added content from {len(pages_text)} pages ({len(' '.join(pages_text))} total characters)")
+                # Ensure all page texts are safely encoded before joining
+                safe_pages_text = []
+                for page_text in pages_text:
+                    try:
+                        safe_pages_text.append(page_text.encode('utf-8', errors='replace').decode('utf-8'))
+                    except:
+                        safe_pages_text.append(str(page_text))
+                text_content = f"{text_content} {' '.join(safe_pages_text)}"
+                # Safely print total characters
+                try:
+                    total_chars = len(' '.join(safe_pages_text))
+                    _safe_print(f"[BRAND] Added content from {len(pages_text)} pages ({total_chars} total characters)")
+                except:
+                    _safe_print(f"[BRAND] Added content from {len(pages_text)} pages")
 
         sentences = SENTENCE_SPLIT.split(text_content)
         excerpt = " ".join(sentences[:3]).strip() if sentences else ""
@@ -1238,10 +1528,21 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
 
         # NEW: Use OpenAI to analyze brand DNA from website content
         brand_dna_analysis = None
+        
+        # If website fetch failed, create minimal content from URL/domain for AI analysis
+        if fetch_failed and (not text_content or len(text_content.strip()) < 50):
+            domain_name = parsed.netloc.replace('www.', '')
+            text_content = f"Website: {normalized_url}\nDomain: {domain_name}\n"
+            if title:
+                text_content += f"Title: {title}\n"
+            if description:
+                text_content += f"Description: {description}\n"
+            _safe_print(f"[BRAND] Created minimal content for AI analysis: {len(text_content)} chars")
+        
         # Lower threshold - analyze even with minimal content
-        if text_content and len(text_content.strip()) > 50:
+        if text_content and len(text_content.strip()) > 10:  # Lowered from 50 to allow minimal analysis
             try:
-                print(f"[BRAND] Analyzing brand DNA with AI (content length: {len(text_content)} chars)...")
+                _safe_print(f"[BRAND] Analyzing brand DNA with AI (content length: {len(text_content)} chars)...")
                 
                 # Get API key for LLM analysis
                 from ..adapters.llm_adapter import LLMAdapter
@@ -1262,7 +1563,7 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
                                 if settings:
                                     api_key, provider = get_api_key_and_provider(settings, decrypt_value)
                     except Exception as e:
-                        print(f"[BRAND] Could not get API key from org settings: {e}")
+                        _safe_print(f"[BRAND] Could not get API key from org settings: {e}")
                 
                 # Fallback to environment variables
                 if not api_key:
@@ -1270,27 +1571,44 @@ async def _extract_brand_attributes(url: str, org_id: Optional[str] = None) -> B
                     if api_key:
                         provider = "openai"
                 
-                # Final fallback: try system settings
+                # Final fallback: try system settings (admin-managed API keys)
                 if not api_key:
                     try:
                         from ..routes.drafts import get_system_api_key
                         api_key, provider = await get_system_api_key("any")
-                    except:
-                        pass
+                        if api_key:
+                            _safe_print(f"[BRAND] [SUCCESS] Using system API key from admin dashboard (provider: {provider})")
+                        else:
+                            _safe_print(f"[BRAND] [WARNING] No system API key found in admin settings")
+                    except Exception as e:
+                        _safe_print(f"[BRAND] [WARNING] Error getting system API key: {e}")
                 
                 if api_key:
-                    llm = LLMAdapter(api_key=api_key, provider=provider)
+                    # Use faster model for brand DNA analysis (gpt-4o-mini is 2-3x faster than gpt-4o)
+                    model = "gpt-4o-mini" if provider == "openai" else None  # Use default for Google AI
+                    llm = LLMAdapter(api_key=api_key, provider=provider, model=model)
                     
                     # Create prompt for brand DNA analysis with emphasis on specificity
-                    print(f"[BRAND] Content preview: {text_content[:500]}...")
+                    # Safely print content preview
+                    try:
+                        preview = text_content[:500].encode('utf-8', errors='replace').decode('utf-8')
+                        _safe_print(f"[BRAND] Content preview: {preview}...")
+                    except Exception:
+                        _safe_print(f"[BRAND] Content preview: [Content contains Unicode characters] (length: {len(text_content)} chars)")
+                    
+                    # Ensure text_content is safe for use in f-strings
+                    safe_text_content = text_content.encode('utf-8', errors='replace').decode('utf-8')
+                    safe_title = (title or 'Not provided').encode('utf-8', errors='replace').decode('utf-8') if title else 'Not provided'
+                    safe_description = (description or 'Not provided').encode('utf-8', errors='replace').decode('utf-8') if description else 'Not provided'
+                    
                     analysis_prompt = f"""You are a brand strategist analyzing a company website. Extract SPECIFIC, AUTHENTIC brand insights based on what the website actually says - NOT generic business terms.
 
 WEBSITE URL: {normalized_url}
-WEBSITE TITLE: {title or 'Not provided'}
-WEBSITE DESCRIPTION: {description or 'Not provided'}
+WEBSITE TITLE: {safe_title}
+WEBSITE DESCRIPTION: {safe_description}
 
 WEBSITE CONTENT (from up to 10 pages):
-{text_content[:50000]}
+{safe_text_content[:20000]}  # Reduced from 50k to 20k for faster processing
 
 CRITICAL INSTRUCTIONS:
 - Base your analysis ONLY on what is actually written in the content above
@@ -1305,6 +1623,12 @@ Extract and return ONLY valid JSON with these fields:
   "brand_personality": ["3-5 personality traits that describe the brand based on their content (e.g., innovative, trustworthy, bold, approachable)"],
   "core_values": ["3-5 core values or principles the brand embodies - extract from their actual messaging"],
   "target_audience_description": "A brief description of who this brand serves - based on what they say about their customers",
+  "target_audience": {{
+    "job_titles": ["5-8 specific job titles this brand targets - infer from the content, products/services, and who would benefit (e.g., CEO, Marketing Director, Small Business Owner, HR Manager)"],
+    "industries": ["3-5 industries this brand serves - extract from mentions of sectors, verticals, or customer types (e.g., Technology, Healthcare, E-commerce, Finance)"],
+    "interests": ["5-8 professional interests of the target audience - based on topics, pain points, and solutions discussed (e.g., Digital Transformation, Business Growth, Productivity)"],
+    "pain_points": ["3-5 key challenges or pain points the target audience faces - extract from problems the brand claims to solve"]
+  }},
   "unique_selling_points": ["3-5 key differentiators or unique selling points - extract from their actual content"],
   "brand_tone": ["3-5 tone descriptors based on how they write (e.g., professional, friendly, authoritative, conversational)"],
   "key_messages": ["5-7 core messages the brand communicates - extract actual messages from the content, not generic ones"]
@@ -1328,10 +1652,24 @@ Return ONLY the JSON object, no markdown formatting or explanation."""
                             cleaned_result = "\n".join(lines[1:-1]) if len(lines) > 2 else cleaned_result
                         
                         brand_dna_analysis = json.loads(cleaned_result)
-                        print(f"[BRAND] ✅ Brand DNA analysis complete:")
-                        print(f"   - Brand Story: {brand_dna_analysis.get('brand_story', 'N/A')[:100]}...")
-                        print(f"   - Personality: {brand_dna_analysis.get('brand_personality', [])}")
-                        print(f"   - Core Values: {brand_dna_analysis.get('core_values', [])}")
+                        _safe_print(f"[BRAND] [SUCCESS] Brand DNA analysis complete:")
+                        try:
+                            story_preview = brand_dna_analysis.get('brand_story', 'N/A')
+                            if isinstance(story_preview, str):
+                                story_preview = story_preview[:100].encode('utf-8', errors='replace').decode('utf-8')
+                            _safe_print(f"   - Brand Story: {story_preview}...")
+                            _safe_print(f"   - Personality: {brand_dna_analysis.get('brand_personality', [])}")
+                            _safe_print(f"   - Core Values: {brand_dna_analysis.get('core_values', [])}")
+                            # Log target audience
+                            ta = brand_dna_analysis.get('target_audience', {})
+                            if isinstance(ta, dict):
+                                _safe_print(f"   - Target Audience:")
+                                _safe_print(f"     * Job Titles: {ta.get('job_titles', [])[:5]}")
+                                _safe_print(f"     * Industries: {ta.get('industries', [])[:5]}")
+                                _safe_print(f"     * Interests: {ta.get('interests', [])[:5]}")
+                                _safe_print(f"     * Pain Points: {ta.get('pain_points', [])[:3]}")
+                        except Exception:
+                            _safe_print(f"   - Brand DNA analysis completed successfully")
                         
                         # Enhance tone_keywords with AI-extracted tone
                         ai_tone = brand_dna_analysis.get('brand_tone', [])
@@ -1339,15 +1677,39 @@ Return ONLY the JSON object, no markdown formatting or explanation."""
                             tone_keywords = list(set(tone_keywords + ai_tone))[:6]
                             
                     except json.JSONDecodeError as e:
-                        print(f"[BRAND] ⚠️  Failed to parse AI analysis JSON: {e}")
-                        print(f"[BRAND] Raw response: {analysis_result[:500]}")
+                        _safe_print(f"[BRAND] [WARNING] Failed to parse AI analysis JSON: {e}")
+                        try:
+                            raw_preview = analysis_result[:500].encode('utf-8', errors='replace').decode('utf-8')
+                            _safe_print(f"[BRAND] Raw response: {raw_preview}")
+                        except:
+                            _safe_print(f"[BRAND] Raw response: [Contains Unicode characters]")
                 else:
-                    print(f"[BRAND] ⚠️  No API key available for brand DNA analysis - skipping AI analysis")
+                    _safe_print(f"[BRAND] [WARNING] No API key available for brand DNA analysis - skipping AI analysis")
             except Exception as e:
                 import traceback
-                print(f"[BRAND] ⚠️  Brand DNA analysis failed: {e}")
-                print(f"[BRAND] Traceback: {traceback.format_exc()}")
+                _safe_print(f"[BRAND] [WARNING] Brand DNA analysis failed: {e}")
+                try:
+                    traceback.print_exc()
+                except UnicodeEncodeError:
+                    _safe_print(f"[BRAND] [WARNING] Brand DNA analysis failed (traceback contains Unicode)")
 
+        # Extract target audience data with proper defaults
+        target_audience_data = {
+            "job_titles": [],
+            "industries": [],
+            "interests": [],
+            "pain_points": []
+        }
+        if brand_dna_analysis:
+            ta = brand_dna_analysis.get("target_audience", {})
+            if isinstance(ta, dict):
+                target_audience_data = {
+                    "job_titles": ta.get("job_titles", []) or [],
+                    "industries": ta.get("industries", []) or [],
+                    "interests": ta.get("interests", []) or [],
+                    "pain_points": ta.get("pain_points", []) or []
+                }
+        
         return BrandDiscoveryResponse(
             normalized_url=normalized_url,
             title=title,
@@ -1363,6 +1725,7 @@ Return ONLY the JSON object, no markdown formatting or explanation."""
             brand_personality=brand_dna_analysis.get("brand_personality", []) if brand_dna_analysis else [],
             core_values=brand_dna_analysis.get("core_values", []) if brand_dna_analysis else [],
             target_audience_description=brand_dna_analysis.get("target_audience_description") if brand_dna_analysis else None,
+            target_audience=target_audience_data,
             unique_selling_points=brand_dna_analysis.get("unique_selling_points", []) if brand_dna_analysis else [],
             key_messages=brand_dna_analysis.get("key_messages", []) if brand_dna_analysis else [],
         )
@@ -1376,28 +1739,72 @@ async def _generate_campaign_suggestions_from_dna(
     """Generate campaign suggestions from brand DNA using OpenAI"""
     import json
     
-    prompt = f"""Based on this brand analysis, generate {count} LinkedIn campaign suggestions.
+    # Build comprehensive target audience description
+    target_audience_info = ""
+    if isinstance(brand_analysis.target_audience, dict):
+        job_titles = brand_analysis.target_audience.get('job_titles', [])
+        industries = brand_analysis.target_audience.get('industries', [])
+        interests = brand_analysis.target_audience.get('interests', [])
+        pain_points = brand_analysis.target_audience.get('pain_points', [])
+        target_audience_info = f"""
+  - Job Titles: {', '.join(job_titles[:8]) if job_titles else 'Not specified'}
+  - Industries: {', '.join(industries[:5]) if industries else 'Not specified'}
+  - Interests: {', '.join(interests[:8]) if interests else 'Not specified'}
+  - Pain Points: {', '.join(pain_points[:5]) if pain_points else 'Not specified'}"""
+    elif brand_analysis.target_audience_description:
+        target_audience_info = f"\n  - Description: {brand_analysis.target_audience_description[:300]}"
+    
+    prompt = f"""You are a senior LinkedIn marketing strategist. Generate {count} highly strategic, unique LinkedIn campaign concepts based on this comprehensive brand DNA.
 
-BRAND ANALYSIS:
+=== COMPLETE BRAND DNA ===
+
+BRAND IDENTITY:
 - Brand Voice: {brand_analysis.brand_voice}
-- Brand Tone: {', '.join(brand_analysis.brand_tone[:5]) if brand_analysis.brand_tone else 'professional'}
-- Key Messages: {', '.join(brand_analysis.key_messages[:5]) if brand_analysis.key_messages else 'Brand messaging'}
-- Value Propositions: {', '.join(brand_analysis.value_propositions[:3]) if brand_analysis.value_propositions else 'Value proposition'}
-- Content Pillars: {', '.join(brand_analysis.content_pillars[:6]) if brand_analysis.content_pillars else 'Industry insights'}
-- Brand Story: {brand_analysis.brand_story[:200] if brand_analysis.brand_story else 'Premium brand'}
-- Target Audience: {brand_analysis.target_audience_description[:150] if brand_analysis.target_audience_description else 'Professional audience'}
-- Core Values: {', '.join(brand_analysis.core_values[:5]) if brand_analysis.core_values else 'Excellence'}
+- Brand Tone/Personality: {', '.join(brand_analysis.brand_tone[:8]) if brand_analysis.brand_tone else 'professional, authentic'}
+- Brand Personality Traits: {', '.join(brand_analysis.brand_personality[:8]) if brand_analysis.brand_personality else 'Not specified'}
+- Visual Identity: Colors: {', '.join(brand_analysis.brand_colors[:5]) if brand_analysis.brand_colors else 'N/A'}, Fonts: {', '.join(brand_analysis.brand_fonts[:3]) if brand_analysis.brand_fonts else 'N/A'}
 
-Generate {count} campaign suggestions, each with:
-- name: A compelling campaign name (2-5 words)
-- description: 2-3 sentence description of what the campaign will achieve
-- focus: Primary focus area (e.g., "Thought Leadership", "Product Education", "Community Building")
+BRAND STORY & VALUES:
+- Brand Story/Mission: {brand_analysis.brand_story[:400] if brand_analysis.brand_story else 'A brand committed to excellence and value creation'}
+- Core Values: {', '.join(brand_analysis.core_values[:8]) if brand_analysis.core_values else 'Excellence, Innovation, Integrity'}
+- Unique Selling Points: {', '.join(brand_analysis.unique_selling_points[:5]) if brand_analysis.unique_selling_points else 'Premium quality, Expert service'}
+
+MESSAGING & VALUE:
+- Key Messages: {', '.join(brand_analysis.key_messages[:8]) if brand_analysis.key_messages else 'Quality, Trust, Results'}
+- Value Propositions: {', '.join(brand_analysis.value_propositions[:5]) if brand_analysis.value_propositions else 'Superior solutions'}
+
+TARGET AUDIENCE:{target_audience_info}
+
+CONTENT STRATEGY:
+- Content Pillars: {', '.join(brand_analysis.content_pillars[:8]) if brand_analysis.content_pillars else 'Industry insights, Thought leadership'}
+- Expert Segments to Target: {', '.join(brand_analysis.expert_segments[:5]) if brand_analysis.expert_segments else 'Industry leaders'}
+- Posting Themes: {', '.join(brand_analysis.posting_themes[:5]) if brand_analysis.posting_themes else 'Insights, Tips, Stories'}
+
+=== CAMPAIGN GENERATION REQUIREMENTS ===
+
+Generate {count} UNIQUE campaign concepts that:
+1. Directly leverage the brand story and unique selling points
+2. Address specific pain points of the target audience
+3. Align with brand personality and voice
+4. Support content pillars with fresh angles
+5. Have clear, measurable objectives
+6. Feel authentic to this specific brand (not generic)
+
+Each campaign must be DISTINCT in approach:
+- Campaign 1: Focus on THOUGHT LEADERSHIP - establish authority in the industry
+- Campaign 2: Focus on COMMUNITY ENGAGEMENT - build relationships and conversations
+- Campaign 3: Focus on VALUE DELIVERY - educate and help the audience succeed
+
+For each campaign provide:
+- name: A compelling, memorable campaign name (2-5 words) that reflects brand personality
+- description: 2-3 sentence description explaining the strategy, expected outcomes, and how it leverages brand DNA
+- focus: Primary focus area with specific angle (e.g., "Thought Leadership - Industry Innovation", "Community Building - Expert Network")
 
 Return ONLY valid JSON array:
 [
-  {{"name": "Campaign Name 1", "description": "Description 1", "focus": "Focus 1"}},
-  {{"name": "Campaign Name 2", "description": "Description 2", "focus": "Focus 2"}},
-  ...
+  {{"name": "Campaign Name 1", "description": "Strategic description 1", "focus": "Focus Area 1"}},
+  {{"name": "Campaign Name 2", "description": "Strategic description 2", "focus": "Focus Area 2"}},
+  {{"name": "Campaign Name 3", "description": "Strategic description 3", "focus": "Focus Area 3"}}
 ]
 
 NO markdown, ONLY the JSON array."""
@@ -1429,12 +1836,12 @@ NO markdown, ONLY the JSON array."""
                 )
             )
         
-        print(f"[BRAND] Generated {len(suggestions)} campaign suggestions from brand DNA")
+        _safe_print(f"[BRAND] Generated {len(suggestions)} campaign suggestions from brand DNA")
         return suggestions
         
     except Exception as e:
         import traceback
-        print(f"[BRAND] Failed to generate campaign suggestions from DNA: {e}")
+        _safe_print(f"[BRAND] Failed to generate campaign suggestions from DNA: {e}")
         traceback.print_exc()
         # Fallback to generic suggestions based on content pillars
         suggestions = []
@@ -1450,10 +1857,18 @@ NO markdown, ONLY the JSON array."""
         return suggestions
 
 
-async def _prepare_generator(org_id: Optional[str] = None, user_id: Optional[str] = None) -> tuple[Optional[CampaignGenerator], Optional[str]]:
+async def _prepare_generator(org_id: Optional[str] = None, user_id: Optional[str] = None, prefer_provider: Optional[str] = None) -> tuple[Optional[CampaignGenerator], Optional[str]]:
     """
     Prepare CampaignGenerator with API keys.
     ALWAYS uses system API keys from admin dashboard - users never enter API keys.
+    
+    Args:
+        org_id: Organization ID (optional)
+        user_id: User ID (optional)
+        prefer_provider: Preferred provider to try first ("openai", "google_ai", or None for default)
+    
+    Returns:
+        Tuple of (CampaignGenerator, user_id) or (None, error_message)
     """
     db = get_db()
     
@@ -1466,8 +1881,11 @@ async def _prepare_generator(org_id: Optional[str] = None, user_id: Optional[str
     # ALWAYS use system API keys from admin dashboard - users never enter API keys
     from ..routes.drafts import get_system_api_key
     
+    # Determine provider priority
+    key_type = prefer_provider or "any"
+    
     # Try to get any available system API key
-    api_key, provider = await get_system_api_key("any")
+    api_key, provider = await get_system_api_key(key_type)
     
     if not api_key:
         # Get user_id for error message if available
@@ -1488,14 +1906,221 @@ async def _prepare_generator(org_id: Optional[str] = None, user_id: Optional[str
     return CampaignGenerator(api_key=api_key, provider=provider), user_id
 
 
+async def _generate_single_campaign(
+    generator: CampaignGenerator,
+    brand_analysis: BrandAnalysis,
+    org_id: Optional[str],
+    user_id: Optional[str],
+    suggestion: CampaignSuggestion,
+    idx: int,
+    total: int
+) -> tuple[Optional[CampaignPreview], Optional[str]]:
+    """
+    Generate a single campaign with error handling.
+    Returns: (CampaignPreview or None, error_message or None)
+    """
+    from ..routes.drafts import get_system_api_key
+    
+    try:
+        _safe_print(f"[BRAND] Generating campaign {idx}/{total}: {suggestion.name}")
+        campaign: Campaign = await generator.generate_campaign_from_analysis(
+            org_id=brand_analysis.org_id,
+            created_by=user_id or "onboarding_temp",
+            brand_analysis=brand_analysis,
+            campaign_name=suggestion.name,
+            focus_area=suggestion.focus,
+            duration_weeks=12,
+        )
+
+        post_ideas = await generator.generate_post_ideas(
+            campaign=campaign,
+            brand_analysis=brand_analysis,
+            count=3,
+        )
+
+        campaign_preview = CampaignPreview(
+            id=campaign.id,
+            name=campaign.name,
+            description=suggestion.description or campaign.description,
+            focus=suggestion.focus,
+            content_pillars=campaign.content_pillars,
+            target_audience=campaign.target_audience.model_dump() if hasattr(campaign.target_audience, 'model_dump') else (campaign.target_audience if isinstance(campaign.target_audience, dict) else {}),
+            tone_voice=campaign.tone_voice.value
+            if hasattr(campaign.tone_voice, "value")
+            else str(campaign.tone_voice),
+            posting_schedule=campaign.posting_schedule.model_dump(),
+            sample_posts=post_ideas[:3],
+        )
+        _safe_print(f"[BRAND] Successfully generated campaign {idx}: {campaign.name}")
+        return campaign_preview, None
+        
+    except Exception as error:
+        error_str = str(error)
+        error_msg = f"Campaign {idx} ({suggestion.name}): {error_str[:200]}"
+        _safe_print(f"[BRAND] Campaign preview generation failed: {error_msg}")
+        
+        # Check if this is a quota/rate limit error - try alternate provider
+        if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
+            _safe_print(f"[BRAND] Detected quota/rate limit error. Trying alternate provider...")
+            
+            # Determine alternate provider
+            current_provider = generator.llm.provider if hasattr(generator.llm, 'provider') else "openai"
+            alternate = "google_ai_studio" if current_provider == "openai" else "openai"
+            
+            try:
+                alt_key, alt_provider = await get_system_api_key(alternate)
+                if alt_key:
+                    _safe_print(f"[BRAND] Switching to {alt_provider} provider")
+                    alt_generator = CampaignGenerator(api_key=alt_key, provider=alt_provider)
+                    
+                    # Retry this campaign with new provider
+                    campaign = await alt_generator.generate_campaign_from_analysis(
+                        org_id=brand_analysis.org_id,
+                        created_by=user_id or "onboarding_temp",
+                        brand_analysis=brand_analysis,
+                        campaign_name=suggestion.name,
+                        focus_area=suggestion.focus,
+                        duration_weeks=12,
+                    )
+                    
+                    post_ideas = await alt_generator.generate_post_ideas(
+                        campaign=campaign,
+                        brand_analysis=brand_analysis,
+                        count=3,
+                    )
+                    
+                    campaign_preview = CampaignPreview(
+                        id=campaign.id,
+                        name=campaign.name,
+                        description=suggestion.description or campaign.description,
+                        focus=suggestion.focus,
+                        content_pillars=campaign.content_pillars,
+                        target_audience=campaign.target_audience.model_dump() if hasattr(campaign.target_audience, 'model_dump') else (campaign.target_audience if isinstance(campaign.target_audience, dict) else {}),
+                        tone_voice=campaign.tone_voice.value
+                        if hasattr(campaign.tone_voice, "value")
+                        else str(campaign.tone_voice),
+                        posting_schedule=campaign.posting_schedule.model_dump(),
+                        sample_posts=post_ideas[:3],
+                    )
+                    _safe_print(f"[BRAND] Successfully generated campaign {idx} with {alt_provider}: {campaign.name}")
+                    return campaign_preview, None
+            except Exception as retry_error:
+                _safe_print(f"[BRAND] Alternate provider also failed: {str(retry_error)[:100]}")
+        
+        return None, error_msg
+
+
+async def _try_generate_with_fallback(
+    generator: CampaignGenerator,
+    brand_analysis: BrandAnalysis,
+    org_id: Optional[str],
+    user_id: Optional[str],
+    suggestions: List[CampaignSuggestion],
+    count: int
+) -> tuple[List[CampaignPreview], List[str]]:
+    """
+    Try to generate campaigns with the given generator in parallel.
+    If it fails with quota/rate limit errors, try alternate provider.
+    
+    Returns:
+        Tuple of (campaigns_list, errors_list)
+    """
+    campaigns = []
+    errors = []
+    
+    # Generate all campaigns in parallel for better performance
+    _safe_print(f"[BRAND] Generating {count} campaigns in parallel...")
+    
+    tasks = [
+        _generate_single_campaign(
+            generator=generator,
+            brand_analysis=brand_analysis,
+            org_id=org_id,
+            user_id=user_id,
+            suggestion=suggestion,
+            idx=idx + 1,
+            total=count
+        )
+        for idx, suggestion in enumerate(suggestions[:count])
+    ]
+    
+    # Wait for all campaigns to complete
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Process results
+    for result in results:
+        if isinstance(result, Exception):
+            errors.append(f"Campaign generation exception: {str(result)[:200]}")
+        elif isinstance(result, tuple):
+            campaign_preview, error_msg = result
+            if campaign_preview:
+                campaigns.append(campaign_preview)
+            elif error_msg:
+                errors.append(error_msg)
+    
+    _safe_print(f"[BRAND] Completed: {len(campaigns)} campaigns generated, {len(errors)} errors")
+    
+    return campaigns, errors
+
+
 @router.post("/discover", response_model=BrandDiscoveryResponse)
 async def discover_brand(request: BrandDiscoveryRequest):
+    """Brand discovery endpoint with comprehensive error handling"""
     try:
         return await _extract_brand_attributes(request.url, org_id=request.org_id)
-    except HTTPException:
+    except HTTPException as e:
+        # Re-raise HTTPExceptions as-is, but ensure detail is safely encoded
+        if e.detail:
+            try:
+                # Try to encode the detail to ensure it's safe
+                safe_detail = str(e.detail).encode('utf-8', errors='replace').decode('utf-8')
+                if safe_detail != e.detail:
+                    raise HTTPException(status_code=e.status_code, detail=safe_detail)
+            except:
+                # If encoding fails, use a generic message
+                raise HTTPException(status_code=e.status_code, detail="Request failed. Please try again.")
         raise
+    except UnicodeEncodeError as error:
+        # Handle encoding errors specifically - DON'T use traceback, it causes encoding errors
+        _safe_print(f"[BRAND] Encoding error occurred during brand discovery")
+        # Return JSONResponse directly to avoid any further encoding issues
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=500, 
+            content={"detail": "Character encoding error while processing website content. Please try again."}
+        )
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error)) from error
+        # Import JSONResponse here to avoid circular imports
+        from fastapi.responses import JSONResponse
+        
+        # Get error type name safely (this should never fail)
+        error_type = "Unknown"
+        try:
+            error_type = type(error).__name__
+        except:
+            pass
+        
+        # Safely get error message - completely avoid encoding issues
+        error_msg = f"Error type: {error_type}"
+        try:
+            # Try to get error string
+            error_str = str(error)
+            # Try to encode it safely
+            safe_str = error_str.encode('ascii', errors='replace').decode('ascii')
+            if safe_str and len(safe_str) > 0:
+                error_msg = safe_str[:200]
+        except:
+            pass
+        
+        # Safely print error message
+        _safe_print(f"[BRAND] Discovery error: {error_msg}")
+        
+        # Return JSONResponse directly - this bypasses all HTTPException handling
+        # and avoids any potential encoding issues in the exception handling chain
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Brand discovery error: {error_msg}"},
+        )
 
 
 @router.post("/campaign-previews", response_model=CampaignPreviewResponse)
@@ -1510,7 +2135,7 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
         analysis_doc = await db.brand_analysis.find_one({"org_id": org_id}, {"_id": 0})
         # If org_id exists but no analysis found, and brand_context is provided, use it
         if not analysis_doc and request.brand_context:
-            print(f"[CAMPAIGN-PREVIEWS] No analysis found for org_id={org_id}, using provided brand_context")
+            _safe_print(f"[CAMPAIGN-PREVIEWS] No analysis found for org_id={org_id}, using provided brand_context")
             if hasattr(request.brand_context, 'model_dump'):
                 analysis_doc = request.brand_context.model_dump(exclude_none=True)
             elif isinstance(request.brand_context, dict):
@@ -1521,7 +2146,7 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
     else:
         # No org_id (onboarding flow) - use brand_context if provided
         if request.brand_context:
-            print(f"[CAMPAIGN-PREVIEWS] Using brand_context for onboarding (no org_id)")
+            _safe_print(f"[CAMPAIGN-PREVIEWS] Using brand_context for onboarding (no org_id)")
             # Handle both Pydantic model and dict (from frontend)
             if hasattr(request.brand_context, 'model_dump'):
                 analysis_doc = request.brand_context.model_dump(exclude_none=True)
@@ -1531,14 +2156,14 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
                 # Fallback: try to convert to dict
                 analysis_doc = dict(request.brand_context) if request.brand_context else {}
             analysis_doc["org_id"] = "onboarding_temp"
-            print(f"[CAMPAIGN-PREVIEWS] Brand context keys: {list(analysis_doc.keys())}")
-            print(f"[CAMPAIGN-PREVIEWS] Brand voice: {analysis_doc.get('brand_voice')}")
-            print(f"[CAMPAIGN-PREVIEWS] Content pillars: {analysis_doc.get('content_pillars')}")
-            print(f"[CAMPAIGN-PREVIEWS] Key messages count: {len(analysis_doc.get('key_messages', []))}")
+            _safe_print(f"[CAMPAIGN-PREVIEWS] Brand context keys: {list(analysis_doc.keys())}")
+            _safe_print(f"[CAMPAIGN-PREVIEWS] Brand voice: {analysis_doc.get('brand_voice')}")
+            _safe_print(f"[CAMPAIGN-PREVIEWS] Content pillars: {analysis_doc.get('content_pillars')}")
+            _safe_print(f"[CAMPAIGN-PREVIEWS] Key messages count: {len(analysis_doc.get('key_messages', []))}")
         else:
             # Be resilient: if frontend resumes mid-onboarding and loses analysisData,
             # still generate previews from suggestions/defaults rather than failing 422.
-            print(f"[CAMPAIGN-PREVIEWS] WARNING: No brand_context provided, using defaults")
+            _safe_print(f"[CAMPAIGN-PREVIEWS] WARNING: No brand_context provided, using defaults")
             analysis_doc = {
                 "org_id": "onboarding_temp",
                 "brand_voice": "professional",
@@ -1584,17 +2209,17 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
                 # If material was updated after analysis, we need to re-analyze
                 if material_updated > analysis_updated_at:
                     needs_reanalysis = True
-                    print(f"[CAMPAIGN-PREVIEWS] Materials updated after analysis. Material: {material_updated}, Analysis: {analysis_updated_at}")
+                    _safe_print(f"[CAMPAIGN-PREVIEWS] Materials updated after analysis. Material: {material_updated}, Analysis: {analysis_updated_at}")
         
         # Also check if new materials were added (by comparing counts)
         material_count = await db.organization_materials.count_documents({"org_id": org_id})
         analyzed_material_ids = analysis_doc.get('materials_analyzed', [])
         if material_count > len(analyzed_material_ids):
             needs_reanalysis = True
-            print(f"[CAMPAIGN-PREVIEWS] New materials added. Current: {material_count}, Analyzed: {len(analyzed_material_ids)}")
+            _safe_print(f"[CAMPAIGN-PREVIEWS] New materials added. Current: {material_count}, Analyzed: {len(analyzed_material_ids)}")
         
         if needs_reanalysis:
-            print(f"[CAMPAIGN-PREVIEWS] Brand analysis is stale. Triggering re-analysis...")
+            _safe_print(f"[CAMPAIGN-PREVIEWS] Brand analysis is stale. Triggering re-analysis...")
             # Trigger re-analysis by calling the analyze function directly
             try:
                 from .organization_materials import analyze_materials
@@ -1608,12 +2233,12 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
                     raise HTTPException(
                         status_code=500, detail="Failed to regenerate brand analysis"
                     )
-                print(f"[CAMPAIGN-PREVIEWS] Brand analysis regenerated successfully")
+                _safe_print(f"[CAMPAIGN-PREVIEWS] Brand analysis regenerated successfully")
             except Exception as e:
-                print(f"[CAMPAIGN-PREVIEWS] Warning: Failed to re-analyze materials: {e}")
+                _safe_print(f"[CAMPAIGN-PREVIEWS] Warning: Failed to re-analyze materials: {e}")
                 import traceback
                 traceback.print_exc()
-                print(f"[CAMPAIGN-PREVIEWS] Using existing analysis (may be stale)")
+                _safe_print(f"[CAMPAIGN-PREVIEWS] Using existing analysis (may be stale)")
     
     if not analysis_doc:
         raise HTTPException(
@@ -1647,7 +2272,7 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
         
         # If still no suggestions, generate them from brand DNA using OpenAI
         if not suggestions and generator:
-            print(f"[BRAND] No campaign suggestions found, generating from brand DNA...")
+            _safe_print(f"[BRAND] No campaign suggestions found, generating from brand DNA...")
             try:
                 generated_suggestions = await _generate_campaign_suggestions_from_dna(
                     generator=generator,
@@ -1657,7 +2282,7 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
                 suggestions.extend(generated_suggestions)
             except Exception as e:
                 import traceback
-                print(f"[BRAND] Failed to generate suggestions from DNA: {e}")
+                _safe_print(f"[BRAND] Failed to generate suggestions from DNA: {e}")
                 traceback.print_exc()
                 # Continue with empty suggestions - will use fallback if needed
 
@@ -1690,54 +2315,21 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
                 )
                 suggestions.extend(generated_suggestions[:additional_needed])
             except Exception as e:
-                print(f"[BRAND] Failed to generate additional suggestions: {e}")
+                _safe_print(f"[BRAND] Failed to generate additional suggestions: {e}")
     
-    for idx, suggestion in enumerate(suggestions[: request.count], 1):
-        try:
-            print(f"[BRAND] Generating campaign {idx}/{request.count}: {suggestion.name}")
-            campaign: Campaign = await generator.generate_campaign_from_analysis(
-                org_id=brand_analysis.org_id,
-                created_by=user_id or "onboarding_temp",
-                brand_analysis=brand_analysis,
-                campaign_name=suggestion.name,
-                focus_area=suggestion.focus,
-                duration_weeks=12,
-            )
-
-            post_ideas = await generator.generate_post_ideas(
-                campaign=campaign,
-                brand_analysis=brand_analysis,
-                count=3,
-            )
-
-            campaigns.append(
-                CampaignPreview(
-                    id=campaign.id,
-                    name=campaign.name,
-                    description=suggestion.description or campaign.description,
-                    focus=suggestion.focus,
-                    content_pillars=campaign.content_pillars,
-                    target_audience=campaign.target_audience.model_dump() if hasattr(campaign.target_audience, 'model_dump') else (campaign.target_audience if isinstance(campaign.target_audience, dict) else {}),
-                    tone_voice=campaign.tone_voice.value
-                    if hasattr(campaign.tone_voice, "value")
-                    else str(campaign.tone_voice),
-                    posting_schedule=campaign.posting_schedule.model_dump(),
-                    sample_posts=post_ideas[:3],
-                )
-            )
-            print(f"[BRAND] Successfully generated campaign {idx}: {campaign.name}")
-        except Exception as error:
-            import traceback
-            error_trace = traceback.format_exc()
-            error_msg = f"Campaign {idx} ({suggestion.name}): {str(error)}"
-            print(f"[BRAND] Campaign preview generation failed for {error_msg}")
-            print(f"[BRAND] Full traceback:\n{error_trace}")
-            errors.append(error_msg)
-            # Continue to next campaign instead of stopping
+    # Generate campaigns with fallback to alternate provider if quota/rate limit errors occur
+    campaigns, errors = await _try_generate_with_fallback(
+        generator=generator,
+        brand_analysis=brand_analysis,
+        org_id=org_id,
+        user_id=user_id,
+        suggestions=suggestions[:request.count],
+        count=request.count
+    )
 
     if not campaigns:
         # Never hard-fail onboarding on transient LLM issues. Return deterministic previews.
-        print(f"[BRAND] WARNING: Campaign preview generation failed; returning fallback. Errors: {'; '.join(errors) if errors else 'None'}")
+        _safe_print(f"[BRAND] WARNING: Campaign preview generation failed; returning fallback. Errors: {'; '.join(errors) if errors else 'None'}")
         return _fallback_campaign_previews(
             brand_analysis=brand_analysis,
             suggestions=suggestions,
@@ -1745,7 +2337,7 @@ async def generate_campaign_previews(request: CampaignPreviewRequest):
         )
     
     if len(campaigns) < request.count:
-        print(f"[BRAND] WARNING: Only generated {len(campaigns)}/{request.count} campaigns. Errors: {'; '.join(errors) if errors else 'None'}")
+        _safe_print(f"[BRAND] WARNING: Only generated {len(campaigns)}/{request.count} campaigns. Errors: {'; '.join(errors) if errors else 'None'}")
 
     return CampaignPreviewResponse(campaigns=campaigns)
 
@@ -1820,8 +2412,15 @@ async def generate_post_with_campaign_generator(request: GeneratePostRequest):
             "target_audience": request.brand_context.get("target_audience", {}),
             "brand_story": request.brand_context.get("brand_story", ""),
             "brand_personality": request.brand_context.get("brand_personality", []),
-            "core_values": request.brand_context.get("core_values", [])
+            "core_values": request.brand_context.get("core_values", []),
+            "brand_tone": request.brand_context.get("brand_personality", []) or request.brand_context.get("brand_tone", [])
         }
+        
+        # Store topic from brand_context for use in post generation
+        topic_from_context = request.brand_context.get("topic") or request.brand_context.get("enriched_topic")
+        if topic_from_context:
+            # Add topic to brand_analysis_doc as metadata
+            brand_analysis_doc["_topic"] = topic_from_context
     
     if not brand_analysis_doc:
         raise HTTPException(status_code=404, detail="Brand analysis not found. Please complete brand discovery first.")
@@ -1837,22 +2436,30 @@ async def generate_post_with_campaign_generator(request: GeneratePostRequest):
     if not generator:
         raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {error}. Please configure API keys in Settings.")
     
+    # Extract topic from brand_context if provided (for onboarding)
+    topic = None
+    if request.brand_context:
+        topic = request.brand_context.get("topic") or request.brand_context.get("enriched_topic")
+        if isinstance(topic, str) and len(topic) > 0:
+            # Extract just the topic part if it's enriched (remove brand context part)
+            if "\n\nBrand Context:" in topic:
+                topic = topic.split("\n\nBrand Context:")[0].strip()
+    
     # Generate post with excluded types to avoid consecutive same style
     excluded_types = request.excluded_types or []
     post_ideas = await generator.generate_post_ideas(
         campaign=campaign,
         brand_analysis=brand_analysis,
         count=1,
-        excluded_types=excluded_types
+        excluded_types=excluded_types,
+        topic=topic
     )
     
     if not post_ideas or len(post_ideas) == 0:
         raise HTTPException(status_code=500, detail="Failed to generate post")
     
-    # Determine post type used
-    import hashlib
-    from datetime import datetime
-    day_of_year = datetime.utcnow().timetuple().tm_yday
+    # Determine post type used - use proper rotation based on excluded_types
+    # This ensures each post in a batch gets a different type
     post_types = [
         "How to/The Secret to",
         "The Rant",
@@ -1864,8 +2471,20 @@ async def generate_post_with_campaign_generator(request: GeneratePostRequest):
     if not available_types:
         available_types = post_types
     
-    post_type_index = day_of_year % len(available_types)
-    selected_type = available_types[post_type_index]
+    # Use index-based rotation: if excluded_types has N items, pick the Nth type from available
+    # This ensures each call with different excluded_types gets a different type
+    # Example: 
+    # - excluded_types=[] -> rotation_index=0 -> first type
+    # - excluded_types=["How to"] -> rotation_index=1 -> second type from available
+    # - excluded_types=["How to", "Rant"] -> rotation_index=2 -> third type from available
+    rotation_index = len(excluded_types) % len(available_types)
+    selected_type = available_types[rotation_index]
+    
+    print(f"[POST GENERATION] Template rotation:")
+    print(f"   Excluded types: {excluded_types}")
+    print(f"   Available types ({len(available_types)}): {available_types}")
+    print(f"   Rotation index: {rotation_index}")
+    print(f"   Selected type: '{selected_type}'")
     
     return {
         "content": post_ideas[0],
